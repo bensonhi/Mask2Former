@@ -2,9 +2,9 @@
 # Based on Swin-Base config with modifications for single-class dataset
 # 
 # SMALL DATASET ADJUSTMENTS (23 images total):
-# - Training: 460 iterations = ~20 epochs (to prevent overfitting)
-# - Using training data for validation (no separate test set)
-# - Evaluation every 4 epochs to monitor progress
+# - Training: 800 iterations = ~100 epochs (batch size 3)
+# - Using training data for validation (no separate test set)  
+# - Evaluation every ~12 epochs to monitor progress
 
 _BASE_: configs/coco/instance-segmentation/swin/maskformer2_swin_base_384_bs16_50ep.yaml
 
@@ -27,12 +27,12 @@ DATASETS:
 
 # Solver configuration for finetuning
 SOLVER:
-  IMS_PER_BATCH: 1  # Reduced batch size for single GPU training
+  IMS_PER_BATCH: 3  # Reduced batch size for single GPU training
   BASE_LR: 0.00005  # Lower learning rate for finetuning (half of original)
-  MAX_ITER: 460     # ~20 epochs (20 * 23 images = 460 iterations)
-  STEPS: (276, 414) # LR drops at epoch 12 and 18
+  MAX_ITER: 800       # ~100 epochs (800 ÷ 8 iterations per epoch = 100 epochs)
+  STEPS: (480, 720)   # LR drops at 60% and 90% of training
   WARMUP_FACTOR: 1.0
-  WARMUP_ITERS: 46  # 2 epochs for warmup (2 * 23 = 46)
+  WARMUP_ITERS: 16  # 2 epochs for warmup (2 * 8 iterations = 16)
   WEIGHT_DECAY: 0.05
   OPTIMIZER: "ADAMW"
   BACKBONE_MULTIPLIER: 0.1  # Keep backbone learning rate lower
@@ -66,7 +66,7 @@ INPUT:
 
 # Evaluation configuration
 TEST:
-  EVAL_PERIOD: 92   # Evaluate every 4 epochs (4 * 23 = 92 iterations)
+  EVAL_PERIOD: 100   # Evaluate every ~12 epochs (100 ÷ 8 iterations per epoch)
 
 # Data loader configuration
 DATALOADER:
