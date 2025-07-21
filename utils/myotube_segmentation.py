@@ -126,7 +126,7 @@ class MyotubeSegmenter:
         denoised = filters.gaussian(image, sigma=1.0)
         
         # Histogram matching to reference image
-        reference_image_path = "../C4-MAX_20250306_T34_48hp.lif - Region 4_Merged.lif - Region 4_Merged.png"
+        reference_image_path = "./C4-MAX_20250306_T34_48hp.lif - Region 4_Merged.lif - Region 4_Merged.png"
         try:
             if os.path.exists(reference_image_path):
                 print(f"Applying histogram matching to reference: {reference_image_path}")
