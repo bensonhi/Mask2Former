@@ -1004,7 +1004,7 @@ class MyotubeSegmenter:
                         show_merge_preview: bool = False, 
                         target_size: int = 2000,
                         opening_kernel_size: int = 2,
-                        min_size_threshold: int = 4000) -> Dict:
+                        min_size_threshold: int = 1000) -> Dict:
         """
         Run the complete segmentation pipeline with comprehensive error handling.
 
