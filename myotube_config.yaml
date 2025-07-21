@@ -1,0 +1,61 @@
+# Custom config for myotube dataset finetuning
+# Based on Swin-Base config with modifications for single-class dataset
+
+_BASE_: configs/coco/instance-segmentation/swin/maskformer2_swin_base_384_bs16_50ep.yaml
+
+# Model configuration
+MODEL:
+  # Use your pre-trained model instead of default weights
+  WEIGHTS: "model_final_54b88a.pkl"
+  
+  SEM_SEG_HEAD:
+    # Change number of classes from 80 (COCO) to 1 (myotube)
+    NUM_CLASSES: 1
+  
+  # Keep the Swin transformer backbone settings from the base config
+
+# Dataset configuration 
+DATASETS:
+  TRAIN: ("myotube_train",)
+  TEST: ("myotube_val",)
+
+# Solver configuration for finetuning
+SOLVER:
+  IMS_PER_BATCH: 8  # Reduced batch size for single GPU training
+  BASE_LR: 0.00005  # Lower learning rate for finetuning (half of original)
+  MAX_ITER: 5000    # Fewer iterations for small dataset
+  STEPS: (3000, 4500)  # Adjust LR schedule
+  WARMUP_FACTOR: 1.0
+  WARMUP_ITERS: 500
+  WEIGHT_DECAY: 0.05
+  OPTIMIZER: "ADAMW"
+  BACKBONE_MULTIPLIER: 0.1  # Keep backbone learning rate lower
+  CLIP_GRADIENTS:
+    ENABLED: True
+    CLIP_TYPE: "full_model"
+    CLIP_VALUE: 0.01
+    NORM_TYPE: 2.0
+  AMP:
+    ENABLED: True
+
+# Input configuration
+INPUT:
+  IMAGE_SIZE: 1024
+  MIN_SCALE: 0.1
+  MAX_SCALE: 2.0
+  FORMAT: "RGB"
+  DATASET_MAPPER_NAME: "coco_instance_lsj"
+
+# Evaluation configuration
+TEST:
+  EVAL_PERIOD: 500  # Evaluate more frequently for small dataset
+
+# Data loader configuration
+DATALOADER:
+  FILTER_EMPTY_ANNOTATIONS: True
+  NUM_WORKERS: 2  # Reduced for single GPU
+
+# Output directory
+OUTPUT_DIR: "./output_myotube"
+
+VERSION: 2 
