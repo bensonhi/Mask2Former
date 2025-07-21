@@ -1084,7 +1084,7 @@ def main():
         results = segmenter.run_segmentation(
             show_merge_preview=False,
             target_size=2000,
-            min_size_threshold=4000  # Only keep myotubes with at least 500 pixels
+            min_size_threshold=1000  # Only keep myotubes with at least 500 pixels
         )
         
         # Create visualization and save results
