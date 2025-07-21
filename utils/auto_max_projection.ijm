@@ -1,5 +1,5 @@
 // Fiji macro to recursively process .tif/.tiff files
-// Keeps Channel 4 (e.g., DAPI), performs Max Z Projection, and saves result in output folder preserving subfolder structure
+// Keeps the last channel (e.g., DAPI), performs Max Z Projection, and saves result in output folder preserving subfolder structure
 
 inputDir = getDirectory("Choose Input Folder");
 outputDir = getDirectory("Choose Output Folder");
@@ -42,17 +42,22 @@ function processImage(path, rootInputDir, rootOutputDir) {
     // Get the title (name) and full path of the current image
     origTitle = getTitle();
 
-    // Split channels and keep only Channel 4
+    // Get number of channels and split channels
+    Stack.getDimensions(width, height, channels, slices, frames);
+    print("Image has " + channels + " channels, using channel " + channels + " (last channel)");
     run("Split Channels");
-    selectWindow("C4-" + origTitle);
+    
+    // Select the last channel
+    lastChannel = channels;
+    selectWindow("C" + lastChannel + "-" + origTitle);
     
     // Perform Max Intensity Z Projection
     run("Z Project...", "projection=[Max Intensity]");
     projTitle = "MAX_" + origTitle;
 
     // Close the original split channel and the rest
-    close("C4-" + origTitle);
-    for (j = 1; j <= 3; j++) {
+    close("C" + lastChannel + "-" + origTitle);
+    for (j = 1; j < lastChannel; j++) {
         chName = "C" + j + "-" + origTitle;
         if (isOpen(chName)) close(chName);
     }
