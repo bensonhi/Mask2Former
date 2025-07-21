@@ -1,5 +1,10 @@
 # Custom config for myotube dataset finetuning
 # Based on Swin-Base config with modifications for single-class dataset
+# 
+# SMALL DATASET ADJUSTMENTS (23 images total):
+# - Training: 460 iterations = ~20 epochs (to prevent overfitting)
+# - Using training data for validation (no separate test set)
+# - Evaluation every 4 epochs to monitor progress
 
 _BASE_: configs/coco/instance-segmentation/swin/maskformer2_swin_base_384_bs16_50ep.yaml
 
@@ -17,16 +22,17 @@ MODEL:
 # Dataset configuration 
 DATASETS:
   TRAIN: ("myotube_train",)
-  TEST: ("myotube_val",)
+  # No separate test set - using training data for validation
+  TEST: ("myotube_train",)
 
 # Solver configuration for finetuning
 SOLVER:
   IMS_PER_BATCH: 1  # Reduced batch size for single GPU training
   BASE_LR: 0.00005  # Lower learning rate for finetuning (half of original)
-  MAX_ITER: 5000    # Fewer iterations for small dataset
-  STEPS: (3000, 4500)  # Adjust LR schedule
+  MAX_ITER: 460     # ~20 epochs (20 * 23 images = 460 iterations)
+  STEPS: (276, 414) # LR drops at epoch 12 and 18
   WARMUP_FACTOR: 1.0
-  WARMUP_ITERS: 500
+  WARMUP_ITERS: 46  # 2 epochs for warmup (2 * 23 = 46)
   WEIGHT_DECAY: 0.05
   OPTIMIZER: "ADAMW"
   BACKBONE_MULTIPLIER: 0.1  # Keep backbone learning rate lower
@@ -48,7 +54,7 @@ INPUT:
 
 # Evaluation configuration
 TEST:
-  EVAL_PERIOD: 500  # Evaluate more frequently for small dataset
+  EVAL_PERIOD: 92   # Evaluate every 4 epochs (4 * 23 = 92 iterations)
 
 # Data loader configuration
 DATALOADER:
