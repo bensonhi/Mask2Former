@@ -44,13 +44,25 @@ SOLVER:
   AMP:
     ENABLED: True
 
-# Input configuration
+# Input configuration with enhanced augmentations
 INPUT:
   IMAGE_SIZE: 1024
-  MIN_SCALE: 0.1
-  MAX_SCALE: 2.0
+  MIN_SCALE: 0.5      # More conservative scaling for biological images
+  MAX_SCALE: 1.5      # Avoid extreme scaling that might distort cell shapes
   FORMAT: "RGB"
   DATASET_MAPPER_NAME: "coco_instance_lsj"
+  
+  # Additional augmentations
+  CROP:
+    ENABLED: True
+    TYPE: "relative_range"
+    SIZE: [0.8, 1.0]    # Random crop between 80-100% of image
+  
+  # Color augmentations (good for microscopy images)
+  COLOR_AUG_SSD: True
+  
+  # Horizontal flip (since myotubes can be oriented any way)
+  RANDOM_FLIP: "horizontal"
 
 # Evaluation configuration
 TEST:
