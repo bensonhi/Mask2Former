@@ -21,7 +21,7 @@ DATASETS:
 
 # Solver configuration for finetuning
 SOLVER:
-  IMS_PER_BATCH: 8  # Reduced batch size for single GPU training
+  IMS_PER_BATCH: 1  # Reduced batch size for single GPU training
   BASE_LR: 0.00005  # Lower learning rate for finetuning (half of original)
   MAX_ITER: 5000    # Fewer iterations for small dataset
   STEPS: (3000, 4500)  # Adjust LR schedule
