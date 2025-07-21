@@ -42,24 +42,39 @@ function processImage(path, rootInputDir, rootOutputDir) {
     // Get the title (name) and full path of the current image
     origTitle = getTitle();
 
-    // Get number of channels and split channels
+    // Get number of channels
     Stack.getDimensions(width, height, channels, slices, frames);
     print("Image has " + channels + " channels, using channel " + channels + " (last channel)");
-    run("Split Channels");
     
-    // Select the last channel
-    lastChannel = channels;
-    selectWindow("C" + lastChannel + "-" + origTitle);
-    
-    // Perform Max Intensity Z Projection
-    run("Z Project...", "projection=[Max Intensity]");
-    projTitle = "MAX_" + origTitle;
+    if (channels == 1) {
+        // Single channel image - no need to split
+        print("Single channel image - processing directly");
+        
+        // Perform Max Intensity Z Projection directly
+        run("Z Project...", "projection=[Max Intensity]");
+        projTitle = "MAX_" + origTitle;
+        
+        // Close the original image
+        close(origTitle);
+        
+    } else {
+        // Multi-channel image - split and select last channel
+        run("Split Channels");
+        
+        // Select the last channel
+        lastChannel = channels;
+        selectWindow("C" + lastChannel + "-" + origTitle);
+        
+        // Perform Max Intensity Z Projection
+        run("Z Project...", "projection=[Max Intensity]");
+        projTitle = "MAX_" + origTitle;
 
-    // Close the original split channel and the rest
-    close("C" + lastChannel + "-" + origTitle);
-    for (j = 1; j < lastChannel; j++) {
-        chName = "C" + j + "-" + origTitle;
-        if (isOpen(chName)) close(chName);
+        // Close the original split channel and the rest
+        close("C" + lastChannel + "-" + origTitle);
+        for (j = 1; j < lastChannel; j++) {
+            chName = "C" + j + "-" + origTitle;
+            if (isOpen(chName)) close(chName);
+        }
     }
 
     // Create output folder if needed
