@@ -1,10 +1,10 @@
 # Custom config for myotube dataset finetuning
 # Based on Swin-Base config with modifications for single-class dataset
 # 
-# SMALL DATASET ADJUSTMENTS (23 images total):
-# - Training: 800 iterations = ~100 epochs (batch size 3)
+# DENSE DATASET ADJUSTMENTS (23 images, ~250 myotubes per image = 5,750 instances):
+# - Training: 1500 iterations = ~125 epochs (batch size 2, dense annotations)
 # - Using training data for validation (no separate test set)  
-# - Evaluation every ~12 epochs to monitor progress
+# - Evaluation every ~25 epochs to monitor progress
 
 _BASE_: configs/coco/instance-segmentation/swin/maskformer2_swin_base_384_bs16_50ep.yaml
 
@@ -25,14 +25,14 @@ DATASETS:
   # No separate test set - using training data for validation
   TEST: ("myotube_train",)
 
-# Solver configuration for finetuning
+# Solver configuration for finetuning (dense annotations)
 SOLVER:
-  IMS_PER_BATCH: 3  # Reduced batch size for single GPU training
-  BASE_LR: 0.00005  # Lower learning rate for finetuning (half of original)
-  MAX_ITER: 800       # ~100 epochs (800 ÷ 8 iterations per epoch = 100 epochs)
-  STEPS: (480, 720)   # LR drops at 60% and 90% of training
+  IMS_PER_BATCH: 2  # Reduced for memory efficiency with 250 myotubes per image
+  BASE_LR: 0.0001   # Slightly higher LR due to dense supervision
+  MAX_ITER: 1500    # ~125 epochs (1500 ÷ 12 iterations per epoch)
+  STEPS: (900, 1350) # LR drops at 60% and 90% of training
   WARMUP_FACTOR: 1.0
-  WARMUP_ITERS: 16  # 2 epochs for warmup (2 * 8 iterations = 16)
+  WARMUP_ITERS: 24  # 2 epochs for warmup (2 × 12 iterations = 24)
   WEIGHT_DECAY: 0.05
   OPTIMIZER: "ADAMW"
   BACKBONE_MULTIPLIER: 0.1  # Keep backbone learning rate lower
@@ -66,12 +66,12 @@ INPUT:
 
 # Evaluation configuration
 TEST:
-  EVAL_PERIOD: 100   # Evaluate every ~12 epochs (100 ÷ 8 iterations per epoch)
+  EVAL_PERIOD: 300   # Evaluate every ~25 epochs (300 ÷ 12 iterations per epoch)
 
 # Data loader configuration
 DATALOADER:
   FILTER_EMPTY_ANNOTATIONS: True
-  NUM_WORKERS: 2  # Reduced for single GPU
+  NUM_WORKERS: 4  # Increased for dense annotations (250 myotubes per image)
 
 # Output directory
 OUTPUT_DIR: "./output_myotube"
