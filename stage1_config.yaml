@@ -30,12 +30,12 @@ DATASETS:
 
 # Stage 1 Solver: Conservative settings for algorithmic annotations
 SOLVER:
-  IMS_PER_BATCH: 2  # Reduced batch size for 1500x1500 images (memory)
-  BASE_LR: 0.00003  # Lower LR for high-resolution images and dense annotations
-  MAX_ITER: 4000    # Increased iterations for complex dense structures
-  STEPS: (2500, 3500)  # LR drops at 62% and 87%
+  IMS_PER_BATCH: 1  # Single image batch for A40 GPU memory constraints
+  BASE_LR: 0.00002  # Reduced LR for single-image batches
+  MAX_ITER: 6000    # Increased iterations to compensate for smaller batches
+  STEPS: (4000, 5500)  # LR drops at 67% and 92%
   WARMUP_FACTOR: 1.0
-  WARMUP_ITERS: 100   # Longer warmup for high-res dense data
+  WARMUP_ITERS: 150   # Longer warmup for single-image training
   WEIGHT_DECAY: 0.05
   OPTIMIZER: "ADAMW"
   BACKBONE_MULTIPLIER: 0.1  # Keep backbone learning conservative
