@@ -30,7 +30,7 @@ Mask2Former/
 │   └── README_two_stage_training.md    # This file
 │
 ├── 📊 Unified Dataset
-│   └── myotube_dataset/                 # Combined dataset
+│   └── myotube_batch_output/            # Combined dataset (default)
 │       ├── images/                      # All images
 │       └── annotations/
 │           ├── algorithmic_train_annotations.json    # Stage 1 training
@@ -55,26 +55,23 @@ This automatically counts your dataset images and annotations, checks all requir
 
 #### **Create Unified Dataset Structure**
 ```bash
-# Create directory structure
-mkdir -p myotube_dataset/{images,annotations}
-
-# Generate algorithmic annotations from raw images
+# Generate algorithmic annotations directly to default location
 cd utils
 python batch_myotube_processing.py \
     --input_dir /path/to/raw/images \
-    --output_dir ../temp_algorithmic \
+    --output_dir ../myotube_batch_output \
     --resolution 1500
 
-# Move to unified structure
-mv temp_algorithmic/annotations/train_annotations.json ../myotube_dataset/annotations/algorithmic_train_annotations.json
-mv temp_algorithmic/annotations/test_annotations.json ../myotube_dataset/annotations/algorithmic_test_annotations.json
-cp temp_algorithmic/images/* ../myotube_dataset/images/
+# Rename annotation files for two-stage training
+cd ../myotube_batch_output/annotations
+mv train_annotations.json algorithmic_train_annotations.json
+mv test_annotations.json algorithmic_test_annotations.json
 
 # Create manual annotations for ~5 selected images
 # Use CVAT, LabelMe, or VIA to create:
-# - manual_train_annotations.json
+# - manual_train_annotations.json  
 # - manual_test_annotations.json (optional)
-# Place in myotube_dataset/annotations/
+# Place in myotube_batch_output/annotations/
 ```
 
 #### **Converting Existing Separate Datasets**
@@ -82,14 +79,15 @@ If you already have separate algorithmic and manual datasets:
 ```bash
 # Organize existing datasets into unified structure
 python organize_unified_dataset.py \
-    --algorithmic_dataset myotube_batch_output \
+    --algorithmic_dataset existing_algorithmic_dataset \
     --manual_dataset manual_dataset \
-    --output_dataset myotube_dataset
+    --output_dataset myotube_batch_output
 
-# Or convert just algorithmic dataset
-python organize_unified_dataset.py \
-    --algorithmic_dataset myotube_batch_output \
-    --output_dataset myotube_dataset
+# Or if you have the standard batch processing output already
+cd myotube_batch_output/annotations
+mv train_annotations.json algorithmic_train_annotations.json
+mv test_annotations.json algorithmic_test_annotations.json
+# Then add your manual annotation files
 ```
 
 ### **3. Run Training**
@@ -110,7 +108,7 @@ python train_two_stage.py --stage 2
 
 #### **Custom Dataset Path**
 ```bash
-python train_two_stage.py --dataset /path/to/myotube_dataset
+python train_two_stage.py --dataset /path/to/custom/dataset
 ```
 
 ## ⚙️ **Configuration Details**
@@ -253,12 +251,12 @@ python train_two_stage.py --num-gpus 4
 python setup_two_stage.py
 
 # Regenerate algorithmic annotations
-cd utils && python batch_myotube_processing.py --input_dir /path/to/images --output_dir ../temp_algorithmic --resolution 1500
+cd utils && python batch_myotube_processing.py --input_dir /path/to/images --output_dir ../myotube_batch_output --resolution 1500
 
-# Organize into unified structure
-mkdir -p myotube_dataset/{images,annotations}
-mv temp_algorithmic/annotations/train_annotations.json myotube_dataset/annotations/algorithmic_train_annotations.json
-cp temp_algorithmic/images/* myotube_dataset/images/
+# Rename annotation files
+cd myotube_batch_output/annotations
+mv train_annotations.json algorithmic_train_annotations.json
+mv test_annotations.json algorithmic_test_annotations.json
 ```
 
 #### **CUDA Out of Memory**

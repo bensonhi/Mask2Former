@@ -213,7 +213,7 @@ def suggest_dataset_creation():
     print("="*50)
     
     print("\n📁 Expected Directory Structure:")
-    print("   myotube_dataset/")
+    print("   myotube_batch_output/")
     print("   ├── images/                              # All images (algorithmic + manual)")
     print("   └── annotations/")
     print("       ├── algorithmic_train_annotations.json  # ~100 images with automatic annotations")
@@ -227,16 +227,15 @@ def suggest_dataset_creation():
     print("      cd utils")
     print("      python batch_myotube_processing.py \\")
     print("        --input_dir /path/to/raw/images \\")
-    print("        --output_dir ../temp_algorithmic \\")
+    print("        --output_dir ../myotube_batch_output \\")
     print("        --resolution 1500")
-    print("   3. Organize output files:")
-    print("      mkdir -p myotube_dataset/{images,annotations}")
-    print("      mv temp_algorithmic/annotations/train_annotations.json myotube_dataset/annotations/algorithmic_train_annotations.json")
-    print("      mv temp_algorithmic/annotations/test_annotations.json myotube_dataset/annotations/algorithmic_test_annotations.json")
-    print("      cp temp_algorithmic/images/* myotube_dataset/images/")
+    print("   3. Rename annotation files:")
+    print("      cd myotube_batch_output/annotations")
+    print("      mv train_annotations.json algorithmic_train_annotations.json")
+    print("      mv test_annotations.json algorithmic_test_annotations.json")
     
     print("\n🎯 Step 2: Create Manual Annotations")
-    print("   1. Select 5 representative images from myotube_dataset/images/")
+    print("   1. Select 5 representative images from myotube_batch_output/images/")
     print("   2. Create high-quality manual annotations using:")
     print("      - CVAT (Computer Vision Annotation Tool)")
     print("      - LabelMe")
@@ -244,7 +243,7 @@ def suggest_dataset_creation():
     print("   3. Export in COCO format as:")
     print("      - manual_train_annotations.json")
     print("      - manual_test_annotations.json (optional)")
-    print("   4. Place in myotube_dataset/annotations/")
+    print("   4. Place in myotube_batch_output/annotations/")
 
 def print_next_steps(all_ok, algo_stats, manual_stats, missing_deps):
     """Print next steps based on setup status"""
@@ -287,7 +286,10 @@ def print_next_steps(all_ok, algo_stats, manual_stats, missing_deps):
         
         if not algo_stats:
             print(f"\n📊 Create algorithmic dataset:")
-            print(f"   cd utils && python batch_myotube_processing.py --input_dir /path/to/images --output_dir ../temp_algorithmic --resolution 1500")
+            print(f"   cd utils && python batch_myotube_processing.py --input_dir /path/to/images --output_dir ../myotube_batch_output --resolution 1500")
+            print(f"   cd ../myotube_batch_output/annotations")
+            print(f"   mv train_annotations.json algorithmic_train_annotations.json")
+            print(f"   mv test_annotations.json algorithmic_test_annotations.json")
         
         if not manual_stats:
             print(f"\n🎯 Create manual dataset:")
@@ -299,12 +301,12 @@ def main():
     print("="*60)
     
     # Define unified dataset path
-    dataset_root = "myotube_dataset"
+    dataset_root = "myotube_batch_output"
     
-    # Check if myotube_batch_output exists (legacy dataset)
-    if os.path.exists("myotube_batch_output") and not os.path.exists(dataset_root):
-        print("   ℹ️  Found myotube_batch_output - can convert to unified structure")
-        dataset_root = "myotube_batch_output"
+    # Check if myotube_dataset exists as alternative
+    if os.path.exists("myotube_dataset") and not os.path.exists(dataset_root):
+        print("   ℹ️  Found myotube_dataset - using as unified dataset")
+        dataset_root = "myotube_dataset"
     
     # Run all checks
     dataset_ok, algo_stats, manual_stats = check_unified_dataset_structure(dataset_root)

@@ -26,7 +26,7 @@ from detectron2.data.datasets import register_coco_instances
 from detectron2.data import MetadataCatalog
 
 def register_two_stage_datasets(
-    dataset_root: str = "myotube_dataset"
+    dataset_root: str = "myotube_batch_output"
 ):
     """
     Register datasets for two-stage myotube training from unified directory.
@@ -176,12 +176,13 @@ def check_dataset_structure(dataset_root):
     
     # Common paths where unified dataset might be located
     potential_paths = [
+        "myotube_batch_output",
         "myotube_dataset",
         "dataset", 
-        "myotube_batch_output",  # Might be existing dataset to convert
+        "../myotube_batch_output",
         "../myotube_dataset",
         "../dataset",
-        "data/myotube_dataset"
+        "data/myotube_batch_output"
     ]
     
     found_paths = []
@@ -229,11 +230,15 @@ if __name__ == "__main__":
     found_paths = check_dataset_structure("myotube_dataset")
     
     # Determine dataset path
-    dataset_path = "myotube_dataset"
+    dataset_path = "myotube_batch_output"
     
     # Use found path if available
     for path in found_paths:
         if "myotube_batch_output" in path:
+            dataset_path = path
+            print(f"   🔄 Using {path} as unified dataset")
+            break
+        elif "myotube_dataset" in path:
             dataset_path = path
             print(f"   🔄 Using {path} as unified dataset")
             break

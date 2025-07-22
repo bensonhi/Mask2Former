@@ -244,7 +244,7 @@ def main():
                        help="Perform evaluation only")
     
     # Dataset paths
-    parser.add_argument("--dataset", default="myotube_dataset",
+    parser.add_argument("--dataset", default="myotube_batch_output",
                        help="Path to unified dataset directory")
     
 
