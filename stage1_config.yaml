@@ -21,7 +21,7 @@ MODEL:
   MASK_FORMER:
     TEST:
       OBJECT_MASK_THRESHOLD: 0.3  # Lower threshold for thin structures
-      OVERLAP_THRESHOLD: 0.6  # Allow more overlap for crossing myotubes
+      OVERLAP_THRESHOLD: 0.2  # Strict separation - myotubes are distinct individuals
 
 # Dataset configuration for Stage 1 (algorithmic annotations)
 DATASETS:

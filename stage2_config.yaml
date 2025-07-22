@@ -21,7 +21,7 @@ MODEL:
   MASK_FORMER:
     TEST:
       OBJECT_MASK_THRESHOLD: 0.4  # Higher threshold for quality manual annotations
-      OVERLAP_THRESHOLD: 0.5  # Stricter overlap for precise segmentation
+      OVERLAP_THRESHOLD: 0.1  # Very strict - each myotube is a distinct individual
 
 # Dataset configuration for Stage 2 (manual annotations)
 DATASETS:
