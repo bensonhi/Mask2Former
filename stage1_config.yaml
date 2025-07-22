@@ -1,0 +1,88 @@
+# Stage 1 Configuration: Algorithmic Annotations Training
+# Based on Swin-Base config optimized for large dataset with algorithmic annotations
+# 
+# STAGE 1 DATASET: ~100 images with algorithmic annotations from batch processing
+# - Training: 3000 iterations for robust feature learning
+# - Conservative learning rate for stable training on noisy annotations
+# - Focus on learning general myotube features
+
+_BASE_: configs/coco/instance-segmentation/swin/maskformer2_swin_base_384_bs16_50ep.yaml
+
+# Model configuration
+MODEL:
+  # Use COCO pre-trained weights for initialization
+  WEIGHTS: "model_final_54b88a.pkl"
+  
+  SEM_SEG_HEAD:
+    # Single class: myotube
+    NUM_CLASSES: 1
+  
+  # Optimize for dense overlapping structures
+  MASK_FORMER:
+    NUM_OBJECT_QUERIES: 200  # Increased from default 100 for dense structures
+    TEST:
+      OBJECT_MASK_THRESHOLD: 0.3  # Lower threshold for thin structures
+      OVERLAP_THRESHOLD: 0.6  # Allow more overlap for crossing myotubes
+
+# Dataset configuration for Stage 1 (algorithmic annotations)
+DATASETS:
+  TRAIN: ("myotube_stage1_train",)
+  TEST: ("myotube_stage1_val",)
+
+# Stage 1 Solver: Conservative settings for algorithmic annotations
+SOLVER:
+  IMS_PER_BATCH: 2  # Reduced batch size for 1500x1500 images (memory)
+  BASE_LR: 0.00003  # Lower LR for high-resolution images and dense annotations
+  MAX_ITER: 4000    # Increased iterations for complex dense structures
+  STEPS: (2500, 3500)  # LR drops at 62% and 87%
+  WARMUP_FACTOR: 1.0
+  WARMUP_ITERS: 100   # Longer warmup for high-res dense data
+  WEIGHT_DECAY: 0.05
+  OPTIMIZER: "ADAMW"
+  BACKBONE_MULTIPLIER: 0.1  # Keep backbone learning conservative
+  CLIP_GRADIENTS:
+    ENABLED: True
+    CLIP_TYPE: "full_model"
+    CLIP_VALUE: 0.01
+    NORM_TYPE: 2.0
+  AMP:
+    ENABLED: True
+
+# Input configuration optimized for algorithmic annotations
+INPUT:
+  IMAGE_SIZE: 1500  # Match original image resolution for detail preservation
+  MIN_SCALE: 0.8    # Conservative scaling to preserve thin myotube structures
+  MAX_SCALE: 1.2    # Reduced range to avoid distorting elongated structures
+  FORMAT: "RGB"
+  DATASET_MAPPER_NAME: "coco_instance_lsj"
+  
+  # Conservative augmentations for algorithmic annotations
+  CROP:
+    ENABLED: True
+    TYPE: "relative_range" 
+    SIZE: [0.95, 1.0]  # Very minimal cropping to preserve full myotube lengths
+  
+  # Minimal color augmentation (algorithms may be sensitive to color changes)
+  COLOR_AUG_SSD: False
+  
+  # Horizontal and vertical flip (myotubes oriented in all directions)
+  RANDOM_FLIP: "horizontal"
+
+# Evaluation configuration
+TEST:
+  EVAL_PERIOD: 800  # Evaluate every ~200 epochs for dense high-res images
+
+# Data loader configuration
+DATALOADER:
+  FILTER_EMPTY_ANNOTATIONS: True
+  NUM_WORKERS: 4
+
+# Output directory for Stage 1
+OUTPUT_DIR: "./output_stage1_algorithmic"
+
+# Stage metadata
+STAGE: 1
+ANNOTATION_TYPE: "algorithmic"
+DESCRIPTION: "Stage 1 training on algorithmic annotations for robust feature learning"
+
+VERSION: 2 
