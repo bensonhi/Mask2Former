@@ -80,9 +80,4 @@ DATALOADER:
 # Output directory for Stage 1
 OUTPUT_DIR: "./output_stage1_algorithmic"
 
-# Stage metadata
-STAGE: 1
-ANNOTATION_TYPE: "algorithmic"
-DESCRIPTION: "Stage 1 training on algorithmic annotations for robust feature learning"
-
 VERSION: 2 

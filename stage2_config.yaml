@@ -80,10 +80,4 @@ DATALOADER:
 # Output directory for Stage 2
 OUTPUT_DIR: "./output_stage2_manual"
 
-# Stage metadata
-STAGE: 2
-ANNOTATION_TYPE: "manual" 
-DESCRIPTION: "Stage 2 fine-tuning on high-quality manual annotations"
-PARENT_STAGE: "./output_stage1_algorithmic"
-
 VERSION: 2 
