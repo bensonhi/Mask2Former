@@ -21,7 +21,7 @@ MODEL:
   MASK_FORMER:
     TEST:
       OBJECT_MASK_THRESHOLD: 0.3  # Lower threshold for thin structures
-      OVERLAP_THRESHOLD: 0.6  # Allow more overlap for crossing myotubes
+      OVERLAP_THRESHOLD: 0.6？  # Allow more overlap for crossing myotubes
 
 # Dataset configuration for Stage 1 (algorithmic annotations)
 DATASETS:
@@ -59,7 +59,7 @@ INPUT:
   CROP:
     ENABLED: True
     TYPE: "relative_range" 
-    SIZE: [0.95, 1.0]  # Very minimal cropping to preserve full myotube lengths
+    SIZE: [0.5, 1.0]  # Very minimal cropping to preserve full myotube lengths
   
   # Minimal color augmentation (algorithms may be sensitive to color changes)
   COLOR_AUG_SSD: False

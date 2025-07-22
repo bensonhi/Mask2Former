@@ -59,7 +59,7 @@ INPUT:
   CROP:
     ENABLED: True
     TYPE: "relative_range"
-    SIZE: [0.85, 1.0]  # Moderate cropping while preserving myotube connectivity
+    SIZE: [0.2, 1.0]  # Moderate cropping while preserving myotube connectivity
   
   # Mild color augmentation to preserve manual annotation integrity
   COLOR_AUG_SSD: True
