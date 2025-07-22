@@ -25,6 +25,7 @@ import datetime
 import argparse
 from typing import List, Dict, Optional, Tuple
 import shutil
+import random
 
 import cv2
 import numpy as np
@@ -52,10 +53,17 @@ class BatchMyotubeProcessor:
         self.input_dir = input_dir
         self.output_dir = output_dir
         self.target_resolution = target_resolution
-        self.coco_file_path = os.path.join(output_dir, "annotations.json")
         
-        # Create output directory (flat structure - no subdirectories)
-        os.makedirs(self.output_dir, exist_ok=True)
+        # Create output directories for images and annotations
+        self.images_dir = os.path.join(self.output_dir, "images")
+        self.annotations_dir = os.path.join(self.output_dir, "annotations")
+        os.makedirs(self.images_dir, exist_ok=True)
+        os.makedirs(self.annotations_dir, exist_ok=True)
+        
+        # Update COCO file path to annotations directory
+        self.coco_file_path = os.path.join(self.annotations_dir, "annotations.json")
+        self.train_coco_file_path = os.path.join(self.annotations_dir, "train_annotations.json")
+        self.test_coco_file_path = os.path.join(self.annotations_dir, "test_annotations.json")
         
         # Supported image formats
         self.supported_formats = ['.png', '.jpg', '.jpeg', '.tiff', '.tif', '.bmp']
@@ -216,7 +224,7 @@ class BatchMyotubeProcessor:
             else:
                 output_filename = f"{base_name}_processed.png"
             
-            output_path = os.path.join(self.output_dir, output_filename)
+            output_path = os.path.join(self.images_dir, output_filename)
             
             # Save processed image
             cv2.imwrite(output_path, processed_image)
@@ -354,6 +362,10 @@ class BatchMyotubeProcessor:
         with open(self.coco_file_path, 'w') as f:
             json.dump(self.coco_data, f, indent=2)
         
+        # Create train/test split and save separate annotation files
+        if successful_images > 0:
+            self.create_train_test_split(train_ratio=0.9, random_seed=42)
+        
         # Print final summary
         print("\n" + "="*60)
         print("BATCH PROCESSING COMPLETE")
@@ -363,7 +375,7 @@ class BatchMyotubeProcessor:
         print(f"Total annotations created: {total_annotations}")
         print(f"Total polygon parts: {total_polygon_parts}")
         print(f"Average polygon parts per myotube: {total_polygon_parts/total_myotubes:.1f}")
-        print(f"Images saved to: {self.output_dir}")
+        print(f"Images saved to: {self.images_dir}")
         print(f"COCO annotations saved to: {self.coco_file_path}")
         print(f"Target resolution: {self.target_resolution}px")
         
@@ -374,6 +386,67 @@ class BatchMyotubeProcessor:
         print("   • May create multiple polygon parts per myotube")
 
 
+    def create_train_test_split(self, train_ratio: float = 0.9, random_seed: int = 42) -> None:
+        """
+        Create train/test split of the dataset and save separate annotation files.
+        
+        Args:
+            train_ratio: Ratio of images to use for training (default: 0.9 for 90/10 split)
+            random_seed: Random seed for reproducible splits
+        """
+        print(f"\nCreating train/test split ({train_ratio:.0%}/{1-train_ratio:.0%})...")
+        
+        # Set random seed for reproducible splits
+        random.seed(random_seed)
+        
+        # Get all image IDs
+        all_image_ids = [img["id"] for img in self.coco_data["images"]]
+        
+        # Shuffle and split
+        random.shuffle(all_image_ids)
+        split_idx = int(len(all_image_ids) * train_ratio)
+        train_image_ids = set(all_image_ids[:split_idx])
+        test_image_ids = set(all_image_ids[split_idx:])
+        
+        # Create train dataset
+        train_data = {
+            "info": self.coco_data["info"].copy(),
+            "licenses": self.coco_data["licenses"].copy(),
+            "categories": self.coco_data["categories"].copy(),
+            "images": [img for img in self.coco_data["images"] if img["id"] in train_image_ids],
+            "annotations": [ann for ann in self.coco_data["annotations"] if ann["image_id"] in train_image_ids]
+        }
+        train_data["info"]["description"] = "Myotube Instance Segmentation Dataset - Training Set"
+        
+        # Create test dataset
+        test_data = {
+            "info": self.coco_data["info"].copy(),
+            "licenses": self.coco_data["licenses"].copy(),
+            "categories": self.coco_data["categories"].copy(),
+            "images": [img for img in self.coco_data["images"] if img["id"] in test_image_ids],
+            "annotations": [ann for ann in self.coco_data["annotations"] if ann["image_id"] in test_image_ids]
+        }
+        test_data["info"]["description"] = "Myotube Instance Segmentation Dataset - Test Set"
+        
+        # Save train annotations
+        with open(self.train_coco_file_path, 'w') as f:
+            json.dump(train_data, f, indent=2)
+        
+        # Save test annotations
+        with open(self.test_coco_file_path, 'w') as f:
+            json.dump(test_data, f, indent=2)
+        
+        # Print split statistics
+        train_myotubes = len(train_data["annotations"])
+        test_myotubes = len(test_data["annotations"])
+        total_myotubes = train_myotubes + test_myotubes
+        
+        print(f"Train set: {len(train_data['images'])} images, {train_myotubes} myotubes ({train_myotubes/total_myotubes:.1%})")
+        print(f"Test set: {len(test_data['images'])} images, {test_myotubes} myotubes ({test_myotubes/total_myotubes:.1%})")
+        print(f"Train annotations saved to: {self.train_coco_file_path}")
+        print(f"Test annotations saved to: {self.test_coco_file_path}")
+
+
 def main():
     """
     Main function with command-line argument parsing.
@@ -381,8 +454,8 @@ def main():
     parser = argparse.ArgumentParser(description="Batch process myotube images and create COCO dataset")
     parser.add_argument("--input_dir", "-i", default="max_projected_images",
                        help="Directory containing input images (default: max_projected_images)")
-    parser.add_argument("--output_dir", "-o", default="myotube_batch_output",
-                       help="Directory to save processed results (default: myotube_batch_output)")
+    parser.add_argument("--output_dir", "-o", default="../myotube_batch_output",
+                       help="Directory to save processed results (default: ../myotube_batch_output)")
     parser.add_argument("--resolution", "-r", type=int, default=1500,
                        help="Target resolution for processed images and annotations (default: 1500)")
     
