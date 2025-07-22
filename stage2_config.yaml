@@ -19,7 +19,6 @@ MODEL:
   
   # Fine-tuned settings for precise manual annotations
   MASK_FORMER:
-    NUM_OBJECT_QUERIES: 200  # Match Stage 1 for consistency
     TEST:
       OBJECT_MASK_THRESHOLD: 0.4  # Higher threshold for quality manual annotations
       OVERLAP_THRESHOLD: 0.5  # Stricter overlap for precise segmentation
