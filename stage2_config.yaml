@@ -65,7 +65,7 @@ INPUT:
   COLOR_AUG_SSD: True
   
   # All orientations (myotubes in all directions in the image)
-  RANDOM_FLIP: "horizontal_and_vertical"
+  RANDOM_FLIP: "horizontal"
 
 # Evaluation configuration  
 TEST:
