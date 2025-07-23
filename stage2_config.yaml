@@ -1,8 +1,8 @@
 # Stage 2 Configuration: Manual Annotations Fine-tuning
 # Fine-tuning config for high-quality manual annotations
 # 
-# STAGE 2 DATASET: ~5 images with high-quality manual annotations
-# - Training: 1000 iterations for precise fine-tuning
+# STAGE 2 DATASET: ~2 images with high-quality manual annotations  
+# - Training: 400 iterations for precise fine-tuning
 # - Higher learning rate for effective adaptation to manual annotations
 # - Loads weights from Stage 1 checkpoint
 
@@ -28,14 +28,14 @@ DATASETS:
   TRAIN: ("myotube_stage2_train",)
   TEST: ("myotube_stage2_val",)
 
-# Stage 2 Solver: Fine-tuning settings for manual annotations
+# Stage 2 Solver: Fine-tuning settings for manual annotations (2 images)
 SOLVER:
   IMS_PER_BATCH: 1  # Single image batch (already optimized for memory)
-  BASE_LR: 0.00006  # Reduced LR for single-image fine-tuning
-  MAX_ITER: 2000    # More iterations for small batch fine-tuning
-  STEPS: (1400, 1800) # LR drops at 70% and 90%
+  BASE_LR: 0.00008  # Slightly higher LR for shorter training
+  MAX_ITER: 400     # Reduced for 2 images: ~200 epochs (2 images × 200 = 400 iter)
+  STEPS: (280, 360) # LR drops at 70% and 90% of 400 iterations
   WARMUP_FACTOR: 0.1
-  WARMUP_ITERS: 50  # Extended warmup for single-image training
+  WARMUP_ITERS: 20  # Reduced warmup for shorter training
   WEIGHT_DECAY: 0.01  # Reduced weight decay for fine-tuning
   OPTIMIZER: "ADAMW"
   BACKBONE_MULTIPLIER: 0.03  # Very conservative backbone for precise tuning
@@ -69,7 +69,7 @@ INPUT:
 
 # Evaluation configuration  
 TEST:
-  EVAL_PERIOD: 300  # Balanced evaluation frequency for high-res manual data
+  EVAL_PERIOD: 80   # More frequent evaluation for shorter training (every 40 epochs)
 
 # Data loader configuration
 DATALOADER:
