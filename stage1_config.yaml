@@ -11,7 +11,7 @@ _BASE_: configs/coco/instance-segmentation/swin/maskformer2_swin_base_384_bs16_5
 # Model configuration
 MODEL:
   # Use COCO pre-trained weights for initialization
-  WEIGHTS: "model_final_54b88a.pkl"
+  WEIGHTS: "model_final_83d103.pkl"
   
   SEM_SEG_HEAD:
     # Single class: myotube
