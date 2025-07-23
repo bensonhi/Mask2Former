@@ -68,7 +68,7 @@ def run_demo_on_image(image_name, image_id, images_dir, output_dir, config_file,
         result = subprocess.run(cmd, capture_output=True, text=True, cwd=".")
         
         if result.returncode == 0:
-            print(f"  ✅ Success: {image_output_dir}")
+            print(f"  ✅ Success: {input_path}")
             return True
         else:
             print(f"  ❌ Failed: {image_name}")
