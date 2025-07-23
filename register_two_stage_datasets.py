@@ -49,24 +49,6 @@ def get_myotube_metadata():
     }
     return meta
 
-def clear_dataset_registrations():
-    """Clear existing dataset registrations to allow re-registration with new metadata."""
-    datasets_to_clear = [
-        "myotube_stage1_train",
-        "myotube_stage1_val", 
-        "myotube_stage2_train",
-        "myotube_stage2_val"
-    ]
-    
-    for dataset_name in datasets_to_clear:
-        if dataset_name in DatasetCatalog._REGISTERED:
-            DatasetCatalog._REGISTERED.pop(dataset_name)
-            print(f"   🗑️  Cleared DatasetCatalog registration: {dataset_name}")
-        
-        if dataset_name in MetadataCatalog._REGISTERED:
-            MetadataCatalog._REGISTERED.pop(dataset_name)
-            print(f"   🗑️  Cleared MetadataCatalog registration: {dataset_name}")
-
 def register_two_stage_datasets(
     dataset_root: str = "myotube_batch_output"
 ):
@@ -88,10 +70,7 @@ def register_two_stage_datasets(
     
     print("🔄 Registering two-stage myotube datasets from unified directory...")
     print(f"   Dataset root: {dataset_root}")
-    
-    # Clear existing registrations first
-    print("\n🗑️  Clearing existing dataset registrations...")
-    clear_dataset_registrations()
+    print("   Note: Re-registering will overwrite any existing registrations")
     
     # Check if dataset root exists
     if not os.path.exists(dataset_root):
@@ -110,12 +89,13 @@ def register_two_stage_datasets(
     if not os.path.exists(annotations_dir):
         print(f"❌ Annotations directory not found: {annotations_dir}")
         return
-    
+
     # ===== STAGE 1: ALGORITHMIC ANNOTATIONS =====
     print(f"\n📊 Stage 1: Algorithmic Annotations")
     
     # Get metadata for panoptic compatibility
     myotube_metadata = get_myotube_metadata()
+    print(f"   📋 Using metadata: {list(myotube_metadata.keys())}")
     
     # Look for algorithmic annotation files
     stage1_train_ann = os.path.join(annotations_dir, "algorithmic_train_annotations.json")
@@ -155,7 +135,7 @@ def register_two_stage_datasets(
         print(f"   📈 Training annotations: {len(stage1_data['annotations'])}")
     else:
         print(f"   ❌ Algorithmic train annotations not found: {stage1_train_ann}")
-    
+
     # ===== STAGE 2: MANUAL ANNOTATIONS =====
     print(f"\n🎯 Stage 2: Manual Annotations")
     
@@ -198,26 +178,21 @@ def register_two_stage_datasets(
     else:
         print(f"   ❌ Manual train annotations not found: {stage2_train_ann}")
     
-    # ===== SET METADATA FOR ALL DATASETS =====
-    dataset_names = [
-        "myotube_stage1_train", "myotube_stage1_val", 
-        "myotube_stage2_train", "myotube_stage2_val"
-    ]
-    
-    for dataset_name in dataset_names:
+    # ===== VERIFICATION =====
+    print(f"\n🔍 Verifying metadata registration...")
+    for dataset_name in ["myotube_stage1_train", "myotube_stage2_train"]:
         try:
-            MetadataCatalog.get(dataset_name).set(
-                thing_classes=["myotube"],
-                evaluator_type="coco",
-            )
-        except KeyError:
-            # Dataset wasn't registered (missing files)
-            pass
+            meta = MetadataCatalog.get(dataset_name)
+            if hasattr(meta, 'thing_dataset_id_to_contiguous_id'):
+                print(f"   ✅ {dataset_name}: metadata correctly set")
+                print(f"      thing_dataset_id_to_contiguous_id: {meta.thing_dataset_id_to_contiguous_id}")
+            else:
+                print(f"   ❌ {dataset_name}: missing thing_dataset_id_to_contiguous_id")
+        except Exception as e:
+            print(f"   ❌ {dataset_name}: error accessing metadata - {e}")
     
-    print(f"\n✅ Two-stage dataset registration completed!")
-    print(f"   Stage 1: Algorithmic annotations for robust feature learning")
-    print(f"   Stage 2: Manual annotations for precise fine-tuning")
-    print(f"   Classes: ['myotube']")
+    print(f"\n🎉 Dataset registration complete!")
+    print(f"   You can now use panoptic mode with OVERLAP_THRESHOLD: 0.0")
 
 def check_dataset_structure(dataset_root):
     """Check unified dataset structure and files."""
