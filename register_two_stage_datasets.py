@@ -23,7 +23,7 @@ Expected directory structure:
 
 import os
 from detectron2.data.datasets import register_coco_instances
-from detectron2.data import MetadataCatalog
+from detectron2.data import MetadataCatalog, DatasetCatalog
 
 def get_myotube_metadata():
     """
@@ -49,6 +49,24 @@ def get_myotube_metadata():
     }
     return meta
 
+def clear_dataset_registrations():
+    """Clear existing dataset registrations to allow re-registration with new metadata."""
+    datasets_to_clear = [
+        "myotube_stage1_train",
+        "myotube_stage1_val", 
+        "myotube_stage2_train",
+        "myotube_stage2_val"
+    ]
+    
+    for dataset_name in datasets_to_clear:
+        if dataset_name in DatasetCatalog._REGISTERED:
+            DatasetCatalog._REGISTERED.pop(dataset_name)
+            print(f"   🗑️  Cleared DatasetCatalog registration: {dataset_name}")
+        
+        if dataset_name in MetadataCatalog._REGISTERED:
+            MetadataCatalog._REGISTERED.pop(dataset_name)
+            print(f"   🗑️  Cleared MetadataCatalog registration: {dataset_name}")
+
 def register_two_stage_datasets(
     dataset_root: str = "myotube_batch_output"
 ):
@@ -70,6 +88,10 @@ def register_two_stage_datasets(
     
     print("🔄 Registering two-stage myotube datasets from unified directory...")
     print(f"   Dataset root: {dataset_root}")
+    
+    # Clear existing registrations first
+    print("\n🗑️  Clearing existing dataset registrations...")
+    clear_dataset_registrations()
     
     # Check if dataset root exists
     if not os.path.exists(dataset_root):
