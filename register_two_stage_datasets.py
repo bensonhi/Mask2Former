@@ -69,7 +69,7 @@ def register_two_stage_datasets(
     print(f"\n📊 Stage 1: Algorithmic Annotations")
     
     # Look for algorithmic annotation files
-    stage1_train_ann = os.path.join(annotations_dir, "annotations.json")
+    stage1_train_ann = os.path.join(annotations_dir, "algorithmic_train_annotations.json")
     stage1_val_ann = os.path.join(annotations_dir, "manual_train_annotations.json")
     
     # Fallback names
