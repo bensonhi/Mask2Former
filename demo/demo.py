@@ -26,6 +26,9 @@ from detectron2.utils.logger import setup_logger
 from mask2former import add_maskformer2_config
 from predictor import VisualizationDemo
 
+from register_two_stage_datasets import register_two_stage_datasets
+register_two_stage_datasets()
+
 
 # constants
 WINDOW_NAME = "mask2former demo"
