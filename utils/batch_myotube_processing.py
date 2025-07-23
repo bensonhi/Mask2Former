@@ -65,8 +65,8 @@ class BatchMyotubeProcessor:
         
         # Update COCO file path to annotations directory
         self.coco_file_path = os.path.join(self.annotations_dir, "annotations.json")
-        self.train_coco_file_path = os.path.join(self.annotations_dir, "train_annotations.json")
-        self.test_coco_file_path = os.path.join(self.annotations_dir, "test_annotations.json")
+        self.train_coco_file_path = os.path.join(self.annotations_dir, "algorithmic_train_annotations.json")
+        self.test_coco_file_path = os.path.join(self.annotations_dir, "algorithmic_test_annotations.json")
         
         # Supported image formats
         self.supported_formats = ['.png', '.jpg', '.jpeg', '.tiff', '.tif', '.bmp']
