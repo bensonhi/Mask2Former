@@ -81,16 +81,23 @@ def register_two_stage_datasets(
         print("   ℹ️  Using training annotations for validation (no separate val set)")
     
     if os.path.exists(stage1_train_ann):
+        # Metadata for panoptic segmentation support
+        myotube_metadata = {
+            "thing_classes": ["myotube"],
+            "thing_dataset_id_to_contiguous_id": {1: 0},  # Dataset category_id=1 -> contiguous_id=0
+            "evaluator_type": "coco",
+        }
+        
         register_coco_instances(
             "myotube_stage1_train",
-            {},
+            myotube_metadata,
             stage1_train_ann,
             images_dir
         )
         
         register_coco_instances(
             "myotube_stage1_val",
-            {},
+            myotube_metadata,
             stage1_val_ann,
             images_dir
         )
@@ -125,14 +132,14 @@ def register_two_stage_datasets(
     if os.path.exists(stage2_train_ann):
         register_coco_instances(
             "myotube_stage2_train",
-            {},
+            myotube_metadata,
             stage2_train_ann,
             images_dir
         )
         
         register_coco_instances(
             "myotube_stage2_val",
-            {},
+            myotube_metadata,
             stage2_val_ann,
             images_dir
         )
