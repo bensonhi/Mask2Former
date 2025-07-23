@@ -85,7 +85,6 @@ def register_two_stage_datasets(
         myotube_metadata = {
             "thing_classes": ["myotube"],
             "thing_dataset_id_to_contiguous_id": {1: 0},  # Dataset category_id=1 -> contiguous_id=0
-            "evaluator_type": "coco",
         }
         
         register_coco_instances(
@@ -156,26 +155,11 @@ def register_two_stage_datasets(
     else:
         print(f"   ❌ Manual train annotations not found: {stage2_train_ann}")
     
-    # ===== SET METADATA FOR ALL DATASETS =====
-    dataset_names = [
-        "myotube_stage1_train", "myotube_stage1_val", 
-        "myotube_stage2_train", "myotube_stage2_val"
-    ]
-    
-    for dataset_name in dataset_names:
-        try:
-            MetadataCatalog.get(dataset_name).set(
-                thing_classes=["myotube"],
-                evaluator_type="coco",
-            )
-        except KeyError:
-            # Dataset wasn't registered (missing files)
-            pass
-    
     print(f"\n✅ Two-stage dataset registration completed!")
     print(f"   Stage 1: Algorithmic annotations for robust feature learning")
     print(f"   Stage 2: Manual annotations for precise fine-tuning")
     print(f"   Classes: ['myotube']")
+    print(f"   Metadata: thing_dataset_id_to_contiguous_id properly set for panoptic mode")
 
 def check_dataset_structure(dataset_root):
     """Check unified dataset structure and files."""
