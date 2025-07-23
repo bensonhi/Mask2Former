@@ -25,6 +25,30 @@ import os
 from detectron2.data.datasets import register_coco_instances
 from detectron2.data import MetadataCatalog
 
+def get_myotube_metadata():
+    """
+    Get metadata for myotube dataset compatible with panoptic segmentation.
+    
+    Returns:
+        dict: Metadata with thing/stuff mappings for single myotube class
+    """
+    # For myotube segmentation with single class:
+    # - Category ID 1 in COCO annotations = myotube (thing)
+    # - Contiguous ID 0 = first (and only) class in model
+    
+    meta = {
+        # Thing classes (countable objects like myotubes)
+        "thing_classes": ["myotube"],
+        "thing_colors": [[255, 0, 0]],  # Red color for visualization
+        "thing_dataset_id_to_contiguous_id": {1: 0},  # COCO category_id=1 -> model class=0
+        
+        # Stuff classes (background regions)
+        "stuff_classes": ["background"],
+        "stuff_colors": [[0, 0, 0]],  # Black background
+        "stuff_dataset_id_to_contiguous_id": {0: 1},  # Background -> class=1
+    }
+    return meta
+
 def register_two_stage_datasets(
     dataset_root: str = "myotube_batch_output"
 ):
@@ -68,6 +92,9 @@ def register_two_stage_datasets(
     # ===== STAGE 1: ALGORITHMIC ANNOTATIONS =====
     print(f"\n📊 Stage 1: Algorithmic Annotations")
     
+    # Get metadata for panoptic compatibility
+    myotube_metadata = get_myotube_metadata()
+    
     # Look for algorithmic annotation files
     stage1_train_ann = os.path.join(annotations_dir, "algorithmic_train_annotations.json")
     stage1_val_ann = os.path.join(annotations_dir, "manual_train_annotations.json")
@@ -83,14 +110,14 @@ def register_two_stage_datasets(
     if os.path.exists(stage1_train_ann):
         register_coco_instances(
             "myotube_stage1_train",
-            {},
+            myotube_metadata,
             stage1_train_ann,
             images_dir
         )
         
         register_coco_instances(
             "myotube_stage1_val",
-            {},
+            myotube_metadata,
             stage1_val_ann,
             images_dir
         )
@@ -125,14 +152,14 @@ def register_two_stage_datasets(
     if os.path.exists(stage2_train_ann):
         register_coco_instances(
             "myotube_stage2_train",
-            {},
+            myotube_metadata,
             stage2_train_ann,
             images_dir
         )
         
         register_coco_instances(
             "myotube_stage2_val",
-            {},
+            myotube_metadata,
             stage2_val_ann,
             images_dir
         )
