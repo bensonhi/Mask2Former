@@ -23,31 +23,7 @@ Expected directory structure:
 
 import os
 from detectron2.data.datasets import register_coco_instances
-from detectron2.data import MetadataCatalog, DatasetCatalog
-
-def get_myotube_metadata():
-    """
-    Get metadata for myotube dataset compatible with panoptic segmentation.
-    
-    Returns:
-        dict: Metadata with thing/stuff mappings for single myotube class
-    """
-    # For myotube segmentation with single class:
-    # - Category ID 1 in COCO annotations = myotube (thing)
-    # - Contiguous ID 0 = first (and only) class in model
-    
-    meta = {
-        # Thing classes (countable objects like myotubes)
-        "thing_classes": ["myotube"],
-        "thing_colors": [[255, 0, 0]],  # Red color for visualization
-        "thing_dataset_id_to_contiguous_id": {1: 0},  # COCO category_id=1 -> model class=0
-        
-        # Stuff classes (background regions)
-        "stuff_classes": ["background"],
-        "stuff_colors": [[0, 0, 0]],  # Black background
-        "stuff_dataset_id_to_contiguous_id": {0: 1},  # Background -> class=1
-    }
-    return meta
+from detectron2.data import MetadataCatalog
 
 def register_two_stage_datasets(
     dataset_root: str = "myotube_batch_output"
@@ -70,7 +46,6 @@ def register_two_stage_datasets(
     
     print("🔄 Registering two-stage myotube datasets from unified directory...")
     print(f"   Dataset root: {dataset_root}")
-    print("   Note: Re-registering will overwrite any existing registrations")
     
     # Check if dataset root exists
     if not os.path.exists(dataset_root):
@@ -92,11 +67,7 @@ def register_two_stage_datasets(
 
     # ===== STAGE 1: ALGORITHMIC ANNOTATIONS =====
     print(f"\n📊 Stage 1: Algorithmic Annotations")
-    
-    # Get metadata for panoptic compatibility
-    myotube_metadata = get_myotube_metadata()
-    print(f"   📋 Using metadata: {list(myotube_metadata.keys())}")
-    
+
     # Look for algorithmic annotation files
     stage1_train_ann = os.path.join(annotations_dir, "algorithmic_train_annotations.json")
     stage1_val_ann = os.path.join(annotations_dir, "manual_train_annotations.json")
@@ -112,14 +83,14 @@ def register_two_stage_datasets(
     if os.path.exists(stage1_train_ann):
         register_coco_instances(
             "myotube_stage1_train",
-            myotube_metadata,
+            {},
             stage1_train_ann,
             images_dir
         )
         
         register_coco_instances(
             "myotube_stage1_val",
-            myotube_metadata,
+            {},
             stage1_val_ann,
             images_dir
         )
@@ -154,14 +125,14 @@ def register_two_stage_datasets(
     if os.path.exists(stage2_train_ann):
         register_coco_instances(
             "myotube_stage2_train",
-            myotube_metadata,
+            {},
             stage2_train_ann,
             images_dir
         )
         
         register_coco_instances(
             "myotube_stage2_val",
-            myotube_metadata,
+            {},
             stage2_val_ann,
             images_dir
         )
@@ -178,21 +149,26 @@ def register_two_stage_datasets(
     else:
         print(f"   ❌ Manual train annotations not found: {stage2_train_ann}")
     
-    # ===== VERIFICATION =====
-    print(f"\n🔍 Verifying metadata registration...")
-    for dataset_name in ["myotube_stage1_train", "myotube_stage2_train"]:
+    # ===== SET METADATA FOR ALL DATASETS =====
+    dataset_names = [
+        "myotube_stage1_train", "myotube_stage1_val",
+        "myotube_stage2_train", "myotube_stage2_val"
+    ]
+
+    for dataset_name in dataset_names:
         try:
-            meta = MetadataCatalog.get(dataset_name)
-            if hasattr(meta, 'thing_dataset_id_to_contiguous_id'):
-                print(f"   ✅ {dataset_name}: metadata correctly set")
-                print(f"      thing_dataset_id_to_contiguous_id: {meta.thing_dataset_id_to_contiguous_id}")
-            else:
-                print(f"   ❌ {dataset_name}: missing thing_dataset_id_to_contiguous_id")
-        except Exception as e:
-            print(f"   ❌ {dataset_name}: error accessing metadata - {e}")
+            MetadataCatalog.get(dataset_name).set(
+                thing_classes=["myotube"],
+                evaluator_type="coco",
+            )
+        except KeyError:
+            # Dataset wasn't registered (missing files)
+            pass
     
-    print(f"\n🎉 Dataset registration complete!")
-    print(f"   You can now use panoptic mode with OVERLAP_THRESHOLD: 0.0")
+    print(f"\n✅ Two-stage dataset registration completed!")
+    print(f"   Stage 1: Algorithmic annotations for robust feature learning")
+    print(f"   Stage 2: Manual annotations for precise fine-tuning")
+    print(f"   Classes: ['myotube']")
 
 def check_dataset_structure(dataset_root):
     """Check unified dataset structure and files."""
