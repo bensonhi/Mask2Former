@@ -41,18 +41,21 @@ class BatchMyotubeProcessor:
     Always uses all_contours mode for complete structural preservation.
     """
     
-    def __init__(self, input_dir: str, output_dir: str, target_resolution: int = 1500):
+    def __init__(self, input_dir: str, output_dir: str, target_resolution: int = 1500, 
+                 segmentation_resolution: int = 2000):
         """
         Initialize the batch processor.
         
         Args:
             input_dir: Directory containing input images
             output_dir: Directory to save processed results (flat structure)
-            target_resolution: Target resolution for processed images and annotations (default: 1500)
+            target_resolution: Target resolution for output images and annotations (default: 1500)
+            segmentation_resolution: Resolution for segmentation processing (default: 2000, optimally tuned)
         """
         self.input_dir = input_dir
         self.output_dir = output_dir
         self.target_resolution = target_resolution
+        self.segmentation_resolution = segmentation_resolution
         
         # Create output directories for images and annotations
         self.images_dir = os.path.join(self.output_dir, "images")
@@ -76,7 +79,8 @@ class BatchMyotubeProcessor:
                 "year": datetime.datetime.now().year,
                 "contributor": "BatchMyotubeProcessor",
                 "date_created": datetime.datetime.now().isoformat(),
-                "target_resolution": target_resolution,
+                "output_resolution": target_resolution,
+                "segmentation_resolution": segmentation_resolution,
                 "polygon_mode": "all_contours"
             },
             "licenses": [
@@ -198,17 +202,17 @@ class BatchMyotubeProcessor:
         print(f"Processing: {os.path.basename(image_path)}")
         
         try:
-            # Initialize segmenter and run segmentation
+            # Initialize segmenter and run segmentation at optimal resolution (2000px)
             segmenter = MyotubeSegmenter(image_path)
-            results = segmenter.run_segmentation(target_size=self.target_resolution)
+            results = segmenter.run_segmentation(target_size=self.segmentation_resolution)
             
-            # Load the original image for saving
+            # Load the original image for output scaling
             original_image = cv2.imread(image_path)
             if original_image is None:
                 print(f"Warning: Could not load image {image_path}")
                 return None
             
-            # Resize image to target resolution
+            # Scale original image directly to target output resolution (avoid double-scaling)
             processed_image = self.resize_image_to_target(original_image, self.target_resolution)
             
             # Generate unique output filename (include subdirectory to avoid conflicts)
@@ -232,8 +236,8 @@ class BatchMyotubeProcessor:
             # Get processed image dimensions
             processed_height, processed_width = processed_image.shape[:2]
             
-            # Calculate scale factor from segmentation processing to target resolution
-            # segmenter.original_image is the image used for processing
+            # Calculate scale factor from segmentation resolution to target output resolution
+            # segmenter.original_image is the image used for segmentation (at segmentation_resolution)
             if segmenter.original_image is None:
                 print(f"Warning: Segmenter original image is None for {image_path}")
                 return None
@@ -245,7 +249,7 @@ class BatchMyotubeProcessor:
             # Process masks and create annotations
             annotations = []
             for mask_id, mask in enumerate(segmenter.instance_masks):
-                # Scale mask to target resolution
+                # Scale mask from segmentation resolution to target output resolution
                 scaled_mask = cv2.resize(
                     mask.astype(np.uint8), 
                     (processed_width, processed_height), 
@@ -300,7 +304,8 @@ class BatchMyotubeProcessor:
                     "total_myotubes": len(segmenter.instance_masks),
                     "valid_annotations": len(annotations),
                     "total_polygon_parts": sum(len(ann["segmentation"]) for ann in annotations),
-                    "processed_resolution": f"{processed_width}x{processed_height}"
+                    "segmentation_resolution": f"{seg_width}x{seg_height}",
+                    "output_resolution": f"{processed_width}x{processed_height}"
                 }
             }
             
@@ -316,7 +321,8 @@ class BatchMyotubeProcessor:
         print("Starting batch processing...")
         print(f"Input directory: {self.input_dir} (including subdirectories)")
         print(f"Output directory: {self.output_dir} (flat structure)")
-        print(f"Target resolution: {self.target_resolution}px")
+        print(f"Segmentation resolution: {self.segmentation_resolution}px (optimal tuned parameters)")
+        print(f"Output resolution: {self.target_resolution}px (training/inference resolution)")
         print(f"Polygon mode: all_contours (preserves complete myotube structure)")
         print("="*60)
         
@@ -355,7 +361,7 @@ class BatchMyotubeProcessor:
                 print(f"  ✓ {result['stats']['total_myotubes']} myotubes, "
                       f"{result['stats']['valid_annotations']} annotations, "
                       f"{result['stats']['total_polygon_parts']} polygon parts, "
-                      f"resolution: {result['stats']['processed_resolution']}")
+                      f"seg: {result['stats']['segmentation_resolution']} → out: {result['stats']['output_resolution']}")
         
         # Save COCO format file
         print(f"\nSaving COCO dataset to: {self.coco_file_path}")
@@ -377,7 +383,8 @@ class BatchMyotubeProcessor:
         print(f"Average polygon parts per myotube: {total_polygon_parts/total_myotubes:.1f}")
         print(f"Images saved to: {self.images_dir}")
         print(f"COCO annotations saved to: {self.coco_file_path}")
-        print(f"Target resolution: {self.target_resolution}px")
+        print(f"Segmentation resolution: {self.segmentation_resolution}px (processing)")
+        print(f"Output resolution: {self.target_resolution}px (images & annotations)")
         
         print("\n✅ Complete structural preservation mode")
         print("   • All contour parts included for each myotube")
@@ -457,7 +464,9 @@ def main():
     parser.add_argument("--output_dir", "-o", default="../myotube_batch_output",
                        help="Directory to save processed results (default: ../myotube_batch_output)")
     parser.add_argument("--resolution", "-r", type=int, default=1500,
-                       help="Target resolution for processed images and annotations (default: 1500)")
+                       help="Output resolution for processed images and annotations (default: 1500)")
+    parser.add_argument("--seg_resolution", "-s", type=int, default=2000,
+                       help="Segmentation processing resolution with tuned parameters (default: 2000)")
     
     args = parser.parse_args()
     
@@ -474,7 +483,8 @@ def main():
     processor = BatchMyotubeProcessor(
         input_dir=args.input_dir,
         output_dir=args.output_dir,
-        target_resolution=args.resolution
+        target_resolution=args.resolution,
+        segmentation_resolution=args.seg_resolution
     )
     
     processor.process_batch()
