@@ -42,22 +42,21 @@ def run_demo_on_image(image_name, image_id, images_dir, output_dir, config_file,
     
     # Construct paths
     input_path = os.path.join(images_dir, image_name)
-    image_output_dir = os.path.join(output_dir, f"image_{image_id:03d}_{Path(image_name).stem}")
     
     # Check if input image exists
     if not os.path.exists(input_path):
         print(f"  ⚠️  Image not found: {input_path}")
         return False
     
-    # Create output directory
-    os.makedirs(image_output_dir, exist_ok=True)
+    # Create output directory (all images will use the same directory)
+    os.makedirs(output_dir, exist_ok=True)
     
     # Construct demo command
     cmd = [
         sys.executable, "demo.py",
         "--config-file", config_file,
         "--input", input_path,
-        "--output", image_output_dir,
+        "--output", output_dir,
         "--confidence-threshold", str(confidence_threshold),
         "--opts", "MODEL.WEIGHTS", model_weights
     ]
@@ -188,8 +187,8 @@ def main():
     print(f"🎯 Stage:      {args.stage}")
     
     if successful > 0:
-        print(f"\n🎯 Results saved to individual folders in: {output_dir}")
-        print(f"   Each image gets its own folder: image_XXX_filename/")
+        print(f"\n🎯 Results saved to: {output_dir}")
+        print(f"   All images in the same folder with unique filenames")
         print(f"   Model used: {stage_config['description']}")
     
     return 0 if failed == 0 else 1
