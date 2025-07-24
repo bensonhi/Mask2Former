@@ -463,7 +463,7 @@ def main():
                        help="Directory containing input images (default: max_projected_images)")
     parser.add_argument("--output_dir", "-o", default="./myotube_batch_output",
                        help="Directory to save processed results (default: ./myotube_batch_output)")
-    parser.add_argument("--resolution", "-r", type=int, default=1500,
+    parser.add_argument("--resolution", "-r", type=int, default=9000,
                        help="Output resolution for processed images and annotations (default: 9000)")
     parser.add_argument("--seg_resolution", "-s", type=int, default=2000,
                        help="Segmentation processing resolution with tuned parameters (default: 2000)")
