@@ -107,21 +107,7 @@ def convert_instance_to_panoptic(instance_json, image_dir, pan_mask_dir, panopti
             f"{os.path.splitext(img['file_name'])[0]}.png"
         )
         # Save panoptic mask as uint16 PNG
-        def id2rgb(segm_id):
-            r = segm_id % 256
-            g = (segm_id // 256) % 256
-            b = (segm_id // 256 // 256) % 256
-            return [r, g, b]
-
-        # Convert the uint16 mask to RGB
-        pan_mask_rgb = np.zeros((height, width, 3), dtype=np.uint8)
-        for segm_id in np.unique(pan_mask):
-            if segm_id == 0:
-                continue  # background
-            mask = pan_mask == segm_id
-            pan_mask_rgb[mask] = id2rgb(segm_id)
-            
-        success = cv2.imwrite(pan_mask_path, pan_mask_rgb)
+        success = cv2.imwrite(pan_mask_path, pan_mask.astype(np.uint16))
         if not success:
             print(f"Warning: Failed to save panoptic mask: {pan_mask_path}")
         # Convert PNG file extension to JPG for Detectron2 compatibility
