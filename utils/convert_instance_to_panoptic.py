@@ -109,11 +109,16 @@ def convert_instance_to_panoptic(instance_json, image_dir, pan_mask_dir, panopti
         success = cv2.imwrite(pan_mask_path, pan_mask.astype(np.uint16))
         if not success:
             print(f"Warning: Failed to save panoptic mask: {pan_mask_path}")
+        # Convert PNG file extension to JPG for Detectron2 compatibility
+        img_file_name = img["file_name"]
+        if img_file_name.endswith('.png'):
+            img_file_name = img_file_name.replace('.png', '.jpg')
+        
         panoptic_json["images"].append({
             "id": img_id,
             "width": width,
             "height": height,
-            "file_name": img["file_name"]
+            "file_name": img_file_name
         })
         panoptic_json["annotations"].append({
             "image_id": img_id,
@@ -130,6 +135,72 @@ def convert_instance_to_panoptic(instance_json, image_dir, pan_mask_dir, panopti
     print(f"  Total segments: {total_segments}")
     print(f"  Avg segments per image: {total_segments/len(panoptic_json['images']):.1f}")
     print(f"  Panoptic masks saved to: {pan_mask_dir}")
+
+
+def update_instance_json_extensions(input_dir):
+    """
+    Update instance JSON files to reference JPG instead of PNG files.
+    
+    Args:
+        input_dir: Directory containing instance annotation JSON files
+    """
+    json_files = [
+        "algorithmic_train_annotations.json", "algorithmic_test_annotations.json",
+        "manual_train_annotations.json", "manual_test_annotations.json"
+    ]
+    
+    for json_file in json_files:
+        json_path = os.path.join(input_dir, json_file)
+        if not os.path.exists(json_path):
+            continue
+            
+        print(f"   📝 Updating {json_file} to reference JPG files...")
+        
+        with open(json_path, 'r') as f:
+            data = json.load(f)
+        
+        # Update image file_name fields from .png to .jpg
+        updated_count = 0
+        for image in data.get('images', []):
+            if image['file_name'].endswith('.png'):
+                image['file_name'] = image['file_name'].replace('.png', '.jpg')
+                updated_count += 1
+        
+        # Save the updated JSON
+        with open(json_path, 'w') as f:
+            json.dump(data, f, indent=2)
+        
+        print(f"      ✅ Updated {updated_count} image references")
+
+
+def rename_png_to_jpg(image_dir):
+    """
+    Rename all PNG image files to JPG for Detectron2 panoptic compatibility.
+    
+    Args:
+        image_dir: Directory containing the images
+    """
+    import shutil
+    
+    png_files = [f for f in os.listdir(image_dir) if f.endswith('.png')]
+    
+    if not png_files:
+        print(f"No PNG files found in {image_dir}")
+        return
+        
+    print(f"🔄 Renaming {len(png_files)} PNG files to JPG in {image_dir}")
+    
+    for png_file in png_files:
+        png_path = os.path.join(image_dir, png_file)
+        jpg_file = png_file.replace('.png', '.jpg')
+        jpg_path = os.path.join(image_dir, jpg_file)
+        
+        # Simply rename the file (don't convert format)
+        shutil.move(png_path, jpg_path)
+        print(f"   📁 {png_file} → {jpg_file}")
+    
+    print(f"✅ Renamed {len(png_files)} files from PNG to JPG")
+
 
 def main():
     parser = argparse.ArgumentParser(description="Convert COCO instance to panoptic format for myotube task.")
@@ -155,8 +226,16 @@ def main():
         convert_instance_to_panoptic(instance_json, args.image_dir, pan_mask_dir, panoptic_json_path)
         splits_processed += 1
     
+    # Update instance JSON files and rename images for Detectron2 compatibility
+    if splits_processed > 0:
+        print(f"\n🔄 Converting image file extensions for Detectron2 compatibility...")
+        update_instance_json_extensions(args.input_dir)
+        rename_png_to_jpg(args.image_dir)
+    
     print(f"\n✅ Conversion complete! Processed {splits_processed} annotation files.")
     print(f"Panoptic data saved to: {args.output_dir}")
+    print(f"✅ All JSON files updated and images renamed for Detectron2 compatibility")
+    print(f"✅ Both instance and panoptic training will now work with JPG files")
 
 if __name__ == "__main__":
     main() 
