@@ -22,9 +22,6 @@ MODEL:
     TEST:
       OBJECT_MASK_THRESHOLD: 0.4  # Higher threshold for quality manual annotations
       OVERLAP_THRESHOLD: 0.0  # Zero overlap - each myotube is completely distinct
-      PANOPTIC_ON: False  # Temporarily disable panoptic evaluation to debug
-      INSTANCE_ON: True   # Enable instance evaluation  
-      SEMANTIC_ON: False  # Disable semantic evaluation - we don't have sem_seg ground truth
 
 # Dataset configuration for Stage 2 (manual annotations)
 DATASETS:
