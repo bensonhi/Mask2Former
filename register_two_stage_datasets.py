@@ -92,6 +92,15 @@ def _register_panoptic_datasets(panoptic_dir, images_dir):
     """Register panoptic segmentation datasets."""
     registered = []
     
+    # Define metadata for myotube panoptic segmentation
+    # Category ID 1 = myotube (thing), Category ID 0 = background (stuff)
+    panoptic_metadata = {
+        "thing_classes": ["myotube"],
+        "stuff_classes": ["background"],
+        "thing_dataset_id_to_contiguous_id": {1: 0},  # Map category 1 -> 0 
+        "stuff_dataset_id_to_contiguous_id": {0: 0},  # Map category 0 -> 0
+    }
+    
     # Stage 1: Algorithmic panoptic annotations
     print(f"   📊 Stage 1: Algorithmic Panoptic Annotations")
     stage1_train_json = os.path.join(panoptic_dir, "algorithmic_train_panoptic.json")
@@ -100,7 +109,7 @@ def _register_panoptic_datasets(panoptic_dir, images_dir):
     stage1_val_masks = os.path.join(panoptic_dir, "algorithmic_test_panoptic_masks")
     
     if os.path.exists(stage1_train_json) and os.path.exists(stage1_train_masks):
-        register_coco_panoptic("myotube_stage1_panoptic_train", {}, images_dir, stage1_train_masks, stage1_train_json)
+        register_coco_panoptic("myotube_stage1_panoptic_train", panoptic_metadata, images_dir, stage1_train_masks, stage1_train_json)
         registered.append("myotube_stage1_panoptic_train")
         print(f"      ✅ Registered myotube_stage1_panoptic_train")
         
@@ -113,13 +122,13 @@ def _register_panoptic_datasets(panoptic_dir, images_dir):
         print(f"      ❌ Algorithmic panoptic train files not found")
     
     if os.path.exists(stage1_val_json) and os.path.exists(stage1_val_masks):
-        register_coco_panoptic("myotube_stage1_panoptic_val", {}, images_dir, stage1_val_masks, stage1_val_json)
+        register_coco_panoptic("myotube_stage1_panoptic_val", panoptic_metadata, images_dir, stage1_val_masks, stage1_val_json)
         registered.append("myotube_stage1_panoptic_val")
         print(f"      ✅ Registered myotube_stage1_panoptic_val")
     else:
         print(f"      ⚠️  Algorithmic panoptic val files not found, using train for validation")
         if os.path.exists(stage1_train_json) and os.path.exists(stage1_train_masks):
-            register_coco_panoptic("myotube_stage1_panoptic_val", {}, images_dir, stage1_train_masks, stage1_train_json)
+            register_coco_panoptic("myotube_stage1_panoptic_val", panoptic_metadata, images_dir, stage1_train_masks, stage1_train_json)
             registered.append("myotube_stage1_panoptic_val")
     
     # Stage 2: Manual panoptic annotations
@@ -130,7 +139,7 @@ def _register_panoptic_datasets(panoptic_dir, images_dir):
     stage2_val_masks = os.path.join(panoptic_dir, "manual_test_panoptic_masks")
     
     if os.path.exists(stage2_train_json) and os.path.exists(stage2_train_masks):
-        register_coco_panoptic("myotube_stage2_panoptic_train", {}, images_dir, stage2_train_masks, stage2_train_json)
+        register_coco_panoptic("myotube_stage2_panoptic_train", panoptic_metadata, images_dir, stage2_train_masks, stage2_train_json)
         registered.append("myotube_stage2_panoptic_train")
         print(f"      ✅ Registered myotube_stage2_panoptic_train")
         
@@ -143,13 +152,13 @@ def _register_panoptic_datasets(panoptic_dir, images_dir):
         print(f"      ❌ Manual panoptic train files not found")
     
     if os.path.exists(stage2_val_json) and os.path.exists(stage2_val_masks):
-        register_coco_panoptic("myotube_stage2_panoptic_val", {}, images_dir, stage2_val_masks, stage2_val_json)
+        register_coco_panoptic("myotube_stage2_panoptic_val", panoptic_metadata, images_dir, stage2_val_masks, stage2_val_json)
         registered.append("myotube_stage2_panoptic_val")
         print(f"      ✅ Registered myotube_stage2_panoptic_val")
     else:
         print(f"      ⚠️  Manual panoptic val files not found, using train for validation")
         if os.path.exists(stage2_train_json) and os.path.exists(stage2_train_masks):
-            register_coco_panoptic("myotube_stage2_panoptic_val", {}, images_dir, stage2_train_masks, stage2_train_json)
+            register_coco_panoptic("myotube_stage2_panoptic_val", panoptic_metadata, images_dir, stage2_train_masks, stage2_train_json)
             registered.append("myotube_stage2_panoptic_val")
     
     return registered
