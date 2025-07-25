@@ -2,14 +2,16 @@
 """
 Batch Demo Script for Myotube Test Images
 
-Automatically runs demo.py on test images for specified stage.
+Automatically runs demo.py on test images for specified stage and mode.
 
 Usage:
     cd demo
-    python batch_demo.py --stage 1                    # Test Stage 1 on algorithmic test set
-    python batch_demo.py --stage 2                    # Test Stage 2 on algorithmic test set (default)
-    python batch_demo.py --stage 2 --test-manual      # Test Stage 2 on manual test set
-    python batch_demo.py --confidence-threshold 0.3   # Custom confidence threshold
+    python batch_demo.py --stage 1                                  # Test Stage 1 instance on algorithmic test set
+    python batch_demo.py --stage 2                                  # Test Stage 2 instance on algorithmic test set (default)
+    python batch_demo.py --stage 2 --mode panoptic                  # Test Stage 2 panoptic on algorithmic test set
+    python batch_demo.py --stage 2 --test-manual                    # Test Stage 2 instance on manual test set
+    python batch_demo.py --stage 2 --mode panoptic --test-manual    # Test Stage 2 panoptic on manual test set
+    python batch_demo.py --confidence-threshold 0.3                 # Custom confidence threshold
 """
 
 import argparse
@@ -79,31 +81,53 @@ def run_demo_on_image(image_name, image_id, images_dir, output_dir, config_file,
         print(f"  ❌ Exception: {e}")
         return False
 
-def get_stage_config(stage, test_manual=False):
-    """Get configuration for specified stage."""
+def get_stage_config(stage, test_manual=False, mode="instance"):
+    """Get configuration for specified stage and mode."""
     if stage == 1:
         annotations_file = "../myotube_batch_output/annotations/manual_test_annotations.json" if test_manual else "../myotube_batch_output/annotations/algorithmic_test_annotations.json"
         output_suffix = "_manual" if test_manual else "_algorithmic"
         test_type = "Manual Test" if test_manual else "Algorithmic Test"
         
+        if mode == "panoptic":
+            config_file = "../stage1_panoptic_config.yaml"
+            model_weights = "../output_stage1_panoptic_algorithmic/model_final.pth"
+            output_dir = f"./batch_demo_output_stage1_panoptic{output_suffix}"
+            description = f"Stage 1 Panoptic (Algorithmic Model) on {test_type}"
+        else:  # instance
+            config_file = "../stage1_config.yaml"
+            model_weights = "../output_stage1_algorithmic/model_final.pth"
+            output_dir = f"./batch_demo_output_stage1{output_suffix}"
+            description = f"Stage 1 Instance (Algorithmic Model) on {test_type}"
+        
         return {
             "annotations_file": annotations_file,
-            "config_file": "../stage1_config.yaml",
-            "model_weights": "../output_stage1_algorithmic/model_final.pth",
-            "output_dir": f"./batch_demo_output_stage1{output_suffix}",
-            "description": f"Stage 1 (Algorithmic Model) on {test_type}"
+            "config_file": config_file,
+            "model_weights": model_weights,
+            "output_dir": output_dir,
+            "description": description
         }
     elif stage == 2:
         annotations_file = "../myotube_batch_output/annotations/manual_test_annotations.json" if test_manual else "../myotube_batch_output/annotations/algorithmic_test_annotations.json"
         output_suffix = "_manual" if test_manual else "_algorithmic"
         test_type = "Manual Test" if test_manual else "Algorithmic Test"
         
+        if mode == "panoptic":
+            config_file = "../stage2_panoptic_config.yaml"
+            model_weights = "../output_stage2_panoptic_manual/model_final.pth"
+            output_dir = f"./batch_demo_output_stage2_panoptic{output_suffix}"
+            description = f"Stage 2 Panoptic (Manual Fine-tuned Model) on {test_type}"
+        else:  # instance
+            config_file = "../stage2_config.yaml"
+            model_weights = "../output_stage2_manual/model_final.pth"
+            output_dir = f"./batch_demo_output_stage2{output_suffix}"
+            description = f"Stage 2 Instance (Manual Fine-tuned Model) on {test_type}"
+        
         return {
             "annotations_file": annotations_file,
-            "config_file": "../stage2_config.yaml", 
-            "model_weights": "../output_stage2_manual/model_final.pth",
-            "output_dir": f"./batch_demo_output_stage2{output_suffix}",
-            "description": f"Stage 2 (Manual Fine-tuned Model) on {test_type}"
+            "config_file": config_file,
+            "model_weights": model_weights,
+            "output_dir": output_dir,
+            "description": description
         }
     else:
         raise ValueError(f"Invalid stage: {stage}. Must be 1 or 2.")
@@ -115,6 +139,8 @@ def main():
     parser = argparse.ArgumentParser(description="Batch demo for myotube segmentation")
     parser.add_argument("--stage", type=int, choices=[1, 2], default=2,
                        help="Stage to test (1: algorithmic model, 2: manual fine-tuned model)")
+    parser.add_argument("--mode", choices=["instance", "panoptic"], default="instance",
+                       help="Segmentation mode (instance or panoptic)")
     parser.add_argument("--test-manual", action="store_true",
                        help="Use manual test annotations instead of algorithmic test annotations")
     parser.add_argument("--confidence-threshold", type=float, default=0.5,
@@ -123,7 +149,7 @@ def main():
     args = parser.parse_args()
     
     # Get stage-specific configuration
-    stage_config = get_stage_config(args.stage, args.test_manual)
+    stage_config = get_stage_config(args.stage, args.test_manual, args.mode)
     
     annotations_file = stage_config["annotations_file"]
     images_dir = "../myotube_batch_output/images"
@@ -134,6 +160,7 @@ def main():
     print(f"🎭 Batch Myotube Demo Processing - {stage_config['description']}")
     print("="*60)
     print(f"Stage:       {args.stage}")
+    print(f"Mode:        {args.mode}")
     print(f"Test Set:    {'Manual' if args.test_manual else 'Algorithmic'}")
     print(f"Annotations: {annotations_file}")
     print(f"Images dir:  {images_dir}")
@@ -185,6 +212,7 @@ def main():
     print(f"❌ Failed:     {failed}")
     print(f"📁 Output:     {output_dir}")
     print(f"🎯 Stage:      {args.stage}")
+    print(f"🎯 Mode:       {args.mode}")
     
     if successful > 0:
         print(f"\n🎯 Results saved to: {output_dir}")
