@@ -100,10 +100,11 @@ def convert_instance_to_panoptic(instance_json, image_dir, pan_mask_dir, panopti
                 "iscrowd": 0
             })
             segm_id += 1
-        # Generate panoptic mask filename (no prefix)
+        # Generate panoptic mask filename (same base name as image, different extension)
+        # Detectron2 expects image.jpg and mask.png to have the same base filename
         pan_mask_path = os.path.join(
             pan_mask_dir,
-            f"{os.path.splitext(img['file_name'])[0]}_panoptic.png"
+            f"{os.path.splitext(img['file_name'])[0]}.png"
         )
         # Save panoptic mask as uint16 PNG
         success = cv2.imwrite(pan_mask_path, pan_mask.astype(np.uint16))
