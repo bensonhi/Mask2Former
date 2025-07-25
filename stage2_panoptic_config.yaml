@@ -1,0 +1,82 @@
+# Stage 2 Panoptic Configuration: Manual Annotations Fine-tuning
+# Fine-tuning panoptic config for high-quality manual annotations
+# 
+# STAGE 2 DATASET: ~2 images with high-quality manual annotations  
+# - Training: 400 iterations for precise fine-tuning
+# - Higher learning rate for effective adaptation to manual annotations
+# - Loads weights from Stage 1 panoptic checkpoint
+
+_BASE_: configs/coco/panoptic-segmentation/swin/maskformer2_swin_base_384_bs16_50ep.yaml
+
+# Model configuration
+MODEL:
+  # Will be set dynamically to Stage 1 panoptic checkpoint
+  WEIGHTS: ""  # Set by training script to stage1 panoptic checkpoint
+  
+  SEM_SEG_HEAD:
+    # Single class: myotube (+ background = 2 total classes for panoptic)
+    NUM_CLASSES: 2
+  
+  # Fine-tuned settings for precise manual annotations
+  MASK_FORMER:
+    TEST:
+      OBJECT_MASK_THRESHOLD: 0.4  # Higher threshold for quality manual annotations
+      OVERLAP_THRESHOLD: 0.0  # Zero overlap - each myotube is completely distinct
+
+# Dataset configuration for Stage 2 (manual annotations)
+DATASETS:
+  TRAIN: ("myotube_stage2_panoptic_train",)
+  TEST: ("myotube_stage2_panoptic_val",)
+
+# Stage 2 Solver: Fine-tuning settings for manual annotations (2 images)
+SOLVER:
+  IMS_PER_BATCH: 1  # Single image batch (already optimized for memory)
+  BASE_LR: 0.00008  # Slightly higher LR for shorter training
+  MAX_ITER: 400     # Reduced for 2 images: ~200 epochs (2 images × 200 = 400 iter)
+  STEPS: (280, 360) # LR drops at 70% and 90% of 400 iterations
+  WARMUP_FACTOR: 0.1
+  WARMUP_ITERS: 20  # Reduced warmup for shorter training
+  WEIGHT_DECAY: 0.01  # Reduced weight decay for fine-tuning
+  OPTIMIZER: "ADAMW"
+  BACKBONE_MULTIPLIER: 0.03  # Very conservative backbone for precise tuning
+  CLIP_GRADIENTS:
+    ENABLED: True
+    CLIP_TYPE: "full_model"
+    CLIP_VALUE: 0.003  # Very small gradient clipping for precise tuning
+    NORM_TYPE: 2.0
+  AMP:
+    ENABLED: True
+
+# Input configuration optimized for manual annotations
+INPUT:
+  IMAGE_SIZE: 1500  # Match original resolution for precise manual annotations
+  MIN_SCALE: 0.9    # Very conservative scaling for precise boundaries
+  MAX_SCALE: 1.1    # Minimal scaling to preserve manual annotation precision
+  FORMAT: "RGB"
+  DATASET_MAPPER_NAME: "coco_panoptic_lsj"
+  
+  # Enhanced but careful augmentations for manual annotations
+  CROP:
+    ENABLED: True
+    TYPE: "relative_range"
+    SIZE: [0.2, 1.0]  # Moderate cropping while preserving myotube connectivity
+  
+  # Mild color augmentation to preserve manual annotation integrity
+  COLOR_AUG_SSD: True
+  
+  # All orientations (myotubes in all directions in the image)
+  RANDOM_FLIP: "horizontal"
+
+# Evaluation configuration  
+TEST:
+  EVAL_PERIOD: 80   # More frequent evaluation for shorter training (every 40 epochs)
+
+# Data loader configuration
+DATALOADER:
+  FILTER_EMPTY_ANNOTATIONS: True
+  NUM_WORKERS: 1  # Single worker for high-res images to avoid memory issues
+
+# Output directory for Stage 2 panoptic
+OUTPUT_DIR: "./output_stage2_panoptic_manual"
+
+VERSION: 2 

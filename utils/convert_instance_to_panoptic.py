@@ -17,9 +17,22 @@ import argparse
 from collections import defaultdict
 
 def convert_instance_to_panoptic(instance_json, image_dir, pan_mask_dir, panoptic_json_path):
+    # Validate input files
+    if not os.path.exists(instance_json):
+        print(f"Error: Instance JSON not found: {instance_json}")
+        return
+    if not os.path.exists(image_dir):
+        print(f"Error: Image directory not found: {image_dir}")
+        return
+        
     os.makedirs(pan_mask_dir, exist_ok=True)
-    with open(instance_json, "r") as f:
-        coco = json.load(f)
+    
+    try:
+        with open(instance_json, "r") as f:
+            coco = json.load(f)
+    except json.JSONDecodeError as e:
+        print(f"Error: Invalid JSON file {instance_json}: {e}")
+        return
     images = {img["id"]: img for img in coco["images"]}
     annotations = coco["annotations"]
     anns_per_image = defaultdict(list)
@@ -60,6 +73,17 @@ def convert_instance_to_panoptic(instance_json, image_dir, pan_mask_dir, panopti
                 mask = mask.astype(np.bool_)
             else:
                 continue
+            # Check for overlaps with existing segments
+            overlap_region = (pan_mask > 0) & mask
+            if np.any(overlap_region):
+                print(f"Warning: Segment {segm_id} overlaps with existing segments in image {img_id}")
+                # Only assign to non-overlapping regions
+                mask = mask & (pan_mask == 0)
+            # Skip if mask becomes empty after overlap removal
+            if not np.any(mask):
+                print(f"  Skipping segment {segm_id}: empty after overlap removal")
+                continue
+                
             pan_mask[mask] = segm_id
             area = int(np.sum(mask))
             y_indices, x_indices = np.where(mask)
@@ -76,18 +100,15 @@ def convert_instance_to_panoptic(instance_json, image_dir, pan_mask_dir, panopti
                 "iscrowd": 0
             })
             segm_id += 1
-        # Add prefix to mask file name based on split type
-        if "manual" in os.path.basename(instance_json):
-            prefix = "manual_"
-        elif "algorithmic" in os.path.basename(instance_json):
-            prefix = "algorithmic_"
-        else:
-            prefix = ""
+        # Generate panoptic mask filename (no prefix)
         pan_mask_path = os.path.join(
             pan_mask_dir,
-            f"{prefix}{os.path.splitext(img['file_name'])[0]}_panoptic.png"
+            f"{os.path.splitext(img['file_name'])[0]}_panoptic.png"
         )
-        cv2.imwrite(pan_mask_path, pan_mask.astype(np.uint16))
+        # Save panoptic mask as uint16 PNG
+        success = cv2.imwrite(pan_mask_path, pan_mask.astype(np.uint16))
+        if not success:
+            print(f"Warning: Failed to save panoptic mask: {pan_mask_path}")
         panoptic_json["images"].append({
             "id": img_id,
             "width": width,
@@ -101,7 +122,14 @@ def convert_instance_to_panoptic(instance_json, image_dir, pan_mask_dir, panopti
         })
     with open(panoptic_json_path, "w") as f:
         json.dump(panoptic_json, f, indent=2)
+    
+    # Print conversion statistics
+    total_segments = sum(len(ann["segments_info"]) for ann in panoptic_json["annotations"])
     print(f"Panoptic conversion complete: {panoptic_json_path}")
+    print(f"  Images: {len(panoptic_json['images'])}")
+    print(f"  Total segments: {total_segments}")
+    print(f"  Avg segments per image: {total_segments/len(panoptic_json['images']):.1f}")
+    print(f"  Panoptic masks saved to: {pan_mask_dir}")
 
 def main():
     parser = argparse.ArgumentParser(description="Convert COCO instance to panoptic format for myotube task.")
@@ -111,16 +139,24 @@ def main():
     args = parser.parse_args()
     os.makedirs(args.output_dir, exist_ok=True)
     # Process all relevant splits for two-stage training
+    splits_processed = 0
     for split in [
         "algorithmic_train_annotations.json", "algorithmic_test_annotations.json",
         "manual_train_annotations.json", "manual_test_annotations.json"
     ]:
         instance_json = os.path.join(args.input_dir, split)
         if not os.path.exists(instance_json):
+            print(f"Skipping {split}: file not found")
             continue
+            
+        print(f"\nProcessing {split}...")
         pan_mask_dir = os.path.join(args.output_dir, split.replace("_annotations.json", "_panoptic_masks"))
         panoptic_json_path = os.path.join(args.output_dir, split.replace("_annotations.json", "_panoptic.json"))
         convert_instance_to_panoptic(instance_json, args.image_dir, pan_mask_dir, panoptic_json_path)
+        splits_processed += 1
+    
+    print(f"\n✅ Conversion complete! Processed {splits_processed} annotation files.")
+    print(f"Panoptic data saved to: {args.output_dir}")
 
 if __name__ == "__main__":
     main() 
