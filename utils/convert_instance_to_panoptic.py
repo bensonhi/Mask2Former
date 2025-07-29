@@ -100,6 +100,17 @@ def convert_instance_to_panoptic(instance_json, image_dir, pan_mask_dir, panopti
                 "iscrowd": 0
             })
             segm_id += 1
+        
+        # Add background segment (category 0) for stuff evaluation
+        background_area = int(np.sum(pan_mask == 0))
+        if background_area > 0:
+            segments_info.append({
+                "id": 0,  # Background segment ID
+                "category_id": 0,  # Background category
+                "area": background_area,
+                "bbox": [0, 0, width, height],  # Full image bbox for background
+                "iscrowd": 0
+            })
         # Generate panoptic mask filename (same base name as image, different extension)
         # Detectron2 expects image.jpg and mask.png to have the same base filename
         pan_mask_path = os.path.join(
@@ -116,9 +127,15 @@ def convert_instance_to_panoptic(instance_json, image_dir, pan_mask_dir, panopti
         
         # Create RGB mask (H, W, 3) uint8 format
         pan_mask_rgb = np.zeros((height, width, 3), dtype=np.uint8)
+        
+        # First, mark all pixels as background (category 0)
+        background_mask = pan_mask == 0
+        pan_mask_rgb[background_mask] = id2rgb(0)  # Background = black (0,0,0)
+        
+        # Then, assign myotube segments
         for segm_id in np.unique(pan_mask):
             if segm_id == 0:
-                continue  # background stays black
+                continue  # background already handled
             mask = pan_mask == segm_id
             pan_mask_rgb[mask] = id2rgb(segm_id)
         
