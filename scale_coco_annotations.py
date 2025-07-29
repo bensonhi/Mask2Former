@@ -20,6 +20,33 @@ import numpy as np
 from tqdm import tqdm
 import cv2
 
+def find_image_file(image_dir, base_filename):
+    """
+    Find image file with various extensions.
+    
+    Args:
+        image_dir: Directory to search in
+        base_filename: Base filename from annotation
+        
+    Returns:
+        Full path to found image file or None
+    """
+    # Try the exact filename first
+    exact_path = os.path.join(image_dir, base_filename)
+    if os.path.exists(exact_path):
+        return exact_path
+    
+    # Try different extensions
+    base_name = os.path.splitext(base_filename)[0]
+    extensions = ['.jpg', '.jpeg', '.png', '.tiff', '.tif', '.bmp']
+    
+    for ext in extensions:
+        test_path = os.path.join(image_dir, base_name + ext)
+        if os.path.exists(test_path):
+            return test_path
+    
+    return None
+
 def get_image_dimensions(image_path):
     """
     Get actual image dimensions from file.
@@ -138,11 +165,14 @@ def scale_coco_annotations(input_json, image_dir, output_json):
         orig_width = img_info['width']
         orig_height = img_info['height']
         
-        # Find actual image file
-        image_path = os.path.join(image_dir, filename)
+        # Find actual image file (try different extensions)
+        image_path = find_image_file(image_dir, filename)
         
-        if not os.path.exists(image_path):
-            print(f"⚠️  Warning: Image not found: {image_path}")
+        if image_path is None:
+            print(f"⚠️  Warning: Image not found: {filename} (tried various extensions)")
+            # Show available files for debugging
+            available_files = [f for f in os.listdir(image_dir) if f.lower().endswith(('.jpg', '.jpeg', '.png', '.tiff', '.tif', '.bmp'))][:5]
+            print(f"   Available image files (first 5): {available_files}")
             skipped_images += 1
             continue
         
@@ -206,11 +236,14 @@ def scale_coco_annotations(input_json, image_dir, output_json):
     scaled_coco_data["info"]["description"] = scaled_coco_data["info"].get("description", "") + " [SCALED TO ACTUAL IMAGE RESOLUTIONS]"
     scaled_coco_data["info"]["date_created"] = scaled_coco_data["info"].get("date_created", "")
     
-    # Save scaled annotations
-    print(f"💾 Saving scaled annotations to: {output_json}")
-    
-    with open(output_json, 'w') as f:
-        json.dump(scaled_coco_data, f, indent=2)
+    # Save scaled annotations (skip if dry run)
+    if output_json is not None:
+        print(f"💾 Saving scaled annotations to: {output_json}")
+        
+        with open(output_json, 'w') as f:
+            json.dump(scaled_coco_data, f, indent=2)
+    else:
+        print(f"🔍 DRY RUN: Would save scaled annotations")
     
     # Print summary
     print(f"\n✅ Scaling complete!")
