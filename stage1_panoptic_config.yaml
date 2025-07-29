@@ -14,8 +14,8 @@ MODEL:
   WEIGHTS: "model_final_54b88a_panoptic.pkl"
   
   SEM_SEG_HEAD:
-    # Single class: myotube (+ background = 2 total classes for panoptic)
-    NUM_CLASSES: 2
+    # Single class: myotube (background is implicit, ID 0)
+    NUM_CLASSES: 1
   
   # Optimize for dense overlapping structures
   MASK_FORMER:
