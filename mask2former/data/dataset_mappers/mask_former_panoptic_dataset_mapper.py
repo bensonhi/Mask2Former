@@ -141,13 +141,6 @@ class MaskFormerPanopticDatasetMapper(MaskFormerSemanticDatasetMapper):
                 )
             )
 
-        aug_input = T.AugInput(image, sem_seg=sem_seg_gt)
-        try:
-            aug_input, transforms = T.apply_transform_gens(self.tfm_gens, aug_input)
-        except:
-            print(aug_input)
-            print(self.tfm_gens)
-            raise
         aug_input, transforms = T.apply_transform_gens(self.tfm_gens, aug_input)
         image = aug_input.image
         if sem_seg_gt is not None:
