@@ -11,6 +11,7 @@ MODEL:
   SEM_SEG_HEAD:
     # Two classes: myotube (thing) + background (stuff)
     NUM_CLASSES: 2
+    IGNORE_VALUE: 255  # Explicit ignore value for crop constraint
   
   # Fine-tuned settings for precise manual annotations
   MASK_FORMER:
@@ -36,31 +37,37 @@ SOLVER:
   WEIGHT_DECAY: 0.005       # Lower regularization for small dataset
   BACKBONE_MULTIPLIER: 0.1  # Slow backbone adaptation
   CLIP_GRADIENTS:
-    CLIP_VALUE: 0.01        # Conservative gradient clipping
+    ENABLED: True
+    CLIP_TYPE: "full_model"
+    CLIP_VALUE: 0.01        # Conservative gradient clipping for fine-tuning
+    NORM_TYPE: 2.0
+  AMP:
+    ENABLED: True           # Memory efficiency for large crops
 
 # Input settings optimized for 9000×9000 myotube fluorescence images
+# NEW: CROP-FIRST-THEN-SCALE approach for maximum detail preservation
 INPUT:
-  # Use MaskFormer dataset mapper for better detail preservation
+  # Use MaskFormer dataset mapper with crop-first modification
   DATASET_MAPPER_NAME: "mask_former_panoptic"
   
-  # Multi-scale training with intelligent resizing
-  MIN_SIZE_TRAIN: [800, 900, 1000, 1100, 1200, 1300]  # Multi-scale for high-res images
-  MAX_SIZE_TRAIN: 1500      # Max dimension to preserve detail
-  MIN_SIZE_TRAIN_SAMPLING: "choice"  # Random choice each epoch
-  
-  # Crop settings for preserving myotube detail
+  # CROP FIRST: More conservative for precious manual annotations
   CROP:
     ENABLED: True
     TYPE: "relative_range"
-    SIZE: [0.5, 1.0]       # Conservative crop for manual data
-    SINGLE_CATEGORY_MAX_AREA: 1.0
+    SIZE: [0.2, 1.0]       # 2700×2700 to 9000×9000 crops - preserve more context for manual data
+    SINGLE_CATEGORY_MAX_AREA: 1.0  # Allow myotubes to fill crop area
+  
+  # THEN SCALE: Multi-scale training on the cropped regions
+  MIN_SIZE_TRAIN: [800, 900, 1000, 1100, 1200, 1300]  # Multi-scale for cropped regions
+  MAX_SIZE_TRAIN: 1500      # Max dimension after scaling
+  MIN_SIZE_TRAIN_SAMPLING: "choice"  # Random choice each epoch
   
   # Minimal augmentation for high-quality manual data
   COLOR_AUG_SSD: True      # Light augmentation for fluorescence robustness
   RANDOM_FLIP: "horizontal"
   FORMAT: "RGB"
   
-  # Critical missing parameters for mask_former_panoptic mapper
+  # Critical parameters for mask_former_panoptic mapper
   SIZE_DIVISIBILITY: 32    # Required for proper model input processing
 
 # Evaluation settings

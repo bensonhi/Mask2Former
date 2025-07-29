@@ -56,6 +56,55 @@ class MaskFormerPanopticDatasetMapper(MaskFormerSemanticDatasetMapper):
             size_divisibility=size_divisibility,
         )
 
+    @classmethod
+    def from_config(cls, cfg, is_train=True):
+        from detectron2.projects.point_rend import ColorAugSSDTransform
+        from detectron2.data import MetadataCatalog
+        
+        # Build augmentation with CROP-FIRST-THEN-SCALE order for high-res images
+        augs = []
+        
+        # 1. CROP FIRST at full resolution (for 9000×9000 myotube images)
+        if cfg.INPUT.CROP.ENABLED:
+            augs.append(
+                T.RandomCrop_CategoryAreaConstraint(
+                    cfg.INPUT.CROP.TYPE,
+                    cfg.INPUT.CROP.SIZE,
+                    cfg.INPUT.CROP.SINGLE_CATEGORY_MAX_AREA,
+                    cfg.MODEL.SEM_SEG_HEAD.IGNORE_VALUE,
+                )
+            )
+        
+        # 2. THEN SCALE the cropped region (preserves maximum detail)
+        augs.append(
+            T.ResizeShortestEdge(
+                cfg.INPUT.MIN_SIZE_TRAIN,
+                cfg.INPUT.MAX_SIZE_TRAIN,
+                cfg.INPUT.MIN_SIZE_TRAIN_SAMPLING,
+            )
+        )
+        
+        # 3. Color augmentation after geometric transforms
+        if cfg.INPUT.COLOR_AUG_SSD:
+            augs.append(ColorAugSSDTransform(img_format=cfg.INPUT.FORMAT))
+            
+        # 4. Random flip last
+        augs.append(T.RandomFlip())
+
+        # Assume always applies to the training set.
+        dataset_names = cfg.DATASETS.TRAIN
+        meta = MetadataCatalog.get(dataset_names[0])
+        ignore_label = meta.ignore_label
+
+        ret = {
+            "is_train": is_train,
+            "augmentations": augs,
+            "image_format": cfg.INPUT.FORMAT,
+            "ignore_label": ignore_label,
+            "size_divisibility": cfg.INPUT.SIZE_DIVISIBILITY,
+        }
+        return ret
+
     def __call__(self, dataset_dict):
         """
         Args:
