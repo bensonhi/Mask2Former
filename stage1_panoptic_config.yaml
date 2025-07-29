@@ -69,7 +69,7 @@ INPUT:
 
 # Evaluation settings
 TEST:
-  EVAL_PERIOD: 225         # Evaluate every 225 iterations (~5 epochs)
+  EVAL_PERIOD: 900         # Evaluate every 900 iterations
 
 # Data loading
 DATALOADER:
