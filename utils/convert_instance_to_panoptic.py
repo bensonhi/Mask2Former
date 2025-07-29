@@ -48,13 +48,6 @@ def convert_instance_to_panoptic(instance_json, image_dir, pan_mask_dir, panopti
                 "supercategory": "cell",
                 "isthing": 1,
                 "color": [255, 0, 0]
-            },
-            {
-                "id": 0,
-                "name": "background",
-                "supercategory": "background",
-                "isthing": 0,
-                "color": [0, 0, 0]
             }
         ]
     }
@@ -106,10 +99,28 @@ def convert_instance_to_panoptic(instance_json, image_dir, pan_mask_dir, panopti
             pan_mask_dir,
             f"{os.path.splitext(img['file_name'])[0]}.png"
         )
-        # Save panoptic mask as uint16 PNG
-        success = cv2.imwrite(pan_mask_path, pan_mask.astype(np.uint16))
+        # Convert panoptic mask to RGB format for panopticapi compatibility
+        def id2rgb(segm_id):
+            """Convert segment ID to RGB color encoding."""
+            r = segm_id % 256
+            g = (segm_id // 256) % 256
+            b = (segm_id // 256 // 256) % 256
+            return [r, g, b]
+        
+        # Create RGB mask (H, W, 3) uint8 format
+        pan_mask_rgb = np.zeros((height, width, 3), dtype=np.uint8)
+        for segm_id in np.unique(pan_mask):
+            if segm_id == 0:
+                continue  # background stays black
+            mask = pan_mask == segm_id
+            pan_mask_rgb[mask] = id2rgb(segm_id)
+        
+        # Save panoptic mask as RGB PNG
+        success = cv2.imwrite(pan_mask_path, pan_mask_rgb)
         if not success:
             print(f"Warning: Failed to save panoptic mask: {pan_mask_path}")
+        else:
+            print(f"  ✓ Saved RGB panoptic mask: {os.path.basename(pan_mask_path)} ({np.unique(pan_mask).max()} segments)")
         # Convert PNG file extension to JPG for Detectron2 compatibility
         img_file_name = img["file_name"]
         if img_file_name.endswith('.png'):
