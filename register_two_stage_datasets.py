@@ -139,12 +139,12 @@ def _register_panoptic_datasets(panoptic_dir, images_dir):
     registered = []
     
     # Define metadata for myotube panoptic segmentation
-    # Category ID 1 = myotube (thing), background is implicit (ID 0)
+    # Category ID 1 = myotube (thing), Category ID 0 = background (stuff)
     panoptic_metadata = {
         "thing_classes": ["myotube"],
-        "stuff_classes": [],  # No explicit stuff classes, background is implicit
+        "stuff_classes": ["background"],
         "thing_dataset_id_to_contiguous_id": {1: 0},  # Map category 1 -> 0 
-        "stuff_dataset_id_to_contiguous_id": {},  # Empty dict for no stuff classes
+        "stuff_dataset_id_to_contiguous_id": {0: 0},  # Map category 0 -> 0
     }
     
     # Note: We pass the corresponding instance JSON files as the 6th parameter

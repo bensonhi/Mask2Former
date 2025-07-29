@@ -48,6 +48,13 @@ def convert_instance_to_panoptic(instance_json, image_dir, pan_mask_dir, panopti
                 "supercategory": "cell",
                 "isthing": 1,
                 "color": [255, 0, 0]
+            },
+            {
+                "id": 0,
+                "name": "background",
+                "supercategory": "background", 
+                "isthing": 0,
+                "color": [0, 0, 0]
             }
         ]
     }

@@ -14,8 +14,8 @@ MODEL:
   WEIGHTS: ""  # Set by training script to stage1 panoptic checkpoint
   
   SEM_SEG_HEAD:
-    # Single class: myotube (background is implicit, ID 0)
-    NUM_CLASSES: 1
+    # Two classes: myotube (thing) + background (stuff)
+    NUM_CLASSES: 2
   
   # Fine-tuned settings for precise manual annotations
   MASK_FORMER:
