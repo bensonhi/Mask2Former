@@ -1,17 +1,12 @@
-# Stage 2 Panoptic Configuration: Manual Annotations Fine-tuning
-# Fine-tuning panoptic config for high-quality manual annotations
-# 
-# STAGE 2 DATASET: ~2 images with high-quality manual annotations  
-# - Training: 400 iterations for precise fine-tuning
-# - Higher learning rate for effective adaptation to manual annotations
-# - Loads weights from Stage 1 panoptic checkpoint
+# Configuration for Stage 2: Manual Panoptic Fine-tuning
+# Based on Swin-Base fine-tuning on high-quality manual annotations
 
 _BASE_: configs/coco/panoptic-segmentation/swin/maskformer2_swin_base_384_bs16_50ep.yaml
 
 # Model configuration
 MODEL:
-  # Will be set dynamically to Stage 1 panoptic checkpoint
-  WEIGHTS: ""  # Set by training script to stage1 panoptic checkpoint
+  # Will be set programmatically to Stage 1 checkpoint
+  WEIGHTS: ""
   
   SEM_SEG_HEAD:
     # Two classes: myotube (thing) + background (stuff)
@@ -20,7 +15,7 @@ MODEL:
   # Fine-tuned settings for precise manual annotations
   MASK_FORMER:
     TEST:
-      OBJECT_MASK_THRESHOLD: 0.4  # Higher threshold for quality manual annotations
+      OBJECT_MASK_THRESHOLD: 0.5  # Balanced threshold for manual annotations
       OVERLAP_THRESHOLD: 0.0  # Zero overlap - each myotube is completely distinct
       PANOPTIC_ON: True   # Enable panoptic evaluation
       INSTANCE_ON: False  # Disable instance evaluation for panoptic training
@@ -31,53 +26,51 @@ DATASETS:
   TRAIN: ("myotube_stage2_panoptic_train",)
   TEST: ("myotube_stage2_panoptic_val",)
 
-# Stage 2 Solver: Fine-tuning settings for manual annotations (5 images)
+# Fine-tuning hyperparameters - Stage 2 (manual data)
 SOLVER:
-  IMS_PER_BATCH: 1  # Single image batch for careful fine-tuning
-  BASE_LR: 0.00001  # Lower LR for stable fine-tuning from Stage 1 weights
-  MAX_ITER: 500     # Optimized for 5 images: ~100 epochs (5 images × 100 = 500 iter)
-  STEPS: (350, 450) # LR drops at 70% and 90% of 500 iterations
-  WARMUP_FACTOR: 0.1
-  WARMUP_ITERS: 25  # Minimal warmup for fine-tuning
-  WEIGHT_DECAY: 0.005  # Very low weight decay to preserve learned features
-  OPTIMIZER: "ADAMW"
-  BACKBONE_MULTIPLIER: 0.1  # Allow moderate backbone adaptation to high-quality data
+  IMS_PER_BATCH: 1          # Very small batch for limited manual data
+  BASE_LR: 0.00001          # Very low LR for fine-tuning
+  MAX_ITER: 500             # ~5 images × 100 epochs
+  STEPS: (350, 450)         # LR decay at 70%, 90%
+  WARMUP_ITERS: 25          # Short warmup for fine-tuning
+  WEIGHT_DECAY: 0.005       # Lower regularization for small dataset
+  BACKBONE_MULTIPLIER: 0.1  # Slow backbone adaptation
   CLIP_GRADIENTS:
-    ENABLED: True
-    CLIP_TYPE: "full_model"
-    CLIP_VALUE: 0.01  # Gentle gradient clipping
-    NORM_TYPE: 2.0
-  AMP:
-    ENABLED: True
+    CLIP_VALUE: 0.01        # Conservative gradient clipping
 
-# Input configuration optimized for 5 high-quality manual annotations
+# Input settings optimized for 9000×9000 myotube fluorescence images
 INPUT:
-  IMAGE_SIZE: 1500  # Consistent with Stage 1 for transfer learning
-  MIN_SCALE: 0.8    # Moderate scaling to leverage manual precision
-  MAX_SCALE: 1.3    # Allow some variation while preserving fine detail
-  FORMAT: "RGB"
-  DATASET_MAPPER_NAME: "coco_panoptic_lsj"
+  # Use MaskFormer dataset mapper for better detail preservation
+  DATASET_MAPPER_NAME: "mask_former_panoptic"
   
-  # Conservative augmentations to preserve manual annotation quality
+  # Multi-scale training with intelligent resizing
+  MIN_SIZE_TRAIN: [800, 900, 1000, 1100, 1200, 1300]  # Multi-scale for high-res images
+  MAX_SIZE_TRAIN: 1500      # Max dimension to preserve detail
+  MIN_SIZE_TRAIN_SAMPLING: "choice"  # Random choice each epoch
+  
+  # Crop settings for preserving myotube detail
   CROP:
     ENABLED: True
     TYPE: "relative_range"
-    SIZE: [0.5, 1.0]  # Moderate cropping for generalization without losing structure
+    SIZE: [0.5, 1.0]       # Conservative crop for manual data
+    SINGLE_CATEGORY_MAX_AREA: 1.0
   
-  # Light color augmentation for robustness
-  COLOR_AUG_SSD: True
-  
-  # All orientations (myotubes in all directions in the image)
+  # Minimal augmentation for high-quality manual data
+  COLOR_AUG_SSD: True      # Light augmentation for fluorescence robustness
   RANDOM_FLIP: "horizontal"
+  FORMAT: "RGB"
+  
+  # Critical missing parameters for mask_former_panoptic mapper
+  SIZE_DIVISIBILITY: 32    # Required for proper model input processing
 
-# Evaluation configuration  
+# Evaluation settings
 TEST:
-  EVAL_PERIOD: 100  # Evaluate every ~20 epochs (500/5 steps per epoch)
+  EVAL_PERIOD: 100         # Evaluate every 100 iterations (~20 epochs)
 
-# Data loader configuration
+# Data loading
 DATALOADER:
   FILTER_EMPTY_ANNOTATIONS: True
-  NUM_WORKERS: 1  # Single worker for high-res images to avoid memory issues
+  NUM_WORKERS: 2  # Reduced workers for memory management with high-res images
 
 # Output directory for Stage 2 panoptic
 OUTPUT_DIR: "./output_stage2_panoptic_manual"

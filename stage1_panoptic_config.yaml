@@ -1,30 +1,24 @@
-# Stage 1 Panoptic Configuration: Algorithmic Annotations Training
-# Based on Swin-Base panoptic config optimized for large dataset with algorithmic annotations
-# 
-# STAGE 1 DATASET: ~100 images with algorithmic annotations from batch processing
-# - Training: 6000 iterations for robust feature learning
-# - Conservative learning rate for stable training on noisy annotations
-# - Focus on learning general myotube features and background separation
+# Configuration for Stage 1: Algorithmic Panoptic Training
+# Based on Swin-Base with optimized settings for myotube segmentation
 
 _BASE_: configs/coco/panoptic-segmentation/swin/maskformer2_swin_base_384_bs16_50ep.yaml
 
-# Model configuration
 MODEL:
-  # Use COCO pre-trained weights for initialization
+  # Load pre-trained panoptic model
   WEIGHTS: "model_final_54b88a_panoptic.pkl"
   
   SEM_SEG_HEAD:
     # Two classes: myotube (thing) + background (stuff)
     NUM_CLASSES: 2
-  
-  # Optimize for dense overlapping structures
-  MASK_FORMER:
-    TEST:
-      OBJECT_MASK_THRESHOLD: 0.3  # Lower threshold for algorithmic annotations
-      OVERLAP_THRESHOLD: 0.0  # Zero overlap - each myotube is completely distinct
-      PANOPTIC_ON: True
-      INSTANCE_ON: False  # Disable instance evaluation for panoptic training
-      SEMANTIC_ON: False  # Disable semantic evaluation - we don't have sem_seg ground truth
+
+# Optimize for dense overlapping structures
+MASK_FORMER:
+  TEST:
+    OBJECT_MASK_THRESHOLD: 0.3  # Lower threshold for algorithmic annotations
+    OVERLAP_THRESHOLD: 0.0  # Zero overlap - each myotube is completely distinct
+    PANOPTIC_ON: True
+    INSTANCE_ON: False  # Disable instance evaluation for panoptic training
+    SEMANTIC_ON: False  # Disable semantic evaluation - we don't have sem_seg ground truth
 
 # Dataset configuration for Stage 1 (algorithmic annotations)
 DATASETS:
@@ -33,48 +27,46 @@ DATASETS:
 
 # Stage 1 Solver: Optimized for 90 algorithmic images + 10 validation
 SOLVER:
-  IMS_PER_BATCH: 2  # Increase batch size for better gradient estimates
-  BASE_LR: 0.00005  # Higher LR for faster convergence with small dataset
-  MAX_ITER: 4500    # Optimized for 90 images: ~50 epochs at batch=2
-  STEPS: (3000, 4200) # LR drops at 67% and 93%
-  WARMUP_FACTOR: 0.1
-  WARMUP_ITERS: 300  # Longer warmup for stability with high-res images
-  WEIGHT_DECAY: 0.01  # Lower weight decay for small dataset to prevent underfitting
-  OPTIMIZER: "ADAMW"
-  BACKBONE_MULTIPLIER: 0.2  # Allow backbone to adapt more to myotube structures
+  IMS_PER_BATCH: 2          # Small batch for 9000x9000 images
+  BASE_LR: 0.00005          # Higher LR for algorithmic data
+  MAX_ITER: 4500            # ~90 images × 50 epochs
+  STEPS: (3000, 4200)       # LR decay at 67%, 93%
+  WARMUP_ITERS: 300         # Extended warmup
+  WEIGHT_DECAY: 0.01        # Moderate regularization
+  BACKBONE_MULTIPLIER: 0.2  # Faster backbone learning
   CLIP_GRADIENTS:
-    ENABLED: True
-    CLIP_TYPE: "full_model"
-    CLIP_VALUE: 0.1  # Less aggressive clipping for better learning
-    NORM_TYPE: 2.0
-  AMP:
-    ENABLED: True
+    CLIP_VALUE: 0.1         # Higher clip value
 
-# Input configuration optimized for 9000×9000 myotube images
+# Input settings optimized for 9000×9000 myotube fluorescence images
 INPUT:
-  IMAGE_SIZE: 1500  # Standard size for efficient training while preserving detail
-  MIN_SCALE: 0.5    # Wider scale range to handle various myotube densities
-  MAX_SCALE: 2.0    # Allow significant zoom to capture fine structures
-  FORMAT: "RGB"
-  DATASET_MAPPER_NAME: "coco_panoptic_lsj"
+  # Use MaskFormer dataset mapper for better detail preservation
+  DATASET_MAPPER_NAME: "mask_former_panoptic"
   
-  # Aggressive augmentations to compensate for small dataset size
+  # Multi-scale training with intelligent resizing
+  MIN_SIZE_TRAIN: [800, 900, 1000, 1100, 1200, 1300]  # Multi-scale for high-res images
+  MAX_SIZE_TRAIN: 1500      # Max dimension to preserve detail
+  MIN_SIZE_TRAIN_SAMPLING: "choice"  # Random choice each epoch
+  
+  # Crop settings for preserving myotube detail
   CROP:
     ENABLED: True
     TYPE: "relative_range"
-    SIZE: [0.5, 1.0]  # More aggressive cropping for better generalization
+    SIZE: [0.5, 1.0]       # Conservative crop range
+    SINGLE_CATEGORY_MAX_AREA: 1.0
   
-  # Conservative color augmentation for biological image integrity
-  COLOR_AUG_SSD: True
-  
-  # All orientations (myotubes in all directions in the image)
+  # Data augmentation optimized for fluorescence images
+  COLOR_AUG_SSD: True      # Enable for better generalization of fluorescence intensity
   RANDOM_FLIP: "horizontal"
+  FORMAT: "RGB"
+  
+  # Critical missing parameters for mask_former_panoptic mapper
+  SIZE_DIVISIBILITY: 32    # Required for proper model input processing
 
-# Evaluation configuration
+# Evaluation settings
 TEST:
-  EVAL_PERIOD: 225  # Evaluate every ~10 epochs (4500/20 steps per epoch)
+  EVAL_PERIOD: 225         # Evaluate every 225 iterations (~5 epochs)
 
-# Data loader configuration  
+# Data loading
 DATALOADER:
   FILTER_EMPTY_ANNOTATIONS: True
   NUM_WORKERS: 4  # More workers for higher batch size
