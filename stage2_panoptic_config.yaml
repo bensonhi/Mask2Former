@@ -31,40 +31,40 @@ DATASETS:
   TRAIN: ("myotube_stage2_panoptic_train",)
   TEST: ("myotube_stage2_panoptic_val",)
 
-# Stage 2 Solver: Fine-tuning settings for manual annotations (2 images)
+# Stage 2 Solver: Fine-tuning settings for manual annotations (5 images)
 SOLVER:
-  IMS_PER_BATCH: 1  # Single image batch (already optimized for memory)
-  BASE_LR: 0.00008  # Slightly higher LR for shorter training
-  MAX_ITER: 400     # Reduced for 2 images: ~200 epochs (2 images × 200 = 400 iter)
-  STEPS: (280, 360) # LR drops at 70% and 90% of 400 iterations
+  IMS_PER_BATCH: 1  # Single image batch for careful fine-tuning
+  BASE_LR: 0.00001  # Lower LR for stable fine-tuning from Stage 1 weights
+  MAX_ITER: 500     # Optimized for 5 images: ~100 epochs (5 images × 100 = 500 iter)
+  STEPS: (350, 450) # LR drops at 70% and 90% of 500 iterations
   WARMUP_FACTOR: 0.1
-  WARMUP_ITERS: 20  # Reduced warmup for shorter training
-  WEIGHT_DECAY: 0.01  # Reduced weight decay for fine-tuning
+  WARMUP_ITERS: 25  # Minimal warmup for fine-tuning
+  WEIGHT_DECAY: 0.005  # Very low weight decay to preserve learned features
   OPTIMIZER: "ADAMW"
-  BACKBONE_MULTIPLIER: 0.03  # Very conservative backbone for precise tuning
+  BACKBONE_MULTIPLIER: 0.1  # Allow moderate backbone adaptation to high-quality data
   CLIP_GRADIENTS:
     ENABLED: True
     CLIP_TYPE: "full_model"
-    CLIP_VALUE: 0.003  # Very small gradient clipping for precise tuning
+    CLIP_VALUE: 0.01  # Gentle gradient clipping
     NORM_TYPE: 2.0
   AMP:
     ENABLED: True
 
-# Input configuration optimized for manual annotations
+# Input configuration optimized for 5 high-quality manual annotations
 INPUT:
-  IMAGE_SIZE: 1500  # Match original resolution for precise manual annotations
-  MIN_SCALE: 0.9    # Very conservative scaling for precise boundaries
-  MAX_SCALE: 1.1    # Minimal scaling to preserve manual annotation precision
+  IMAGE_SIZE: 1500  # Consistent with Stage 1 for transfer learning
+  MIN_SCALE: 0.8    # Moderate scaling to leverage manual precision
+  MAX_SCALE: 1.3    # Allow some variation while preserving fine detail
   FORMAT: "RGB"
   DATASET_MAPPER_NAME: "coco_panoptic_lsj"
   
-  # Enhanced but careful augmentations for manual annotations
+  # Conservative augmentations to preserve manual annotation quality
   CROP:
     ENABLED: True
     TYPE: "relative_range"
-    SIZE: [0.2, 1.0]  # Moderate cropping while preserving myotube connectivity
+    SIZE: [0.5, 1.0]  # Moderate cropping for generalization without losing structure
   
-  # Mild color augmentation to preserve manual annotation integrity
+  # Light color augmentation for robustness
   COLOR_AUG_SSD: True
   
   # All orientations (myotubes in all directions in the image)
@@ -72,7 +72,7 @@ INPUT:
 
 # Evaluation configuration  
 TEST:
-  EVAL_PERIOD: 80   # More frequent evaluation for shorter training (every 40 epochs)
+  EVAL_PERIOD: 100  # Evaluate every ~20 epochs (500/5 steps per epoch)
 
 # Data loader configuration
 DATALOADER:

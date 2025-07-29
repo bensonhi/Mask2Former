@@ -31,38 +31,38 @@ DATASETS:
   TRAIN: ("myotube_stage1_panoptic_train",)
   TEST: ("myotube_stage1_panoptic_val",)
 
-# Stage 1 Solver: Conservative settings for noisy algorithmic data
+# Stage 1 Solver: Optimized for 90 algorithmic images + 10 validation
 SOLVER:
-  IMS_PER_BATCH: 1  # Single image batch for A40 memory constraints
-  BASE_LR: 0.00002  # Conservative LR for single-image batches and noisy data
-  MAX_ITER: 6000    # Extended training for single-image batches
-  STEPS: (4000, 5500) # LR drops at 67% and 92% 
+  IMS_PER_BATCH: 2  # Increase batch size for better gradient estimates
+  BASE_LR: 0.00005  # Higher LR for faster convergence with small dataset
+  MAX_ITER: 4500    # Optimized for 90 images: ~50 epochs at batch=2
+  STEPS: (3000, 4200) # LR drops at 67% and 93%
   WARMUP_FACTOR: 0.1
-  WARMUP_ITERS: 150  # Extended warmup for single-image training
-  WEIGHT_DECAY: 0.05  # Higher weight decay for noisy data regularization
+  WARMUP_ITERS: 300  # Longer warmup for stability with high-res images
+  WEIGHT_DECAY: 0.01  # Lower weight decay for small dataset to prevent underfitting
   OPTIMIZER: "ADAMW"
-  BACKBONE_MULTIPLIER: 0.1  # Conservative backbone learning for stable training
+  BACKBONE_MULTIPLIER: 0.2  # Allow backbone to adapt more to myotube structures
   CLIP_GRADIENTS:
     ENABLED: True
     CLIP_TYPE: "full_model"
-    CLIP_VALUE: 0.01  # Conservative gradient clipping for stability
+    CLIP_VALUE: 0.1  # Less aggressive clipping for better learning
     NORM_TYPE: 2.0
   AMP:
     ENABLED: True
 
-# Input configuration optimized for large algorithmic dataset
+# Input configuration optimized for 9000×9000 myotube images
 INPUT:
-  IMAGE_SIZE: 1500  # Match batch processing output resolution
-  MIN_SCALE: 0.8    # Moderate scaling for data augmentation
-  MAX_SCALE: 1.2    # Balanced scaling range
+  IMAGE_SIZE: 1500  # Standard size for efficient training while preserving detail
+  MIN_SCALE: 0.5    # Wider scale range to handle various myotube densities
+  MAX_SCALE: 2.0    # Allow significant zoom to capture fine structures
   FORMAT: "RGB"
   DATASET_MAPPER_NAME: "coco_panoptic_lsj"
   
-  # Conservative augmentations for preserving algorithmic annotation integrity
+  # Aggressive augmentations to compensate for small dataset size
   CROP:
     ENABLED: True
     TYPE: "relative_range"
-    SIZE: [0.8, 1.0]  # Minimal cropping to preserve myotube connectivity
+    SIZE: [0.5, 1.0]  # More aggressive cropping for better generalization
   
   # Conservative color augmentation for biological image integrity
   COLOR_AUG_SSD: True
@@ -72,12 +72,12 @@ INPUT:
 
 # Evaluation configuration
 TEST:
-  EVAL_PERIOD: 100  # Evaluation every 750 iterations (~125 epochs for 100 images)
+  EVAL_PERIOD: 225  # Evaluate every ~10 epochs (4500/20 steps per epoch)
 
 # Data loader configuration  
 DATALOADER:
   FILTER_EMPTY_ANNOTATIONS: True
-  NUM_WORKERS: 2  # Balanced for single-image batches
+  NUM_WORKERS: 4  # More workers for higher batch size
 
 # Output directory for Stage 1 panoptic
 OUTPUT_DIR: "./output_stage1_panoptic_algorithmic"
