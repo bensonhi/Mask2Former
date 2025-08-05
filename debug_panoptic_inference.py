@@ -22,13 +22,21 @@ def main():
     
     # Use latest checkpoint
     checkpoint_dir = "./output_stage1_panoptic_algorithmic"
-    checkpoint_files = [f for f in os.listdir(checkpoint_dir) if f.startswith("model_") and f.endswith(".pth")]
-    if checkpoint_files:
-        latest_checkpoint = max(checkpoint_files, key=lambda x: int(x.split("_")[1].split(".")[0]))
-        cfg.MODEL.WEIGHTS = os.path.join(checkpoint_dir, latest_checkpoint)
-        print(f"✅ Using checkpoint: {latest_checkpoint}")
+    if os.path.exists(checkpoint_dir):
+        checkpoint_files = [f for f in os.listdir(checkpoint_dir) if f.endswith(".pth")]
+        if checkpoint_files:
+            # Look for model_final.pth first, otherwise use the last one alphabetically
+            if "model_final.pth" in checkpoint_files:
+                latest_checkpoint = "model_final.pth"
+            else:
+                latest_checkpoint = sorted(checkpoint_files)[-1]
+            cfg.MODEL.WEIGHTS = os.path.join(checkpoint_dir, latest_checkpoint)
+            print(f"✅ Using checkpoint: {latest_checkpoint}")
+        else:
+            print("❌ No checkpoint found!")
+            return
     else:
-        print("❌ No checkpoint found!")
+        print(f"❌ Checkpoint directory not found: {checkpoint_dir}")
         return
     
     cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.0  # Very low threshold
