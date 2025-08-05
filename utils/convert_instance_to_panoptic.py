@@ -138,12 +138,25 @@ def convert_instance_to_panoptic(instance_json, image_dir, pan_mask_dir, panopti
             mask = pan_mask == segm_id
             pan_mask_rgb[mask] = id2rgb(segm_id)
         
+        # DEBUG: Check RGB values before saving
+        print(f"DEBUG: Before save - RGB at [100,100]: {pan_mask_rgb[100,100]}")
+        print(f"DEBUG: Before save - unique R values: {np.unique(pan_mask_rgb[:,:,0])[:10]}")
+        print(f"DEBUG: Before save - unique G values: {np.unique(pan_mask_rgb[:,:,1])[:10]}")
+        print(f"DEBUG: Before save - unique B values: {np.unique(pan_mask_rgb[:,:,2])[:10]}")
+        
         # Save panoptic mask as RGB PNG
         success = cv2.imwrite(pan_mask_path, pan_mask_rgb)
         if not success:
             print(f"Warning: Failed to save panoptic mask: {pan_mask_path}")
         else:
             print(f"  ✓ Saved RGB panoptic mask: {os.path.basename(pan_mask_path)} ({np.unique(pan_mask).max()} segments)")
+            
+            # DEBUG: Check what was actually saved
+            loaded_check = cv2.imread(pan_mask_path)
+            print(f"DEBUG: After load - RGB at [100,100]: {loaded_check[100,100]}")
+            print(f"DEBUG: After load - unique R: {np.unique(loaded_check[:,:,0])[:10]}")
+            print(f"DEBUG: After load - unique G: {np.unique(loaded_check[:,:,1])[:10]}")
+            print(f"DEBUG: After load - unique B: {np.unique(loaded_check[:,:,2])[:10]}")
         # Convert PNG file extension to JPG for Detectron2 compatibility
         img_file_name = img["file_name"]
         if img_file_name.endswith('.png'):
