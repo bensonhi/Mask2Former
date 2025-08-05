@@ -153,6 +153,24 @@ class MaskFormerPanopticDatasetMapper(MaskFormerSemanticDatasetMapper):
         from panopticapi.utils import rgb2id
 
         pan_seg_gt = rgb2id(pan_seg_gt)
+        
+        # CRITICAL FIX: Convert segment IDs to class IDs for training
+        # Create a mapping from segment ID to class ID
+        pan_seg_class_map = np.zeros_like(pan_seg_gt)
+        for segment_info in segments_info:
+            segment_id = segment_info["id"]
+            category_id = segment_info["category_id"]
+            # Apply the same class mapping as in metadata
+            if category_id in self.meta.thing_dataset_id_to_contiguous_id:
+                class_id = self.meta.thing_dataset_id_to_contiguous_id[category_id]
+            elif category_id in self.meta.stuff_dataset_id_to_contiguous_id:
+                class_id = self.meta.stuff_dataset_id_to_contiguous_id[category_id]
+            else:
+                class_id = category_id  # Fallback
+            
+            pan_seg_class_map[pan_seg_gt == segment_id] = class_id
+        
+        pan_seg_gt = pan_seg_class_map
 
         # Pad image and segmentation label here!
         image = torch.as_tensor(np.ascontiguousarray(image.transpose(2, 0, 1)))
