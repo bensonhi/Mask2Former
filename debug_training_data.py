@@ -37,9 +37,24 @@ def main():
     print(f"   Crop size: {cfg.INPUT.CROP.SIZE}")
     print(f"   Single category max area: {cfg.INPUT.CROP.SINGLE_CATEGORY_MAX_AREA}")
     
-    # Build data loader
+    # Build data loader exactly like train_net.py
     print("\n🔄 Building training data loader...")
-    train_loader = build_detection_train_loader(cfg)
+    try:
+        from mask2former.data.dataset_mappers.mask_former_panoptic_dataset_mapper import MaskFormerPanopticDatasetMapper
+        
+        # Use the same logic as train_net.py
+        if cfg.INPUT.DATASET_MAPPER_NAME == "mask_former_panoptic":
+            mapper = MaskFormerPanopticDatasetMapper(cfg, True)
+            train_loader = build_detection_train_loader(cfg, mapper=mapper)
+            print("✅ Data loader built with MaskFormerPanopticDatasetMapper")
+        else:
+            train_loader = build_detection_train_loader(cfg)
+            print("✅ Data loader built with default mapper")
+    except Exception as e:
+        print(f"❌ Error building data loader: {e}")
+        import traceback
+        traceback.print_exc()
+        return
     
     print("📊 Analyzing training samples...")
     data_iter = iter(train_loader)
@@ -99,6 +114,8 @@ def main():
                         
         except Exception as e:
             print(f"❌ Error processing sample {sample_idx + 1}: {e}")
+            import traceback
+            traceback.print_exc()
             break
     
     print("\n🏁 Analysis complete!")
