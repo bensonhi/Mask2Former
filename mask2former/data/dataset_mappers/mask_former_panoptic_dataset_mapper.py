@@ -210,5 +210,9 @@ class MaskFormerPanopticDatasetMapper(MaskFormerSemanticDatasetMapper):
             instances.gt_masks = masks.tensor
 
         dataset_dict["instances"] = instances
+        
+        # CRITICAL FIX: Add panoptic segmentation for panoptic training
+        # Convert back to tensor format expected by the model
+        dataset_dict["pan_seg"] = torch.as_tensor(pan_seg_gt.astype("long"))
 
         return dataset_dict
