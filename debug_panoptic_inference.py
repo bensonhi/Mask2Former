@@ -75,6 +75,14 @@ def main():
     image = cv2.imread(test_image_path)
     print(f"📸 Loaded image: {image.shape}")
     
+    # Resize image to manageable size for debugging
+    if image.shape[0] > 1000 or image.shape[1] > 1000:
+        scale = min(1000 / image.shape[0], 1000 / image.shape[1])
+        new_width = int(image.shape[1] * scale)
+        new_height = int(image.shape[0] * scale)
+        image = cv2.resize(image, (new_width, new_height))
+        print(f"📸 Resized image to: {image.shape}")
+    
     # Run inference
     print("🚀 Running inference...")
     with torch.no_grad():
