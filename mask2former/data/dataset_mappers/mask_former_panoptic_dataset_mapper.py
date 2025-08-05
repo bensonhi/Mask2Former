@@ -66,12 +66,12 @@ class MaskFormerPanopticDatasetMapper(MaskFormerSemanticDatasetMapper):
         
         # 1. CROP FIRST at full resolution (for 9000×9000 myotube images)
         if cfg.INPUT.CROP.ENABLED:
+            # Use standard RandomCrop instead of CategoryAreaConstraint
+            # (which requires semantic segmentation that we don't have)
             augs.append(
-                T.RandomCrop_CategoryAreaConstraint(
+                T.RandomCrop(
                     cfg.INPUT.CROP.TYPE,
                     cfg.INPUT.CROP.SIZE,
-                    cfg.INPUT.CROP.SINGLE_CATEGORY_MAX_AREA,
-                    cfg.MODEL.SEM_SEG_HEAD.IGNORE_VALUE,
                 )
             )
         
