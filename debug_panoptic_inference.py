@@ -46,9 +46,23 @@ def main():
     
     # Load a test image
     images_dir = "myotube_batch_output/images"
-    image_files = [f for f in os.listdir(images_dir) if f.endswith('.png')]
+    
+    # Debug: check current directory
+    print(f"🔍 Current directory: {os.getcwd()}")
+    print(f"🔍 Looking for images in: {os.path.abspath(images_dir)}")
+    print(f"🔍 Directory exists: {os.path.exists(images_dir)}")
+    
+    if os.path.exists(images_dir):
+        all_files = os.listdir(images_dir)
+        print(f"🔍 All files in directory: {all_files[:5]}...")  # Show first 5
+        image_files = [f for f in all_files if f.endswith('.png')]
+        print(f"🔍 PNG files found: {len(image_files)}")
+    else:
+        print(f"❌ Directory not found: {images_dir}")
+        return
+    
     if not image_files:
-        print(f"❌ No images found in: {images_dir}")
+        print(f"❌ No PNG images found in: {images_dir}")
         return
     
     test_image_path = os.path.join(images_dir, image_files[0])
