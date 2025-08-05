@@ -128,11 +128,15 @@ def convert_instance_to_panoptic(instance_json, image_dir, pan_mask_dir, panopti
         pan_mask_rgb[background_mask] = id2rgb(0)  # Background = black (0,0,0)
         
         # Then, assign myotube segments
-        for segm_id in np.unique(pan_mask):
+        unique_segments = np.unique(pan_mask)
+        print(f"DEBUG: pan_mask unique values: {unique_segments[:10]}")
+        for segm_id in unique_segments:
             if segm_id == 0:
                 continue  # background already handled
             mask = pan_mask == segm_id
-            pan_mask_rgb[mask] = id2rgb(segm_id)
+            rgb_val = id2rgb(segm_id)
+            print(f"DEBUG: segm_id {segm_id} -> RGB {rgb_val}")
+            pan_mask_rgb[mask] = rgb_val
         
         # Save panoptic mask as RGB PNG
         success = cv2.imwrite(pan_mask_path, pan_mask_rgb)
