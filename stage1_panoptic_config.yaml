@@ -48,8 +48,9 @@ INPUT:
   DATASET_MAPPER_NAME: "mask_former_panoptic"
   
   # CROP FIRST: Extract regions from full 9000×9000 resolution
+  # TEMPORARILY DISABLED: Crop causes sem_seg shape error
   CROP:
-    ENABLED: True
+    ENABLED: False
     TYPE: "relative_range"
     SIZE: [0.4, 1.0]       # 1800×1800 to 9000×9000 crops - HUGE scale diversity!
     SINGLE_CATEGORY_MAX_AREA: 0.7  # CRITICAL: Prevent 100% background crops!
