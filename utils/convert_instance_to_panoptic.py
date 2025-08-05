@@ -135,7 +135,9 @@ def convert_instance_to_panoptic(instance_json, image_dir, pan_mask_dir, panopti
             pan_mask_rgb[mask] = id2rgb(segm_id)
         
         # Save panoptic mask as RGB PNG
-        success = cv2.imwrite(pan_mask_path, pan_mask_rgb)
+        # Convert RGB to BGR for cv2.imwrite (OpenCV uses BGR format)
+        pan_mask_bgr = cv2.cvtColor(pan_mask_rgb, cv2.COLOR_RGB2BGR)
+        success = cv2.imwrite(pan_mask_path, pan_mask_bgr)
         if not success:
             print(f"Warning: Failed to save panoptic mask: {pan_mask_path}")
         else:
