@@ -183,6 +183,9 @@ class MaskFormerPanopticDatasetMapper(MaskFormerSemanticDatasetMapper):
         dataset_dict["image"] = image
         if sem_seg_gt is not None:
             dataset_dict["sem_seg"] = sem_seg_gt.long()
+        
+        # CRITICAL FIX: Add panoptic segmentation tensor for training
+        dataset_dict["pan_seg"] = pan_seg_gt
 
         if "annotations" in dataset_dict:
             raise ValueError("Pemantic segmentation dataset should not have 'annotations'.")
@@ -210,9 +213,5 @@ class MaskFormerPanopticDatasetMapper(MaskFormerSemanticDatasetMapper):
             instances.gt_masks = masks.tensor
 
         dataset_dict["instances"] = instances
-        
-        # CRITICAL FIX: Add panoptic segmentation for panoptic training
-        # Convert back to tensor format expected by the model
-        dataset_dict["pan_seg"] = torch.as_tensor(pan_seg_gt.astype("long"))
 
         return dataset_dict

@@ -58,7 +58,7 @@ def main():
             
             if 'pan_seg' in sample:
                 pan_seg = sample['pan_seg']
-                print(f"Panoptic seg: shape={pan_seg.shape}, dtype={pan_seg.dtype}")
+                print(f"✅ Found pan_seg: shape={pan_seg.shape}, dtype={pan_seg.dtype}")
                 
                 # Analyze pixel distribution
                 pan_np = pan_seg.cpu().numpy() if torch.is_tensor(pan_seg) else pan_seg
@@ -77,6 +77,15 @@ def main():
                     print("⚠️  WARNING: This sample is >95% background!")
                 else:
                     print("✅ This sample has good foreground content")
+            else:
+                print("❌ CRITICAL: No 'pan_seg' found in sample!")
+                print("   This means panoptic ground truth is missing from training!")
+                
+                # Check what panoptic info we do have
+                if 'pan_seg_file_name' in sample:
+                    print(f"   ℹ️  pan_seg_file_name: {sample['pan_seg_file_name']}")
+                if 'segments_info' in sample:
+                    print(f"   ℹ️  segments_info: {len(sample['segments_info'])} segments")
             
             if 'instances' in sample:
                 instances = sample['instances']
