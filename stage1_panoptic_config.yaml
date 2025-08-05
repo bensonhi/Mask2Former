@@ -52,7 +52,7 @@ INPUT:
     ENABLED: True
     TYPE: "relative_range"
     SIZE: [0.4, 1.0]       # 1800×1800 to 9000×9000 crops - HUGE scale diversity!
-    SINGLE_CATEGORY_MAX_AREA: 1.0  # Allow myotubes to fill crop area
+    SINGLE_CATEGORY_MAX_AREA: 0.7  # CRITICAL: Prevent 100% background crops!
   
   # THEN SCALE: Multi-scale training on the cropped regions
   MIN_SIZE_TRAIN: [800, 900, 1000, 1100, 1200, 1300]  # Multi-scale for cropped regions

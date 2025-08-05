@@ -44,7 +44,7 @@ def main():
     print("📊 Analyzing training samples...")
     data_iter = iter(train_loader)
     
-    for sample_idx in range(min(3, len(train_loader))):  # Check first 3 samples
+    for sample_idx in range(3):  # Check first 3 samples
         print(f"\n--- Sample {sample_idx + 1} ---")
         try:
             batch = next(data_iter)
