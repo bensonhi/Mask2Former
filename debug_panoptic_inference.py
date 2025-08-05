@@ -55,14 +55,14 @@ def main():
     if os.path.exists(images_dir):
         all_files = os.listdir(images_dir)
         print(f"🔍 All files in directory: {all_files[:5]}...")  # Show first 5
-        image_files = [f for f in all_files if f.endswith('.png')]
-        print(f"🔍 PNG files found: {len(image_files)}")
+        image_files = [f for f in all_files if f.endswith(('.png', '.jpg', '.jpeg'))]
+        print(f"🔍 Image files found: {len(image_files)}")
     else:
         print(f"❌ Directory not found: {images_dir}")
         return
     
     if not image_files:
-        print(f"❌ No PNG images found in: {images_dir}")
+        print(f"❌ No image files found in: {images_dir}")
         return
     
     test_image_path = os.path.join(images_dir, image_files[0])
