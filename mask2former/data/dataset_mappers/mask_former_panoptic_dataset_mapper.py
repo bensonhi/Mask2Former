@@ -162,11 +162,6 @@ class MaskFormerPanopticDatasetMapper(MaskFormerSemanticDatasetMapper):
         dataset_name = dataset_dict.get("dataset_name", "myotube_stage1_panoptic_train")
         meta = MetadataCatalog.get(dataset_name)
         
-        # DEBUG: Print what we're working with
-        unique_segments = np.unique(pan_seg_gt)
-        print(f"DEBUG: Original pan_seg unique values: {unique_segments[:10]}")
-        print(f"DEBUG: Number of segments_info: {len(segments_info)}")
-        
         pan_seg_class_map = np.zeros_like(pan_seg_gt)
         
         for segment_info in segments_info:
@@ -176,19 +171,9 @@ class MaskFormerPanopticDatasetMapper(MaskFormerSemanticDatasetMapper):
             # Simple mapping: category 0 -> class 0 (background), category 1 -> class 1 (myotube)
             class_id = category_id
             
-            # Count pixels being mapped
-            pixels_mapped = np.sum(pan_seg_gt == segment_id)
-            print(f"DEBUG: Segment {segment_id} (cat {category_id}) -> class {class_id}, pixels: {pixels_mapped}")
-            
             pan_seg_class_map[pan_seg_gt == segment_id] = class_id
         
         pan_seg_gt = pan_seg_class_map
-        
-        # DEBUG: Check final result
-        final_unique = np.unique(pan_seg_gt)
-        print(f"DEBUG: Final pan_seg unique values: {final_unique}")
-        myotube_pixels = np.sum(pan_seg_gt == 1)
-        print(f"DEBUG: Final myotube pixels (class 1): {myotube_pixels}")
 
         # Pad image and segmentation label here!
         image = torch.as_tensor(np.ascontiguousarray(image.transpose(2, 0, 1)))

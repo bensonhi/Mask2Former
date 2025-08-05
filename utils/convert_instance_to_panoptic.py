@@ -118,12 +118,7 @@ def convert_instance_to_panoptic(instance_json, image_dir, pan_mask_dir, panopti
             f"{os.path.splitext(img['file_name'])[0]}.png"
         )
         # Convert panoptic mask to RGB format for panopticapi compatibility
-        def id2rgb(segm_id):
-            """Convert segment ID to RGB color encoding."""
-            r = segm_id % 256
-            g = (segm_id // 256) % 256
-            b = (segm_id // 256 // 256) % 256
-            return [r, g, b]
+        from panopticapi.utils import id2rgb
         
         # Create RGB mask (H, W, 3) uint8 format
         pan_mask_rgb = np.zeros((height, width, 3), dtype=np.uint8)
