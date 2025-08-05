@@ -28,7 +28,12 @@ from predictor import VisualizationDemo
 
 from register_two_stage_datasets import register_two_stage_datasets
 # Register both instance and panoptic datasets for demo compatibility
-register_two_stage_datasets(register_instance=True, register_panoptic=True)
+# Use correct path to myotube dataset
+register_two_stage_datasets(
+    dataset_root="../myotube_batch_output", 
+    register_instance=True, 
+    register_panoptic=True
+)
 
 
 # constants
