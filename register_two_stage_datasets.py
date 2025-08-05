@@ -143,8 +143,8 @@ def _register_panoptic_datasets(panoptic_dir, images_dir):
     panoptic_metadata = {
         "thing_classes": ["myotube"],
         "stuff_classes": ["background"],
-        "thing_dataset_id_to_contiguous_id": {1: 1},  # FIXED: Map category 1 -> 1 (myotube)
-        "stuff_dataset_id_to_contiguous_id": {0: 0},  # Map category 0 -> 0 (background)
+        "thing_dataset_id_to_contiguous_id": {1: 0},  # CRITICAL FIX: Map myotube category 1 -> class 0
+        "stuff_dataset_id_to_contiguous_id": {0: 1},  # Map background category 0 -> class 1 (filtered out)
     }
     
     # Note: We pass the corresponding instance JSON files as the 6th parameter
