@@ -33,7 +33,7 @@ def main():
     cfg.merge_from_file('stage1_panoptic_config.yaml')
     
     # Use the trained model
-    cfg.MODEL.WEIGHTS = "output_stage1_panoptic_algorithmic/model_latest.pth"
+    cfg.MODEL.WEIGHTS = "output_stage1_panoptic_algorithmic/model_0000099.pth"
     cfg.MODEL.DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
     
     print(f"✅ Config loaded:")
