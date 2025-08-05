@@ -45,7 +45,15 @@ def main():
     predictor = DefaultPredictor(cfg)
     
     # Load a test image
-    test_image_path = "myotube_batch_output/images/image_001.png"
+    images_dir = "myotube_batch_output/images"
+    image_files = [f for f in os.listdir(images_dir) if f.endswith('.png')]
+    if not image_files:
+        print(f"❌ No images found in: {images_dir}")
+        return
+    
+    test_image_path = os.path.join(images_dir, image_files[0])
+    print(f"📸 Using test image: {image_files[0]}")
+    
     if not os.path.exists(test_image_path):
         print(f"❌ Test image not found: {test_image_path}")
         return
