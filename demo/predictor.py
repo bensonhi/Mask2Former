@@ -47,11 +47,27 @@ class VisualizationDemo(object):
         """
         vis_output = None
         predictions = self.predictor(image)
+        
+        # DEBUG: Print raw predictions
+        print("🔍 DEBUG: Raw model predictions:")
+        for key, value in predictions.items():
+            if hasattr(value, 'shape'):
+                print(f"  {key}: shape={value.shape}, dtype={value.dtype}")
+                if key == 'panoptic_seg' and len(value) == 2:
+                    seg, info = value
+                    print(f"    panoptic_seg: {seg.shape}, unique_values={torch.unique(seg)}")
+                    print(f"    segments_info: {len(info)} segments")
+                    for i, segment in enumerate(info):
+                        print(f"      segment {i}: {segment}")
+            else:
+                print(f"  {key}: {type(value)}")
+        
         # Convert image from OpenCV BGR format to Matplotlib RGB format.
         image = image[:, :, ::-1]
         visualizer = Visualizer(image, self.metadata, instance_mode=self.instance_mode)
         if "panoptic_seg" in predictions:
             panoptic_seg, segments_info = predictions["panoptic_seg"]
+            print(f"🎯 Found panoptic_seg with {len(segments_info)} segments")
             vis_output = visualizer.draw_panoptic_seg_predictions(
                 panoptic_seg.to(self.cpu_device), segments_info
             )
