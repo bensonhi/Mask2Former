@@ -156,17 +156,24 @@ class MaskFormerPanopticDatasetMapper(MaskFormerSemanticDatasetMapper):
         
         # CRITICAL FIX: Convert segment IDs to class IDs for training
         # Create a mapping from segment ID to class ID
+        from detectron2.data import MetadataCatalog
+        
+        # Get metadata for the current dataset
+        dataset_name = dataset_dict.get("dataset_name", "myotube_stage1_panoptic_train")
+        meta = MetadataCatalog.get(dataset_name)
+        
         pan_seg_class_map = np.zeros_like(pan_seg_gt)
         for segment_info in segments_info:
             segment_id = segment_info["id"]
             category_id = segment_info["category_id"]
             # Apply the same class mapping as in metadata
-            if category_id in self.meta.thing_dataset_id_to_contiguous_id:
-                class_id = self.meta.thing_dataset_id_to_contiguous_id[category_id]
-            elif category_id in self.meta.stuff_dataset_id_to_contiguous_id:
-                class_id = self.meta.stuff_dataset_id_to_contiguous_id[category_id]
+            if hasattr(meta, 'thing_dataset_id_to_contiguous_id') and category_id in meta.thing_dataset_id_to_contiguous_id:
+                class_id = meta.thing_dataset_id_to_contiguous_id[category_id]
+            elif hasattr(meta, 'stuff_dataset_id_to_contiguous_id') and category_id in meta.stuff_dataset_id_to_contiguous_id:
+                class_id = meta.stuff_dataset_id_to_contiguous_id[category_id]
             else:
-                class_id = category_id  # Fallback
+                # Use simple mapping: category 0 -> class 0 (background), category 1 -> class 1 (myotube)
+                class_id = category_id
             
             pan_seg_class_map[pan_seg_gt == segment_id] = class_id
         
