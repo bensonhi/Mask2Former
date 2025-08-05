@@ -14,6 +14,11 @@ from mask2former import add_maskformer2_config
 def main():
     print("🔍 Debugging panoptic inference...")
     
+    # CRITICAL: Register datasets first
+    from register_two_stage_datasets import register_two_stage_datasets
+    print("📊 Registering datasets...")
+    register_two_stage_datasets(register_panoptic=True)
+    
     # Setup config
     cfg = get_cfg()
     add_deeplab_config(cfg)
