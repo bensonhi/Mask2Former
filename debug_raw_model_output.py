@@ -62,33 +62,28 @@ def main():
     image = cv2.imread(sample['file_name'])
     print(f"📷 Original image shape: {image.shape}")
     
-    # Convert to RGB and torch tensor
-    image_rgb = image[:, :, ::-1]  # BGR to RGB
+    # Use DefaultPredictor's preprocessing
+    from detectron2.engine import DefaultPredictor
     
-    # Resize to model input size (like DefaultPredictor does)
-    from detectron2.data.transforms import ResizeShortestEdge
-    from detectron2.data.transforms import AugInput
+    # Create predictor to get preprocessed input
+    predictor = DefaultPredictor(cfg)
     
-    # Create transform
-    transform = ResizeShortestEdge(
-        [cfg.INPUT.MIN_SIZE_TEST, cfg.INPUT.MIN_SIZE_TEST], 
-        cfg.INPUT.MAX_SIZE_TEST
-    )
+    # Get the same preprocessing transforms that DefaultPredictor uses
+    transform_gen = predictor.transform_gen
+    original_image = image[:, :, ::-1]  # BGR to RGB
     
-    # Apply transform using AugInput
-    aug_input = AugInput(image_rgb)
-    transform_instance = transform.get_transform(aug_input)
-    image_resized = transform_instance.apply_image(image_rgb)
+    # Apply transforms
+    height, width = original_image.shape[:2]
+    image_transformed = transform_gen.get_transform(original_image).apply_image(original_image)
+    image_tensor = torch.as_tensor(np.ascontiguousarray(image_transformed).transpose(2, 0, 1))
     
-    image_tensor = torch.as_tensor(np.ascontiguousarray(image_resized).transpose(2, 0, 1))
+    print(f"📷 Transformed image shape: {image_tensor.shape}")
     
-    print(f"📷 Resized image shape: {image_tensor.shape}")
-    
-    # Prepare input batch
+    # Prepare input batch exactly like DefaultPredictor
     inputs = {
-        "image": image_tensor.float(),
-        "height": image.shape[0],
-        "width": image.shape[1]
+        "image": image_tensor,
+        "height": height,
+        "width": width
     }
     
     with torch.no_grad():
