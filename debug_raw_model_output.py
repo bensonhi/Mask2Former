@@ -64,16 +64,22 @@ def main():
     
     # Convert to RGB and torch tensor
     image_rgb = image[:, :, ::-1]  # BGR to RGB
-    image_tensor = torch.as_tensor(np.ascontiguousarray(image_rgb).transpose(2, 0, 1))
     
     # Resize to model input size (like DefaultPredictor does)
     from detectron2.data.transforms import ResizeShortestEdge
+    from detectron2.data.transforms import AugInput
+    
+    # Create transform
     transform = ResizeShortestEdge(
         [cfg.INPUT.MIN_SIZE_TEST, cfg.INPUT.MIN_SIZE_TEST], 
         cfg.INPUT.MAX_SIZE_TEST
     )
     
-    image_resized = transform.apply_image(image_rgb)
+    # Apply transform using AugInput
+    aug_input = AugInput(image_rgb)
+    transform_instance = transform.get_transform(aug_input)
+    image_resized = transform_instance.apply_image(image_rgb)
+    
     image_tensor = torch.as_tensor(np.ascontiguousarray(image_resized).transpose(2, 0, 1))
     
     print(f"📷 Resized image shape: {image_tensor.shape}")
