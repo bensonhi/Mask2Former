@@ -110,7 +110,7 @@ def main():
                     print(f"  Has masks: {instances.has('gt_masks')}")
                     if instances.has('gt_masks'):
                         masks = instances.gt_masks
-                        print(f"  Mask shapes: {[mask.shape for mask in masks.tensor[:3]]}")  # First 3 masks
+                        print(f"  Mask shapes: {[mask.shape for mask in masks[:3]]}")  # First 3 masks
                         
         except Exception as e:
             print(f"❌ Error processing sample {sample_idx + 1}: {e}")
