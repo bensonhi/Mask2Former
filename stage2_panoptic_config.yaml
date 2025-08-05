@@ -36,6 +36,7 @@ SOLVER:
   WARMUP_ITERS: 25          # Short warmup for fine-tuning
   WEIGHT_DECAY: 0.005       # Lower regularization for small dataset
   BACKBONE_MULTIPLIER: 0.1  # Slow backbone adaptation
+  CHECKPOINT_PERIOD: 1000   # Save checkpoint every 1000 iterations
   CLIP_GRADIENTS:
     ENABLED: True
     CLIP_TYPE: "full_model"
