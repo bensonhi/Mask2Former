@@ -7,7 +7,6 @@ from collections import deque
 
 import cv2
 import torch
-import numpy as np
 
 from detectron2.data import MetadataCatalog
 from detectron2.engine.defaults import DefaultPredictor
@@ -48,43 +47,11 @@ class VisualizationDemo(object):
         """
         vis_output = None
         predictions = self.predictor(image)
-        
-        # DEBUG: Print raw predictions
-        print("🔍 DEBUG: Raw model predictions:")
-        for key, value in predictions.items():
-            if hasattr(value, 'shape'):
-                print(f"  {key}: shape={value.shape}, dtype={value.dtype}")
-            elif key == 'panoptic_seg' and isinstance(value, tuple) and len(value) == 2:
-                seg, info = value
-                print(f"  panoptic_seg: tuple with segmentation + info")
-                print(f"    seg: shape={seg.shape}, dtype={seg.dtype}")
-                print(f"    unique_values: {torch.unique(seg)}")
-                print(f"    segments_info: {len(info)} segments")
-                for i, segment in enumerate(info):
-                    print(f"      segment {i}: {segment}")
-                
-                # Show raw segmentation statistics
-                seg_np = seg.cpu().numpy()
-                unique_vals, counts = np.unique(seg_np, return_counts=True)
-                print(f"    Raw segmentation map statistics:")
-                for val, count in zip(unique_vals, counts):
-                    percentage = count / seg_np.size * 100
-                    print(f"      Value {val}: {count} pixels ({percentage:.1f}%)")
-            else:
-                print(f"  {key}: {type(value)}")
-        
         # Convert image from OpenCV BGR format to Matplotlib RGB format.
         image = image[:, :, ::-1]
         visualizer = Visualizer(image, self.metadata, instance_mode=self.instance_mode)
         if "panoptic_seg" in predictions:
             panoptic_seg, segments_info = predictions["panoptic_seg"]
-            print(f"🎯 Found panoptic_seg with {len(segments_info)} segments")
-            
-            # If no segments found, this means everything was classified as background
-            if len(segments_info) == 0:
-                print("❌ NO SEGMENTS FOUND - Model predicted everything as background!")
-                print("   This indicates training failed to learn myotube detection.")
-                
             vis_output = visualizer.draw_panoptic_seg_predictions(
                 panoptic_seg.to(self.cpu_device), segments_info
             )

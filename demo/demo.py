@@ -35,29 +35,6 @@ register_two_stage_datasets(
     register_panoptic=True
 )
 
-# DEBUG: Verify dataset loading
-print("🔍 DEBUG: Checking dataset registration...")
-from detectron2.data import DatasetCatalog, MetadataCatalog
-try:
-    # Check if dataset exists
-    dataset_dicts = DatasetCatalog.get("myotube_stage1_panoptic_train")
-    print(f"✅ Found {len(dataset_dicts)} training samples")
-    
-    # Check first sample
-    if len(dataset_dicts) > 0:
-        sample = dataset_dicts[0]
-        print(f"  Sample keys: {list(sample.keys())}")
-        print(f"  Image: {sample.get('file_name', 'NO FILE')}")
-        print(f"  Panoptic mask: {sample.get('pan_seg_file_name', 'NO MASK')}")
-        print(f"  Segments: {len(sample.get('segments_info', []))} segments")
-        
-        # Check metadata
-        meta = MetadataCatalog.get("myotube_stage1_panoptic_train")
-        print(f"  Thing classes: {getattr(meta, 'thing_classes', 'NOT FOUND')}")
-        print(f"  Stuff classes: {getattr(meta, 'stuff_classes', 'NOT FOUND')}")
-except Exception as e:
-    print(f"❌ Dataset loading failed: {e}")
-
 
 # constants
 WINDOW_NAME = "mask2former demo"
