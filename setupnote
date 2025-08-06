@@ -1,0 +1,76 @@
+module load cuda/11.1
+module load gcc/8.1.0
+
+
+conda create --name mask2former python=3.8 -y
+conda activate mask2former
+conda install pytorch==1.9.0 torchvision==0.10.0 cudatoolkit=11.1 -c pytorch -c nvidia
+
+pip install torch==1.10.2+cu111 torchvision==0.11.3+cu111 torchaudio==0.10.2   -f https://download.pytorch.org/whl/torch_stable.html
+
+pip install -U opencv-python
+
+pip install 'git+https://github.com/facebookresearch/detectron2.git'
+
+
+pip install -r requirements.txt
+cd mask2former/modeling/pixel_decoder/ops
+sh make.sh
+
+module unload gcc
+module load gcc/11.2.0-linux-centos7-broadwell-gcc10.2.0
+
+
+
+
+
+
+
+
+replace
+
+import tensorboard
+from setuptools import distutils
+
+LooseVersion = distutils.version.LooseVersion
+
+if not hasattr(tensorboard, '__version__') or LooseVersion(tensorboard.__version__) < LooseVersion('1.15'):
+    raise ImportError('TensorBoard logging requires TensorBoard version 1.15 or above')
+
+del distutils
+del LooseVersion
+del tensorboard
+
+
+
+with
+
+
+
+import tensorboard
+from setuptools._distutils.version import LooseVersion
+
+if not hasattr(tensorboard, '__version__') or LooseVersion(tensorboard.__version__) < LooseVersion('1.15'):
+    raise ImportError('TensorBoard logging requires TensorBoard version 1.15 or above')
+
+del LooseVersion
+del tensorboard
+
+
+
+gio mount smb://storage.erc.monash.edu.au/shares/ARMI-Roman-Lab
+
+
+
+
+python demo.py   --config-file ../stage1_config.yaml   --input "../myotube_batch_output/images/20250117_T28_Merged_flnc_MAX_20250117_T28_DMD-18hp_488flnc_647dys_r4_processed.png"   --output ./myotube_demo_output   --confidence-threshold 0.3   --opts MODEL.WEIGHTS ../output_stage1_algorithmic/model_final.pth
+
+python demo.py   --config-file ../stage2_config.yaml   --input "../myotube_batch_output/images/20250117_T28_Merged_flnc_MAX_20250117_T28_DMD-18hp_488flnc_647dys_r4_processed.png"   --output ./myotube_demo_output   --confidence-threshold 0.3   --opts MODEL.WEIGHTS ../output_stage2_manual/model_final.pth
+
+python scale_coco* --input "../myotube_batch_output/annotations/manual_train_annotations.json" -d "../myotube_batch_output/images" -o "./manual_train_annotations.json"
+
+
+python combine_coco_annotations.py \
+  --file1 myotube_batch_output/annotations/algorithmic_test_annotations.json \
+  --file2 myotube_batch_output/annotations/manual_test_annotations.json \
+  --output myotube_batch_output/annotations/combined_test_annotations.json
