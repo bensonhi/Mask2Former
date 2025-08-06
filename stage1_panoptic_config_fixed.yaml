@@ -16,7 +16,7 @@ MODEL:
     PATCH_NORM: True
     PRETRAIN_IMG_SIZE: 384
   # Use COCO pre-trained weights for better initialization
-  WEIGHTS: "https://dl.fbaipublicfiles.com/maskformer/mask2former/coco/panoptic/maskformer2_swin_base_384_bs16_50ep/model_final_54b88a.pkl"
+  WEIGHTS: "model_final_54b88a_panoptic.pkl"
   PIXEL_MEAN: [123.675, 116.280, 103.530]
   PIXEL_STD: [58.395, 57.120, 57.375]
   
