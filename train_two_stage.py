@@ -23,6 +23,10 @@ Usage:
     
     # Custom dataset paths
     python train_two_stage.py --dataset /path/to/unified/dataset --mode panoptic
+    
+    # Custom config files
+    python train_two_stage.py --stage1-config stage1_panoptic_config_fixed.yaml --mode panoptic
+    python train_two_stage.py --stage1-config custom_stage1.yaml --stage2-config custom_stage2.yaml
 """
 
 import os
@@ -109,10 +113,10 @@ def stage1_training(args, dataset_root, mode="instance"):
     
     # Determine config file and output directory based on mode
     if mode == "panoptic":
-        config_file = "stage1_panoptic_config.yaml"
+        config_file = args.stage1_config if args.stage1_config else "stage1_panoptic_config.yaml"
         output_dir = "./output_stage1_panoptic_algorithmic/"
     else:
-        config_file = "stage1_config.yaml"
+        config_file = args.stage1_config if args.stage1_config else "stage1_config.yaml"
         output_dir = "./output_stage1_algorithmic/"
     
     print("🚀 STAGE 1: Training on Algorithmic Annotations")
@@ -159,11 +163,11 @@ def stage2_training(args, dataset_root, stage1_checkpoint: str = "", mode="insta
     
     # Determine config file and output directory based on mode
     if mode == "panoptic":
-        config_file = "stage2_panoptic_config.yaml"
+        config_file = args.stage2_config if args.stage2_config else "stage2_panoptic_config.yaml"
         output_dir = "./output_stage2_panoptic_manual/"
         stage1_default_dir = "./output_stage1_panoptic_algorithmic"
     else:
-        config_file = "stage2_config.yaml"
+        config_file = args.stage2_config if args.stage2_config else "stage2_config.yaml"
         output_dir = "./output_stage2_manual/"
         stage1_default_dir = "./output_stage1_algorithmic"
     
@@ -315,6 +319,12 @@ def main():
     parser.add_argument("--dataset", default="myotube_batch_output",
                        help="Path to unified dataset directory")
     
+    # Config file overrides
+    parser.add_argument("--stage1-config", default=None,
+                       help="Custom config file for Stage 1 (overrides default)")
+    parser.add_argument("--stage2-config", default=None,
+                       help="Custom config file for Stage 2 (overrides default)")
+    
     args = parser.parse_args()
     
     # Count datasets for display
@@ -357,11 +367,15 @@ def main():
         if args.eval_only:
             print("\n📊 Evaluation mode - please run specific evaluation commands")
             if args.mode == "panoptic":
-                print("   Stage 1: python train_net.py --config-file stage1_panoptic_config.yaml --eval-only")
-                print("   Stage 2: python train_net.py --config-file stage2_panoptic_config.yaml --eval-only")
+                stage1_config = args.stage1_config if args.stage1_config else "stage1_panoptic_config.yaml"
+                stage2_config = args.stage2_config if args.stage2_config else "stage2_panoptic_config.yaml"
+                print(f"   Stage 1: python train_net.py --config-file {stage1_config} --eval-only")
+                print(f"   Stage 2: python train_net.py --config-file {stage2_config} --eval-only")
             else:
-                print("   Stage 1: python train_net.py --config-file stage1_config.yaml --eval-only")
-                print("   Stage 2: python train_net.py --config-file stage2_config.yaml --eval-only")
+                stage1_config = args.stage1_config if args.stage1_config else "stage1_config.yaml"
+                stage2_config = args.stage2_config if args.stage2_config else "stage2_config.yaml"
+                print(f"   Stage 1: python train_net.py --config-file {stage1_config} --eval-only")
+                print(f"   Stage 2: python train_net.py --config-file {stage2_config} --eval-only")
             return 0
         
         if args.stage is None or args.stage == 1:
@@ -401,11 +415,15 @@ def main():
         
         print("\n📋 Evaluation commands:")
         if args.mode == "panoptic":
-            print("   Stage 1: python train_net.py --config-file stage1_panoptic_config.yaml --eval-only")
-            print("   Stage 2: python train_net.py --config-file stage2_panoptic_config.yaml --eval-only")
+            stage1_config = args.stage1_config if args.stage1_config else "stage1_panoptic_config.yaml"
+            stage2_config = args.stage2_config if args.stage2_config else "stage2_panoptic_config.yaml"
+            print(f"   Stage 1: python train_net.py --config-file {stage1_config} --eval-only")
+            print(f"   Stage 2: python train_net.py --config-file {stage2_config} --eval-only")
         else:
-            print("   Stage 1: python train_net.py --config-file stage1_config.yaml --eval-only")
-            print("   Stage 2: python train_net.py --config-file stage2_config.yaml --eval-only")
+            stage1_config = args.stage1_config if args.stage1_config else "stage1_config.yaml"
+            stage2_config = args.stage2_config if args.stage2_config else "stage2_config.yaml"
+            print(f"   Stage 1: python train_net.py --config-file {stage1_config} --eval-only")
+            print(f"   Stage 2: python train_net.py --config-file {stage2_config} --eval-only")
         
         return 0
         
