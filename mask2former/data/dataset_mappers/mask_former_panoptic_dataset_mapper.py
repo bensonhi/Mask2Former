@@ -205,8 +205,9 @@ class MaskFormerPanopticDatasetMapper(MaskFormerSemanticDatasetMapper):
         if sem_seg_gt is not None:
             dataset_dict["sem_seg"] = sem_seg_gt.long()
         
-        # CRITICAL FIX: Add panoptic segmentation tensor for training
-        dataset_dict["pan_seg"] = pan_seg_gt
+        # CRITICAL FIX: Add the processed panoptic segmentation tensor to the dataset dict
+        # under the key 'sem_seg', which is what the model's criterion expects.
+        dataset_dict["sem_seg"] = pan_seg_gt
 
         if "annotations" in dataset_dict:
             raise ValueError("Pemantic segmentation dataset should not have 'annotations'.")

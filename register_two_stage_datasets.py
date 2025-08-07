@@ -32,14 +32,21 @@ def load_myotube_panoptic_json(json_file, image_dir, gt_dir, meta):
     Load myotube panoptic JSON and convert to Detectron2 format.
     """
     def _convert_category_id(segment_info, meta):
-        if segment_info["category_id"] in meta["thing_dataset_id_to_contiguous_id"]:
-            segment_info["category_id"] = meta["thing_dataset_id_to_contiguous_id"][
-                segment_info["category_id"]
-            ]
+        original_category_id = segment_info["category_id"]
+        
+        if original_category_id in meta["thing_dataset_id_to_contiguous_id"]:
+            # Map myotube (category_id=1) to contiguous class 0
+            segment_info["category_id"] = meta["thing_dataset_id_to_contiguous_id"][original_category_id]
             segment_info["isthing"] = True
-        else:
-            # For myotube, we only have things, no stuff
+        elif original_category_id in meta["stuff_dataset_id_to_contiguous_id"]:
+            # Map background (category_id=0) to contiguous class 1
+            segment_info["category_id"] = meta["stuff_dataset_id_to_contiguous_id"][original_category_id]
             segment_info["isthing"] = False
+        else:
+            # Unknown category - this should not happen
+            print(f"WARNING: Unknown category_id {original_category_id} in segment {segment_info['id']}")
+            segment_info["isthing"] = False
+        
         return segment_info
 
     with PathManager.open(json_file) as f:

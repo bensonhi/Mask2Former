@@ -15,12 +15,19 @@ MODEL:
   
   # Fine-tuned settings for precise manual annotations
   MASK_FORMER:
+
+    DEEP_SUPERVISION: True
+    CLASS_WEIGHT: 2.0
+    MASK_WEIGHT: 5.0
+    DICE_WEIGHT: 5.0
+    NO_OBJECT_WEIGHT: 0.1
+    
     TEST:
-      OBJECT_MASK_THRESHOLD: 0.5  # Balanced threshold for manual annotations
-      OVERLAP_THRESHOLD: 0.0  # Zero overlap - each myotube is completely distinct
-      PANOPTIC_ON: True   # Enable panoptic evaluation
-      INSTANCE_ON: False  # Disable instance evaluation for panoptic training
-      SEMANTIC_ON: False  # Disable semantic evaluation - we don't have sem_seg ground truth
+      OBJECT_MASK_THRESHOLD: 0.5
+      OVERLAP_THRESHOLD: 0.0
+      PANOPTIC_ON: True
+      INSTANCE_ON: False
+      SEMANTIC_ON: False
 
 # Dataset configuration for Stage 2 (manual annotations)
 DATASETS:
@@ -29,39 +36,38 @@ DATASETS:
 
 # Fine-tuning hyperparameters - Stage 2 (manual data)
 SOLVER:
-  IMS_PER_BATCH: 1          # Very small batch for limited manual data
-  BASE_LR: 0.00001          # Very low LR for fine-tuning
-  MAX_ITER: 500             # ~5 images × 100 epochs
-  STEPS: (350, 450)         # LR decay at 70%, 90%
-  WARMUP_ITERS: 25          # Short warmup for fine-tuning
-  WEIGHT_DECAY: 0.005       # Lower regularization for small dataset
-  BACKBONE_MULTIPLIER: 0.1  # Slow backbone adaptation
-  CHECKPOINT_PERIOD: 1000   # Save checkpoint every 1000 iterations
+  IMS_PER_BATCH: 1
+  BASE_LR: 0.00001
+  MAX_ITER: 500
+  STEPS: (350, 450)
+  WARMUP_ITERS: 25
+  WEIGHT_DECAY: 0.005
+  BACKBONE_MULTIPLIER: 0.1
+  CHECKPOINT_PERIOD: 100
   CLIP_GRADIENTS:
     ENABLED: True
     CLIP_TYPE: "full_model"
-    CLIP_VALUE: 0.01        # Conservative gradient clipping for fine-tuning
+    CLIP_VALUE: 0.01
     NORM_TYPE: 2.0
   AMP:
-    ENABLED: True           # Memory efficiency for large crops
+    ENABLED: True
 
 # Input settings optimized for 9000×9000 myotube fluorescence images
 # NEW: CROP-FIRST-THEN-SCALE approach for maximum detail preservation
 INPUT:
-  # Use MaskFormer dataset mapper with crop-first modification
   DATASET_MAPPER_NAME: "mask_former_panoptic"
   
   # CROP FIRST: More conservative for precious manual annotations
   CROP:
     ENABLED: True
     TYPE: "relative_range"
-    SIZE: [0.2, 1.0]       # 2700×2700 to 9000×9000 crops - preserve more context for manual data
-    SINGLE_CATEGORY_MAX_AREA: 1.0  # Allow myotubes to fill crop area
+    # REFINED for high-quality manual data
+    SIZE: [0.2, 1.0]
   
   # THEN SCALE: Multi-scale training on the cropped regions
-  MIN_SIZE_TRAIN: [800, 900, 1000, 1100, 1200, 1300]  # Multi-scale for cropped regions
-  MAX_SIZE_TRAIN: 1500      # Max dimension after scaling
-  MIN_SIZE_TRAIN_SAMPLING: "choice"  # Random choice each epoch
+  MIN_SIZE_TRAIN: [800, 1000, 1200, 1400]
+  MAX_SIZE_TRAIN: 1800
+  MIN_SIZE_TRAIN_SAMPLING: "choice"
   
   # Minimal augmentation for high-quality manual data
   COLOR_AUG_SSD: True      # Light augmentation for fluorescence robustness
@@ -69,7 +75,7 @@ INPUT:
   FORMAT: "RGB"
   
   # Critical parameters for mask_former_panoptic mapper
-  SIZE_DIVISIBILITY: 32    # Required for proper model input processing
+  SIZE_DIVISIBILITY: 32
 
 # Evaluation settings
 TEST:
@@ -78,7 +84,7 @@ TEST:
 # Data loading
 DATALOADER:
   FILTER_EMPTY_ANNOTATIONS: True
-  NUM_WORKERS: 2  # Reduced workers for memory management with high-res images
+  NUM_WORKERS: 2
 
 # Output directory for Stage 2 panoptic
 OUTPUT_DIR: "./output_stage2_panoptic_manual"

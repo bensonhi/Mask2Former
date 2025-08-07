@@ -134,14 +134,12 @@ def convert_instance_to_panoptic(instance_json, image_dir, pan_mask_dir, panopti
             mask = pan_mask == segm_id
             pan_mask_rgb[mask] = id2rgb(segm_id)
         
-        # Save panoptic mask as RGB PNG
-        # Convert RGB to BGR for cv2.imwrite (OpenCV uses BGR format)
-        pan_mask_bgr = cv2.cvtColor(pan_mask_rgb, cv2.COLOR_RGB2BGR)
-        success = cv2.imwrite(pan_mask_path, pan_mask_bgr)
-        if not success:
-            print(f"Warning: Failed to save panoptic mask: {pan_mask_path}")
-        else:
-            print(f"  ✓ Saved RGB panoptic mask: {os.path.basename(pan_mask_path)} ({np.unique(pan_mask).max()} segments)")
+        # Save panoptic mask as RGB PNG using PIL (like the reference script)
+        # PIL.Image saves in RGB order, which is what panopticapi expects
+        from PIL import Image
+        pan_mask_pil = Image.fromarray(pan_mask_rgb)
+        pan_mask_pil.save(pan_mask_path)
+        print(f"  ✓ Saved RGB panoptic mask: {os.path.basename(pan_mask_path)} ({np.unique(pan_mask).max()} segments)")
         # Convert PNG file extension to JPG for Detectron2 compatibility
         img_file_name = img["file_name"]
         if img_file_name.endswith('.png'):
@@ -245,8 +243,8 @@ def main():
     # Process all relevant splits for two-stage training
     splits_processed = 0
     for split in [
-        "algorithmic_train_annotations.json", "algorithmic_test_annotations.json",
-        "manual_train_annotations.json", "manual_test_annotations.json"
+        "manual_train_annotations.json", "manual_test_annotations.json",
+        "algorithmic_train_annotations.json", "algorithmic_test_annotations.json"
     ]:
         instance_json = os.path.join(args.input_dir, split)
         if not os.path.exists(instance_json):

@@ -15,11 +15,17 @@ MODEL:
   # Optimize for dense overlapping myotube structures
   MASK_FORMER:
     TEST:
-      OBJECT_MASK_THRESHOLD: 0.3  # Lower threshold for algorithmic annotations
-      OVERLAP_THRESHOLD: 0.0  # Zero overlap - each myotube is completely distinct
+      OBJECT_MASK_THRESHOLD: 0.3
+      OVERLAP_THRESHOLD: 0.0
       PANOPTIC_ON: True
-      INSTANCE_ON: False  # Disable instance evaluation for panoptic training
-      SEMANTIC_ON: False  # Disable semantic evaluation - we don't have sem_seg ground truth
+      INSTANCE_ON: False
+      SEMANTIC_ON: False
+    # ADDED for stable learning
+    DEEP_SUPERVISION: True
+    CLASS_WEIGHT: 2.0
+    MASK_WEIGHT: 5.0
+    DICE_WEIGHT: 5.0
+    NO_OBJECT_WEIGHT: 0.1
 
 # Dataset configuration for Stage 1 (algorithmic annotations)
 DATASETS:
@@ -28,19 +34,23 @@ DATASETS:
 
 # Stage 1 Solver: Optimized for 90 algorithmic images + 10 validation
 SOLVER:
-  IMS_PER_BATCH: 2          # Small batch for 9000x9000 images
-  BASE_LR: 0.00005          # Higher LR for algorithmic data
-  MAX_ITER: 4500            # ~90 images × 50 epochs
-  STEPS: (3000, 4200)       # LR decay at 67%, 93%
-  WARMUP_ITERS: 300         # Extended warmup
-  WEIGHT_DECAY: 0.01        # Moderate regularization
-  BACKBONE_MULTIPLIER: 0.2  # Faster backbone learning
-  CHECKPOINT_PERIOD: 1000   # Save checkpoint every 1000 iterations
+  IMS_PER_BATCH: 2
+  BASE_LR: 0.00001
+  MAX_ITER: 4500
+  # ADJUSTED decay steps for longer training
+  STEPS: (3150, 4050)
+  WARMUP_ITERS: 300
+  WEIGHT_DECAY: 0.01
+  BACKBONE_MULTIPLIER: 0.1
+  CHECKPOINT_PERIOD: 1000
   CLIP_GRADIENTS:
     ENABLED: True
     CLIP_TYPE: "full_model"
-    CLIP_VALUE: 0.1         # Higher clip value for large crops
+    CLIP_VALUE: 0.1
     NORM_TYPE: 2.0
+  # ADDED for memory efficiency
+  AMP:
+    ENABLED: True
 
 # Input settings optimized for 9000×9000 myotube fluorescence images
 # NEW: CROP-FIRST-THEN-SCALE approach for maximum detail preservation
@@ -52,30 +62,31 @@ INPUT:
   CROP:
     ENABLED: True
     TYPE: "relative_range"
-    SIZE: [0.4, 1.0]       # 1800×1800 to 9000×9000 crops - HUGE scale diversity!
-    SINGLE_CATEGORY_MAX_AREA: 0.7  # Not used with standard RandomCrop
+    # REFINED for large images
+    SIZE: [0.5, 1.0]
   
   # THEN SCALE: Multi-scale training on the cropped regions
-  MIN_SIZE_TRAIN: [800, 900, 1000, 1100, 1200, 1300]  # Multi-scale for cropped regions
-  MAX_SIZE_TRAIN: 1500      # Max dimension after scaling
-  MIN_SIZE_TRAIN_SAMPLING: "choice"  # Random choice each epoch
+  MIN_SIZE_TRAIN: [800, 960, 1200]
+  MAX_SIZE_TRAIN: 1500
+  MIN_SIZE_TRAIN_SAMPLING: "choice"
   
   # Data augmentation optimized for fluorescence images
-  COLOR_AUG_SSD: True      # Enable for better generalization of fluorescence intensity
+  COLOR_AUG_SSD: True
   RANDOM_FLIP: "horizontal"
   FORMAT: "RGB"
   
   # Critical missing parameters for mask_former_panoptic mapper
-  SIZE_DIVISIBILITY: 32    # Required for proper model input processing
+  SIZE_DIVISIBILITY: 32
 
 # Evaluation settings
 TEST:
-  EVAL_PERIOD: 900         # Evaluate every 900 iterations
+  # ADJUSTED to match longer training
+  EVAL_PERIOD: 500
 
 # Data loading
 DATALOADER:
   FILTER_EMPTY_ANNOTATIONS: True
-  NUM_WORKERS: 4  # More workers for higher batch size
+  NUM_WORKERS: 4
 
 # Output directory for Stage 1 panoptic
 OUTPUT_DIR: "./output_stage1_panoptic_algorithmic"
