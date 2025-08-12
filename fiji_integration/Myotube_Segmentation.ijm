@@ -27,6 +27,7 @@
 // Configuration - Update these paths for your system
 var CONDA_ENV = "m2f";  // Conda environment name
 var PYTHON_COMMAND = "python";  // Python command within the conda environment
+var MASK2FORMER_PATH = "/fs04/scratch2/tf41/ben/Mask2Former";  // Path to Mask2Former project
 var SCRIPT_PATH = "";  // Auto-detected based on macro location
 var CONFIG_FILE = "";  // Auto-detected
 var MODEL_WEIGHTS = "";  // Auto-detected
@@ -90,8 +91,16 @@ function segmentMyotubes() {
     // Setup directories
     setupDirectories();
     
-    // Save current image to temporary location
-    temp_input = TEMP_DIR + File.separator + "input_" + original_title;
+    // Save current image to temporary location with safe filename
+    // Create safe filename (remove spaces and special characters)
+    safe_name = replace(original_title, " ", "_");
+    safe_name = replace(safe_name, "-", "_");
+    safe_name = replace(safe_name, "(", "_");
+    safe_name = replace(safe_name, ")", "_");
+    safe_name = replace(safe_name, "[", "_");
+    safe_name = replace(safe_name, "]", "_");
+    
+    temp_input = TEMP_DIR + File.separator + "input_" + safe_name;
     if (endsWith(temp_input, ".tif") == false) {
         temp_input = temp_input + ".tif";
     }
@@ -120,6 +129,14 @@ function segmentMyotubes() {
     
     end_time = getTime();
     processing_time = (end_time - start_time) / 1000;
+    
+    // Debug: Check what files were created
+    print("Debug: Checking output directory...");
+    output_files = getFileList(OUTPUT_DIR);
+    print("Files found: " + output_files.length);
+    for (i = 0; i < output_files.length; i++) {
+        print("  - " + output_files[i]);
+    }
     
     showProgress(0.8);
     showStatus("Loading results...");
@@ -213,13 +230,15 @@ function testPythonCommand() {
     test_file = test_dir + "python_test.txt";
     
     // Build conda activation command with Python test
+    env_var = "MASK2FORMER_PATH=" + MASK2FORMER_PATH;
+    
     if (startsWith(getInfo("os.name"), "Windows")) {
         // Windows conda activation
-        test_cmd = "conda activate " + CONDA_ENV + " && " + PYTHON_COMMAND + " -c \"print('Python test OK')\" > \"" + test_file + "\"";
+        test_cmd = "conda activate " + CONDA_ENV + " && set " + env_var + " && " + PYTHON_COMMAND + " -c \"print('Python test OK')\" > \"" + test_file + "\"";
         exec("cmd", "/c", test_cmd);
     } else {
         // Unix/Mac conda activation
-        test_cmd = "source $(conda info --base)/etc/profile.d/conda.sh && conda activate " + CONDA_ENV + " && " + PYTHON_COMMAND + " -c \"print('Python test OK')\" > \"" + test_file + "\"";
+        test_cmd = "source $(conda info --base)/etc/profile.d/conda.sh && conda activate " + CONDA_ENV + " && export " + env_var + " && " + PYTHON_COMMAND + " -c \"print('Python test OK')\" > \"" + test_file + "\"";
         exec("sh", "-c", test_cmd);
     }
     
@@ -277,13 +296,15 @@ function buildPythonCommand(input_image) {
         python_script_cmd = python_script_cmd + " --weights \"" + MODEL_WEIGHTS + "\"";
     }
     
-    // Wrap with conda activation
+    // Wrap with conda activation and environment variable
+    env_var = "MASK2FORMER_PATH=" + MASK2FORMER_PATH;
+    
     if (startsWith(getInfo("os.name"), "Windows")) {
         // Windows conda activation
-        full_cmd = "conda activate " + CONDA_ENV + " && " + python_script_cmd;
+        full_cmd = "conda activate " + CONDA_ENV + " && set " + env_var + " && " + python_script_cmd;
     } else {
         // Unix/Mac conda activation
-        full_cmd = "source $(conda info --base)/etc/profile.d/conda.sh && conda activate " + CONDA_ENV + " && " + python_script_cmd;
+        full_cmd = "source $(conda info --base)/etc/profile.d/conda.sh && conda activate " + CONDA_ENV + " && export " + env_var + " && " + python_script_cmd;
     }
     
     return full_cmd;
@@ -395,7 +416,8 @@ function showParameterDialog() {
     Dialog.addMessage("\\nAdvanced Options:");
     Dialog.addString("Conda Environment:", CONDA_ENV, 20);
     Dialog.addString("Python Command:", PYTHON_COMMAND, 20);
-    Dialog.addMessage("(Python command within the conda environment)");
+    Dialog.addString("Mask2Former Path:", MASK2FORMER_PATH, 50);
+    Dialog.addMessage("(Full path to Mask2Former project directory)");
     
     Dialog.show();
     
@@ -405,6 +427,7 @@ function showParameterDialog() {
     MAX_AREA = Dialog.getNumber();
     CONDA_ENV = Dialog.getString();
     PYTHON_COMMAND = Dialog.getString();
+    MASK2FORMER_PATH = Dialog.getString();
     
     // Validate parameters
     if (CONFIDENCE_THRESHOLD < 0 || CONFIDENCE_THRESHOLD > 1) {

@@ -35,6 +35,16 @@ pip install -r requirements.txt
 
 **⚠️ Important:** The Fiji macro is configured to use conda environment named `m2f`. If you want to use a different name, you'll need to edit the `CONDA_ENV` variable in the macro file.
 
+### **Path Configuration Methods (Choose One):**
+
+| Method | Permanence | Difficulty | Best For |
+|--------|------------|------------|----------|
+| **Setup Script** | Permanent | Easy | First-time setup |
+| **Conda Env Var** | Permanent | Easy | Multi-user systems |
+| **Config File** | Permanent | Easy | Easy path changes |
+| **Edit Macro** | Permanent | Medium | Custom configurations |
+| **Shell Export** | Temporary | Easy | Testing/debugging |
+
 ### 2. Install Detectron2
 
 Detectron2 requires special installation:
@@ -64,10 +74,32 @@ pip install detectron2 -f https://dl.fbaipublicfiles.com/detectron2/wheels/cu113
    - Type: `python --version` (should show Python 3.8+)
    - Type: `python -c "import torch; print('PyTorch OK')"` (should print "PyTorch OK")
 
-3. **Configure environment (if needed):**
+3. **Configure Mask2Former project path:**
+   
+   **Option A: Use setup script (easiest)**
+   ```bash
+   python fiji_integration/setup_path.py
+   ```
+   
+   **Option B: Set environment variable**
+   ```bash
+   # Set in conda environment (permanent)
+   conda activate m2f
+   conda env config vars set MASK2FORMER_PATH="/fs04/scratch2/tf41/ben/Mask2Former"
+   conda deactivate && conda activate m2f
+   
+   # Or export in shell (temporary)
+   export MASK2FORMER_PATH="/fs04/scratch2/tf41/ben/Mask2Former"
+   ```
+   
+   **Option C: Create config file**
+   ```bash
+   echo "/fs04/scratch2/tf41/ben/Mask2Former" > fiji_integration/mask2former_config.txt
+   ```
+   
+   **Option D: Edit macro file**
    - Open `Myotube_Segmentation.ijm` in text editor
-   - Modify `CONDA_ENV` if you used a different environment name
-   - Modify `PYTHON_COMMAND` if needed (usually `python` works within conda env)
+   - Change `MASK2FORMER_PATH` variable to your project path
    - Save and restart Fiji
 
 ### 4. Verify Setup
