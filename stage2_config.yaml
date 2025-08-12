@@ -72,10 +72,7 @@ INPUT:
   # Conservative augmentations to preserve manual annotation precision
   COLOR_AUG_SSD: True  # Mild color augmentation for fluorescence variations
   
-  RANDOM_FLIP: "horizontal"
-  
-  # Add rotation for multi-directional myotube structures (same as Stage 1)
-  ROTATION_ANGLES: [-10, 10]  # Small rotations to avoid distorting myotube structures
+  RANDOM_FLIP: "horizontal"  # Horizontal flips for myotube orientation diversity (same as Stage 1)
 
 # Evaluation configuration  
 TEST:

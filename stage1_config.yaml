@@ -73,9 +73,7 @@ INPUT:
   # Enhanced augmentations for dense overlapping myotubes
   COLOR_AUG_SSD: True  # Helps with varying fluorescence intensity
   
-  RANDOM_FLIP: "horizontal"
-  # Add rotation for multi-directional myotube structures
-  ROTATION_ANGLES: [-10, 10]  # Small rotations to avoid distorting myotube structures
+  RANDOM_FLIP: "horizontal"  # Horizontal flips for myotube orientation diversity
 
 # Evaluation configuration  
 TEST:
