@@ -36,9 +36,9 @@ DATASETS:
 
 # Stage 2 Solver: Fine-tuning Swin-Large with 4x training data (28 crops from 7 images)
 SOLVER:
-  IMS_PER_BATCH: 2  # A40 48GB can handle 2 images for fine-tuning
-  BASE_LR: 0.00004  # Optimized LR for batch size 2 in fine-tuning
-  MAX_ITER: 2500    # 28 crops × 90 epochs = 2,500 iterations
+  IMS_PER_BATCH: 1  # Swin-Large requires single batch even for fine-tuning
+  BASE_LR: 0.00002  # Conservative LR for fine-tuning large model
+  MAX_ITER: 5000    # 28 crops × 180 epochs = 5,000 iterations
   # STEPS: (3500, 4500) # Not needed for cosine LR schedule
   WARMUP_FACTOR: 0.1
   WARMUP_ITERS: 300   # Extended warmup for large model fine-tuning
@@ -54,6 +54,8 @@ SOLVER:
     NORM_TYPE: 2.0
   AMP:
     ENABLED: True
+  # Memory optimization for Swin-Large
+  FIND_UNUSED_PARAMETERS: False
 
 # Input configuration optimized for manual annotations
 INPUT:
@@ -76,12 +78,12 @@ INPUT:
 
 # Evaluation configuration  
 TEST:
-  EVAL_PERIOD: 500  # Evaluate every 20 epochs (2500 iter ÷ 28 crops × 0.4 = 500 iterations)
+  EVAL_PERIOD: 1000  # Evaluate every 36 epochs (5000 iter ÷ 28 crops × 36/180 = 1000 iterations)
 
-# Data loader configuration - optimized for 52 CPUs + 1TB RAM  
+# Data loader configuration - memory-optimized for Swin-Large
 DATALOADER:
   FILTER_EMPTY_ANNOTATIONS: True
-  NUM_WORKERS: 8           # More workers for fine-tuning (fewer images, more parallel processing)
+  NUM_WORKERS: 4           # Conservative workers to avoid memory pressure during fine-tuning
 
 # Output directory for Stage 2
 OUTPUT_DIR: "./output_stage2_manual"
