@@ -83,7 +83,6 @@ TEST:
 DATALOADER:
   FILTER_EMPTY_ANNOTATIONS: True
   NUM_WORKERS: 16          # Utilize more CPUs for faster data loading
-  PIN_MEMORY: True         # Faster GPU transfer with 1TB RAM
 
 # Output directory for Stage 1
 OUTPUT_DIR: "./output_stage1_algorithmic"

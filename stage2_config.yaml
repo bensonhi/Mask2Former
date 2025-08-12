@@ -82,7 +82,6 @@ TEST:
 DATALOADER:
   FILTER_EMPTY_ANNOTATIONS: True
   NUM_WORKERS: 8           # More workers for fine-tuning (fewer images, more parallel processing)
-  PIN_MEMORY: True         # Faster GPU transfer with 1TB RAM
 
 # Output directory for Stage 2
 OUTPUT_DIR: "./output_stage2_manual"
