@@ -575,17 +575,22 @@ class MyotubeFijiIntegration:
         
     def setup_paths(self):
         """Setup default paths if not provided."""
-        base_dir = Path(__file__).parent.parent
+        # Use the detected project directory instead of script location
+        base_dir = Path(project_dir)
         
         if not self.config_file:
             # Try to find the best available config
             config_options = [
                 base_dir / "stage2_config.yaml",
                 base_dir / "stage1_config.yaml",
+                base_dir / "stage2_panoptic_config.yaml",
+                base_dir / "stage1_panoptic_config.yaml",
                 base_dir / "configs/coco/instance-segmentation/maskformer2_R50_bs16_50ep.yaml"
             ]
             
+            print(f"🔍 Looking for config files in: {base_dir}")
             for config_path in config_options:
+                print(f"   Checking: {config_path.name} - {'✅' if config_path.exists() else '❌'}")
                 if config_path.exists():
                     self.config_file = str(config_path)
                     break
@@ -595,14 +600,45 @@ class MyotubeFijiIntegration:
             weight_options = [
                 base_dir / "output_stage2_manual/model_final.pth",
                 base_dir / "output_stage2_manual/model_best.pth",
+                base_dir / "output_stage2_panoptic_manual/model_final.pth",
+                base_dir / "output_stage2_panoptic_manual/model_best.pth",
                 base_dir / "output_stage1_algorithmic/model_final.pth",
                 base_dir / "output_stage1_algorithmic/model_best.pth",
+                base_dir / "output_stage1_panoptic_algorithmic/model_final.pth",
+                base_dir / "output_stage1_panoptic_algorithmic/model_best.pth",
             ]
             
+            print(f"🔍 Looking for model weights in: {base_dir}")
             for weight_path in weight_options:
                 if weight_path.exists():
+                    print(f"   Found: {weight_path.name}")
                     self.model_weights = str(weight_path)
                     break
+                    
+        if not self.config_file:
+            print("❌ No config file found! Available options:")
+            print("   1. Specify with --config argument")
+            print("   2. Place config files in project directory")
+            print("   3. Use default COCO config")
+            # Use default COCO config as fallback
+            default_config = base_dir / "configs/coco/instance-segmentation/maskformer2_R50_bs16_50ep.yaml"
+            if default_config.exists():
+                self.config_file = str(default_config)
+                print(f"   ✅ Using fallback: {default_config.name}")
+            else:
+                raise FileNotFoundError(
+                    f"No config files found in {base_dir}. "
+                    "Please check your Mask2Former installation or specify --config path."
+                )
+            
+        if not self.model_weights:
+            print("❌ No model weights found! Available options:")
+            print("   1. Specify with --weights argument")
+            print("   2. Train model and place weights in output directories")
+            print("   3. Use COCO pre-trained weights")
+            # Use COCO pre-trained as fallback
+            self.model_weights = "https://dl.fbaipublicfiles.com/maskformer/mask2former/coco/instance/maskformer2_R50_bs16_50ep/model_final_3c8ec9.pkl"
+            print("   Using COCO pre-trained weights (will download)")
         
         print(f"📁 Config file: {self.config_file}")
         print(f"🔮 Model weights: {self.model_weights}")
