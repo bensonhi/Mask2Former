@@ -1,10 +1,10 @@
 # Stage 1 Configuration: Algorithmic Annotations Training
-# Based on Swin-Base config optimized for large dataset with algorithmic annotations
+# Based on Swin-Large config optimized for large dataset with algorithmic annotations
 # 
-# STAGE 1 DATASET: ~100 images with algorithmic annotations from batch processing
-# - Training: 3000 iterations for robust feature learning
-# - Conservative learning rate for stable training on noisy annotations
-# - Focus on learning general myotube features
+# STAGE 1 DATASET: ~90 images with algorithmic annotations from batch processing
+# - Training: 18,000 iterations for robust feature learning
+# - Evaluation: Manual test set for realistic performance assessment
+# - Focus on learning general myotube features that transfer well to manual quality
 
 _BASE_: configs/coco/instance-segmentation/swin/maskformer2_swin_large_IN21k_384_bs16_100ep.yaml
 
@@ -33,7 +33,7 @@ MODEL:
 # Dataset configuration for Stage 1 (algorithmic annotations)
 DATASETS:
   TRAIN: ("myotube_stage1_train",)
-  TEST: ("myotube_stage1_val",)
+  TEST: ("myotube_stage2_val",)  # Use manual test set for more meaningful evaluation
 
 # Stage 1 Solver: Optimized for Swin-Large with 4x training data (360 crops from 90 images)
 SOLVER:
