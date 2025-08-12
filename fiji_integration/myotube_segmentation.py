@@ -1,0 +1,853 @@
+#!/usr/bin/env python3
+"""
+Myotube Instance Segmentation for Fiji Integration
+
+This script provides myotube instance segmentation with modular post-processing
+pipeline and seamless Fiji integration via composite ROIs.
+
+Usage:
+    python myotube_segmentation.py input_image output_dir [--config CONFIG] [--weights WEIGHTS]
+
+Features:
+    - Modular post-processing pipeline (easy to extend)
+    - Composite ROI generation for multi-segment instances
+    - Automatic Fiji-compatible output formats
+    - Configurable confidence thresholds and filtering
+"""
+
+import os
+import sys
+import argparse
+import json
+import zipfile
+import tempfile
+from pathlib import Path
+from typing import List, Dict, Any, Tuple, Optional
+import numpy as np
+import cv2
+from PIL import Image
+import torch
+
+# Add parent directory to path for imports
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from demo.predictor import MyotubePredictor
+from detectron2.config import get_cfg
+from detectron2.data.detection_utils import read_image
+from mask2former import add_maskformer2_config
+
+
+class PostProcessingPipeline:
+    """
+    Modular post-processing pipeline for instance segmentation results.
+    Easy to extend with new post-processing steps.
+    """
+    
+    def __init__(self, config: Dict[str, Any] = None):
+        """
+        Initialize post-processing pipeline.
+        
+        Args:
+            config: Configuration dictionary for post-processing parameters
+        """
+        self.config = config or self.get_default_config()
+        self.steps = []
+        self._setup_default_pipeline()
+    
+    def get_default_config(self) -> Dict[str, Any]:
+        """Get default post-processing configuration."""
+        return {
+            'min_area': 100,           # Minimum myotube area (pixels)
+            'max_area': 50000,         # Maximum myotube area (pixels)
+            'min_aspect_ratio': 1.5,   # Minimum length/width ratio for myotubes
+            'confidence_threshold': 0.5, # Minimum detection confidence
+            'merge_threshold': 0.8,    # IoU threshold for merging overlapping instances
+            'fill_holes': True,        # Fill holes in segmentation masks
+            'smooth_boundaries': True,  # Smooth mask boundaries
+            'remove_edge_instances': False, # Remove instances touching image edges
+        }
+    
+    def _setup_default_pipeline(self):
+        """Setup default post-processing steps."""
+        self.add_step('filter_by_confidence', self._filter_by_confidence)
+        self.add_step('filter_by_area', self._filter_by_area)
+        self.add_step('filter_by_aspect_ratio', self._filter_by_aspect_ratio)
+        self.add_step('fill_holes', self._fill_holes)
+        self.add_step('smooth_boundaries', self._smooth_boundaries)
+        self.add_step('remove_edge_instances', self._remove_edge_instances)
+        self.add_step('merge_overlapping', self._merge_overlapping_instances)
+    
+    def add_step(self, name: str, function: callable, position: int = -1):
+        """
+        Add a post-processing step to the pipeline.
+        
+        Args:
+            name: Name of the processing step
+            function: Function to execute (should take and return instances dict)
+            position: Position in pipeline (-1 for end)
+        """
+        step = {'name': name, 'function': function}
+        if position == -1:
+            self.steps.append(step)
+        else:
+            self.steps.insert(position, step)
+    
+    def remove_step(self, name: str):
+        """Remove a processing step by name."""
+        self.steps = [step for step in self.steps if step['name'] != name]
+    
+    def process(self, instances: Dict[str, Any], image: np.ndarray) -> Dict[str, Any]:
+        """
+        Run the complete post-processing pipeline.
+        
+        Args:
+            instances: Raw instances from segmentation model
+            image: Original input image
+            
+        Returns:
+            Processed instances dictionary
+        """
+        print(f"🔄 Running post-processing pipeline with {len(self.steps)} steps...")
+        
+        # Convert to our internal format
+        processed_instances = self._convert_to_internal_format(instances, image)
+        
+        # Run each post-processing step
+        for step in self.steps:
+            try:
+                print(f"   ➤ {step['name']}: {len(processed_instances['masks'])} instances")
+                processed_instances = step['function'](processed_instances, image)
+            except Exception as e:
+                print(f"   ⚠️  Warning: Step '{step['name']}' failed: {e}")
+                continue
+        
+        print(f"✅ Post-processing complete: {len(processed_instances['masks'])} final instances")
+        return processed_instances
+    
+    def _convert_to_internal_format(self, instances, image: np.ndarray) -> Dict[str, Any]:
+        """Convert model output to internal processing format."""
+        if hasattr(instances, 'pred_masks'):
+            # Detectron2 Instances format
+            masks = instances.pred_masks.cpu().numpy()
+            scores = instances.scores.cpu().numpy()
+            boxes = instances.pred_boxes.tensor.cpu().numpy()
+        else:
+            # Already in our format
+            return instances
+            
+        return {
+            'masks': masks,
+            'scores': scores,
+            'boxes': boxes,
+            'image_shape': image.shape[:2]
+        }
+    
+    # Post-processing step implementations
+    def _filter_by_confidence(self, instances: Dict[str, Any], image: np.ndarray) -> Dict[str, Any]:
+        """Filter instances by confidence score."""
+        if not self.config.get('confidence_threshold'):
+            return instances
+            
+        threshold = self.config['confidence_threshold']
+        keep = instances['scores'] >= threshold
+        
+        return {
+            'masks': instances['masks'][keep],
+            'scores': instances['scores'][keep],
+            'boxes': instances['boxes'][keep],
+            'image_shape': instances['image_shape']
+        }
+    
+    def _filter_by_area(self, instances: Dict[str, Any], image: np.ndarray) -> Dict[str, Any]:
+        """Filter instances by area."""
+        min_area = self.config.get('min_area', 0)
+        max_area = self.config.get('max_area', float('inf'))
+        
+        areas = np.array([mask.sum() for mask in instances['masks']])
+        keep = (areas >= min_area) & (areas <= max_area)
+        
+        return {
+            'masks': instances['masks'][keep],
+            'scores': instances['scores'][keep],
+            'boxes': instances['boxes'][keep],
+            'image_shape': instances['image_shape']
+        }
+    
+    def _filter_by_aspect_ratio(self, instances: Dict[str, Any], image: np.ndarray) -> Dict[str, Any]:
+        """Filter instances by aspect ratio (length/width)."""
+        min_ratio = self.config.get('min_aspect_ratio', 0)
+        if min_ratio <= 0:
+            return instances
+        
+        keep_indices = []
+        for i, mask in enumerate(instances['masks']):
+            # Calculate bounding box aspect ratio
+            box = instances['boxes'][i]
+            width = box[2] - box[0]
+            height = box[3] - box[1]
+            aspect_ratio = max(width, height) / min(width, height)
+            
+            if aspect_ratio >= min_ratio:
+                keep_indices.append(i)
+        
+        keep = np.array(keep_indices)
+        if len(keep) == 0:
+            # Return empty instances
+            return {
+                'masks': np.array([]),
+                'scores': np.array([]),
+                'boxes': np.array([]),
+                'image_shape': instances['image_shape']
+            }
+        
+        return {
+            'masks': instances['masks'][keep],
+            'scores': instances['scores'][keep],
+            'boxes': instances['boxes'][keep],
+            'image_shape': instances['image_shape']
+        }
+    
+    def _fill_holes(self, instances: Dict[str, Any], image: np.ndarray) -> Dict[str, Any]:
+        """Fill holes in segmentation masks."""
+        if not self.config.get('fill_holes', True):
+            return instances
+        
+        from scipy import ndimage
+        filled_masks = []
+        
+        for mask in instances['masks']:
+            # Fill holes using binary fill_holes
+            filled_mask = ndimage.binary_fill_holes(mask)
+            filled_masks.append(filled_mask.astype(mask.dtype))
+        
+        instances['masks'] = np.array(filled_masks)
+        return instances
+    
+    def _smooth_boundaries(self, instances: Dict[str, Any], image: np.ndarray) -> Dict[str, Any]:
+        """Smooth mask boundaries."""
+        if not self.config.get('smooth_boundaries', True):
+            return instances
+        
+        smoothed_masks = []
+        
+        for mask in instances['masks']:
+            # Apply morphological opening and closing
+            kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+            smoothed = cv2.morphologyEx(mask.astype(np.uint8), cv2.MORPH_OPEN, kernel)
+            smoothed = cv2.morphologyEx(smoothed, cv2.MORPH_CLOSE, kernel)
+            smoothed_masks.append(smoothed.astype(mask.dtype))
+        
+        instances['masks'] = np.array(smoothed_masks)
+        return instances
+    
+    def _remove_edge_instances(self, instances: Dict[str, Any], image: np.ndarray) -> Dict[str, Any]:
+        """Remove instances that touch image edges."""
+        if not self.config.get('remove_edge_instances', False):
+            return instances
+        
+        h, w = instances['image_shape']
+        keep_indices = []
+        
+        for i, mask in enumerate(instances['masks']):
+            # Check if mask touches any edge
+            touches_edge = (
+                mask[0, :].any() or  # Top edge
+                mask[-1, :].any() or  # Bottom edge
+                mask[:, 0].any() or  # Left edge
+                mask[:, -1].any()    # Right edge
+            )
+            
+            if not touches_edge:
+                keep_indices.append(i)
+        
+        keep = np.array(keep_indices)
+        if len(keep) == 0:
+            return {
+                'masks': np.array([]),
+                'scores': np.array([]),
+                'boxes': np.array([]),
+                'image_shape': instances['image_shape']
+            }
+        
+        return {
+            'masks': instances['masks'][keep],
+            'scores': instances['scores'][keep],
+            'boxes': instances['boxes'][keep],
+            'image_shape': instances['image_shape']
+        }
+    
+    def _merge_overlapping_instances(self, instances: Dict[str, Any], image: np.ndarray) -> Dict[str, Any]:
+        """Merge overlapping instances based on IoU threshold."""
+        merge_threshold = self.config.get('merge_threshold', 0.8)
+        if merge_threshold >= 1.0 or len(instances['masks']) <= 1:
+            return instances
+        
+        # Calculate IoU matrix
+        masks = instances['masks']
+        n = len(masks)
+        iou_matrix = np.zeros((n, n))
+        
+        for i in range(n):
+            for j in range(i + 1, n):
+                intersection = np.logical_and(masks[i], masks[j]).sum()
+                union = np.logical_or(masks[i], masks[j]).sum()
+                iou = intersection / union if union > 0 else 0
+                iou_matrix[i, j] = iou_matrix[j, i] = iou
+        
+        # Find groups to merge
+        merged_groups = []
+        used = set()
+        
+        for i in range(n):
+            if i in used:
+                continue
+            
+            group = [i]
+            used.add(i)
+            
+            # Find all instances that should be merged with this one
+            for j in range(i + 1, n):
+                if j not in used and iou_matrix[i, j] >= merge_threshold:
+                    group.append(j)
+                    used.add(j)
+            
+            merged_groups.append(group)
+        
+        # Create merged instances
+        merged_masks = []
+        merged_scores = []
+        merged_boxes = []
+        
+        for group in merged_groups:
+            if len(group) == 1:
+                # Single instance, keep as is
+                idx = group[0]
+                merged_masks.append(instances['masks'][idx])
+                merged_scores.append(instances['scores'][idx])
+                merged_boxes.append(instances['boxes'][idx])
+            else:
+                # Merge multiple instances
+                combined_mask = np.logical_or.reduce([instances['masks'][idx] for idx in group])
+                max_score = max([instances['scores'][idx] for idx in group])
+                
+                # Calculate bounding box for merged mask
+                coords = np.where(combined_mask)
+                if len(coords[0]) > 0:
+                    y_min, y_max = coords[0].min(), coords[0].max()
+                    x_min, x_max = coords[1].min(), coords[1].max()
+                    merged_box = np.array([x_min, y_min, x_max, y_max])
+                else:
+                    merged_box = instances['boxes'][group[0]]
+                
+                merged_masks.append(combined_mask)
+                merged_scores.append(max_score)
+                merged_boxes.append(merged_box)
+        
+        return {
+            'masks': np.array(merged_masks),
+            'scores': np.array(merged_scores),
+            'boxes': np.array(merged_boxes),
+            'image_shape': instances['image_shape']
+        }
+
+
+class ImageJROIGenerator:
+    """
+    Generator for ImageJ-compatible ROI files from binary masks.
+    Creates proper ROI files that can be loaded into ImageJ/Fiji ROI Manager.
+    """
+    
+    # ImageJ ROI file format constants
+    MAGIC = b'Iout'
+    VERSION = 227
+    
+    # ROI types
+    POLYGON = 0
+    RECT = 1
+    OVAL = 2
+    LINE = 3
+    FREELINE = 4
+    POLYLINE = 5
+    NOROI = 6
+    FREEHAND = 7
+    TRACED = 8
+    ANGLE = 9
+    POINT = 10
+    
+    def __init__(self):
+        """Initialize ROI generator."""
+        pass
+    
+    def mask_to_roi_file(self, mask: np.ndarray, name: str = "") -> bytes:
+        """
+        Convert a binary mask to ImageJ ROI file format.
+        
+        Args:
+            mask: Binary mask array (2D numpy array)
+            name: Name for the ROI
+            
+        Returns:
+            Bytes content of the ROI file
+        """
+        from skimage import measure
+        
+        # Find contours in the mask
+        contours = measure.find_contours(mask, 0.5)
+        
+        if len(contours) == 0:
+            # Create empty ROI if no contours found
+            return self._create_empty_roi(name)
+        
+        # For composite ROIs (multi-segment instances), we need to handle multiple contours
+        if len(contours) == 1:
+            # Single contour - create simple polygon ROI
+            return self._create_polygon_roi(contours[0], name)
+        else:
+            # Multiple contours - create composite ROI using largest contour
+            # In the future, this could be enhanced to create true composite ROIs
+            largest_contour = max(contours, key=len)
+            return self._create_polygon_roi(largest_contour, name)
+    
+    def _create_polygon_roi(self, contour: np.ndarray, name: str = "") -> bytes:
+        """Create a polygon ROI from contour coordinates."""
+        import struct
+        
+        # Convert contour coordinates (y, x) to (x, y) and ensure integers
+        coords = [(int(point[1]), int(point[0])) for point in contour]
+        
+        if len(coords) < 3:
+            return self._create_empty_roi(name)
+        
+        # Calculate bounding box
+        x_coords = [coord[0] for coord in coords]
+        y_coords = [coord[1] for coord in coords]
+        left = min(x_coords)
+        top = min(y_coords)
+        right = max(x_coords)
+        bottom = max(y_coords)
+        
+        # Convert to relative coordinates
+        rel_coords = [(x - left, y - top) for x, y in coords]
+        
+        # Create ROI header
+        roi_header = self._create_roi_header(
+            roi_type=self.POLYGON,
+            top=top,
+            left=left,
+            bottom=bottom,
+            right=right,
+            n_coordinates=len(coords),
+            name=name
+        )
+        
+        # Pack coordinate data
+        coord_data = b''
+        for x, y in rel_coords:
+            coord_data += struct.pack('>hh', x, y)  # signed 16-bit coordinates
+        
+        return roi_header + coord_data
+    
+    def _create_empty_roi(self, name: str = "") -> bytes:
+        """Create an empty ROI file."""
+        return self._create_roi_header(
+            roi_type=self.NOROI,
+            top=0, left=0, bottom=0, right=0,
+            n_coordinates=0,
+            name=name
+        )
+    
+    def _create_roi_header(self, roi_type: int, top: int, left: int, bottom: int, right: int,
+                          n_coordinates: int, name: str = "") -> bytes:
+        """Create ROI file header in ImageJ format."""
+        import struct
+        
+        # Basic header
+        header = struct.pack('>4sH', self.MAGIC, self.VERSION)
+        
+        # ROI header (64 bytes total)
+        header_data = struct.pack(
+            '>BBHhhhhHHHHhhhhHHH',
+            roi_type,           # ROI type
+            0,                  # Subtype
+            top,                # Top
+            left,               # Left  
+            bottom,             # Bottom
+            right,              # Right
+            n_coordinates,      # N coordinates
+            0,                  # X1 (line start)
+            0,                  # Y1 (line start)
+            0,                  # X2 (line end)
+            0,                  # Y2 (line end)
+            0,                  # Reserved
+            0,                  # Reserved
+            0,                  # Reserved
+            0,                  # Reserved
+            0,                  # Stroke width
+            0,                  # Shape ROI size
+            0                   # Stroke color
+        )
+        
+        # Pad header to 64 bytes
+        header_size = len(header) + len(header_data)
+        padding_needed = 64 - header_size
+        if padding_needed > 0:
+            header_data += b'\x00' * padding_needed
+        
+        # Add name if provided (as null-terminated string)
+        name_data = b''
+        if name:
+            name_bytes = name.encode('utf-8')[:60]  # Limit name length
+            name_data = name_bytes + b'\x00'
+        
+        return header + header_data + name_data
+
+
+class MyotubeFijiIntegration:
+    """
+    Main class for Fiji integration of myotube instance segmentation.
+    """
+    
+    def __init__(self, config_file: str = None, model_weights: str = None):
+        """
+        Initialize the Fiji integration.
+        
+        Args:
+            config_file: Path to model config file
+            model_weights: Path to model weights
+        """
+        self.config_file = config_file
+        self.model_weights = model_weights
+        self.predictor = None
+        self.post_processor = PostProcessingPipeline()
+        
+        # Setup paths
+        self.setup_paths()
+        
+    def setup_paths(self):
+        """Setup default paths if not provided."""
+        base_dir = Path(__file__).parent.parent
+        
+        if not self.config_file:
+            # Try to find the best available config
+            config_options = [
+                base_dir / "stage2_config.yaml",
+                base_dir / "stage1_config.yaml",
+                base_dir / "configs/coco/instance-segmentation/maskformer2_R50_bs16_50ep.yaml"
+            ]
+            
+            for config_path in config_options:
+                if config_path.exists():
+                    self.config_file = str(config_path)
+                    break
+        
+        if not self.model_weights:
+            # Try to find the best available weights
+            weight_options = [
+                base_dir / "output_stage2_manual/model_final.pth",
+                base_dir / "output_stage2_manual/model_best.pth",
+                base_dir / "output_stage1_algorithmic/model_final.pth",
+                base_dir / "output_stage1_algorithmic/model_best.pth",
+            ]
+            
+            for weight_path in weight_options:
+                if weight_path.exists():
+                    self.model_weights = str(weight_path)
+                    break
+        
+        print(f"📁 Config file: {self.config_file}")
+        print(f"🔮 Model weights: {self.model_weights}")
+    
+    def initialize_predictor(self):
+        """Initialize the segmentation predictor."""
+        if self.predictor is not None:
+            return
+        
+        print("🚀 Initializing myotube predictor...")
+        
+        # Setup configuration
+        cfg = get_cfg()
+        add_maskformer2_config(cfg)
+        cfg.merge_from_file(self.config_file)
+        cfg.MODEL.WEIGHTS = self.model_weights
+        cfg.MODEL.MASK_FORMER.TEST.OBJECT_MASK_THRESHOLD = 0.25  # Lower threshold for better detection
+        cfg.freeze()
+        
+        self.predictor = MyotubePredictor(cfg)
+        print("✅ Predictor initialized successfully!")
+    
+    def segment_image(self, image_path: str, output_dir: str, 
+                     custom_config: Dict[str, Any] = None) -> Dict[str, str]:
+        """
+        Segment myotubes in an image and save Fiji-compatible outputs.
+        
+        Args:
+            image_path: Path to input image
+            output_dir: Directory to save outputs
+            custom_config: Custom post-processing configuration
+            
+        Returns:
+            Dictionary with paths to generated files
+        """
+        print(f"🔬 Segmenting myotubes in: {os.path.basename(image_path)}")
+        
+        # Initialize predictor if needed
+        self.initialize_predictor()
+        
+        # Update post-processing config if provided
+        if custom_config:
+            self.post_processor.config.update(custom_config)
+        
+        # Load and process image
+        image = read_image(image_path, format="BGR")
+        original_image = cv2.imread(image_path)
+        
+        # Run segmentation
+        print("   🔄 Running inference...")
+        predictions = self.predictor(image)
+        instances = predictions["instances"]
+        
+        if len(instances) == 0:
+            print("   ⚠️  No myotubes detected!")
+            return self._create_empty_outputs(image_path, output_dir)
+        
+        print(f"   🎯 Detected {len(instances)} potential myotubes")
+        
+        # Apply post-processing
+        processed_instances = self.post_processor.process(instances, original_image)
+        
+        # Generate outputs
+        output_files = self._generate_fiji_outputs(
+            processed_instances, original_image, image_path, output_dir
+        )
+        
+        return output_files
+    
+    def _create_empty_outputs(self, image_path: str, output_dir: str) -> Dict[str, str]:
+        """Create empty output files when no instances are detected."""
+        os.makedirs(output_dir, exist_ok=True)
+        base_name = Path(image_path).stem
+        
+        # Create empty ROI file
+        roi_path = os.path.join(output_dir, f"{base_name}_rois.zip")
+        with zipfile.ZipFile(roi_path, 'w') as zf:
+            pass  # Empty zip file
+        
+        # Create empty overlay (just copy original)
+        overlay_path = os.path.join(output_dir, f"{base_name}_overlay.tif")
+        original = cv2.imread(image_path)
+        cv2.imwrite(overlay_path, original)
+        
+        # Create empty measurements
+        measurements_path = os.path.join(output_dir, f"{base_name}_measurements.csv")
+        with open(measurements_path, 'w') as f:
+            f.write("Instance,Area,Perimeter,AspectRatio,Confidence\n")
+        
+        return {
+            'rois': roi_path,
+            'overlay': overlay_path,
+            'measurements': measurements_path,
+            'count': 0
+        }
+    
+    def _generate_fiji_outputs(self, instances: Dict[str, Any], original_image: np.ndarray,
+                              image_path: str, output_dir: str) -> Dict[str, str]:
+        """Generate all Fiji-compatible output files."""
+        os.makedirs(output_dir, exist_ok=True)
+        base_name = Path(image_path).stem
+        
+        # Generate composite ROIs
+        roi_path = os.path.join(output_dir, f"{base_name}_rois.zip")
+        self._save_composite_rois(instances, roi_path)
+        
+        # Generate colored overlay
+        overlay_path = os.path.join(output_dir, f"{base_name}_overlay.tif")
+        self._save_colored_overlay(instances, original_image, overlay_path)
+        
+        # Generate measurements CSV
+        measurements_path = os.path.join(output_dir, f"{base_name}_measurements.csv")
+        self._save_measurements(instances, measurements_path)
+        
+        # Generate summary info
+        info_path = os.path.join(output_dir, f"{base_name}_info.json")
+        self._save_info(instances, image_path, info_path)
+        
+        print(f"✅ Generated outputs for {len(instances['masks'])} myotubes")
+        
+        return {
+            'rois': roi_path,
+            'overlay': overlay_path,
+            'measurements': measurements_path,
+            'info': info_path,
+            'count': len(instances['masks'])
+        }
+    
+    def _save_composite_rois(self, instances: Dict[str, Any], output_path: str):
+        """Save instances as composite ROIs for Fiji ROI Manager."""
+        roi_generator = ImageJROIGenerator()
+        
+        with zipfile.ZipFile(output_path, 'w') as zf:
+            for i, mask in enumerate(instances['masks']):
+                roi_name = f"Myotube_{i+1}.roi"
+                
+                # Generate proper ImageJ ROI file
+                roi_content = roi_generator.mask_to_roi_file(mask, f"Myotube_{i+1}")
+                zf.writestr(roi_name, roi_content)
+    
+
+    
+    def _save_colored_overlay(self, instances: Dict[str, Any], original_image: np.ndarray, 
+                             output_path: str):
+        """Save colored overlay for visualization."""
+        import matplotlib.pyplot as plt
+        import matplotlib.colors as mcolors
+        
+        # Create colored overlay
+        overlay = original_image.copy()
+        
+        # Generate distinct colors for each instance
+        colors = plt.cm.Set3(np.linspace(0, 1, len(instances['masks'])))
+        
+        for i, (mask, score) in enumerate(zip(instances['masks'], instances['scores'])):
+            # Create colored mask
+            color = (colors[i][:3] * 255).astype(np.uint8)
+            
+            # Apply color to mask region
+            colored_mask = np.zeros_like(original_image)
+            colored_mask[mask] = color
+            
+            # Blend with original image
+            alpha = 0.6
+            overlay = cv2.addWeighted(overlay, 1-alpha, colored_mask, alpha, 0)
+            
+            # Add confidence score text
+            coords = np.where(mask)
+            if len(coords[0]) > 0:
+                center_y, center_x = coords[0].mean(), coords[1].mean()
+                cv2.putText(overlay, f"{score:.2f}", 
+                           (int(center_x), int(center_y)), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+        
+        # Save overlay
+        cv2.imwrite(output_path, overlay)
+    
+    def _save_measurements(self, instances: Dict[str, Any], output_path: str):
+        """Save measurements CSV for analysis."""
+        import pandas as pd
+        from skimage import measure
+        
+        measurements = []
+        
+        for i, (mask, score, box) in enumerate(zip(instances['masks'], instances['scores'], instances['boxes'])):
+            # Calculate basic measurements
+            area = mask.sum()
+            
+            # Calculate perimeter
+            contours = measure.find_contours(mask, 0.5)
+            perimeter = sum(len(contour) for contour in contours)
+            
+            # Calculate aspect ratio from bounding box
+            width = box[2] - box[0]
+            height = box[3] - box[1]
+            aspect_ratio = max(width, height) / min(width, height)
+            
+            measurements.append({
+                'Instance': f'Myotube_{i+1}',
+                'Area': area,
+                'Perimeter': perimeter,
+                'AspectRatio': aspect_ratio,
+                'Confidence': score,
+                'BoundingBox_X': box[0],
+                'BoundingBox_Y': box[1],
+                'BoundingBox_Width': width,
+                'BoundingBox_Height': height
+            })
+        
+        # Save to CSV
+        df = pd.DataFrame(measurements)
+        df.to_csv(output_path, index=False)
+    
+    def _save_info(self, instances: Dict[str, Any], image_path: str, output_path: str):
+        """Save processing information."""
+        info = {
+            'input_image': os.path.basename(image_path),
+            'num_instances': len(instances['masks']),
+            'image_shape': instances['image_shape'],
+            'config_file': self.config_file,
+            'model_weights': self.model_weights,
+            'post_processing_config': self.post_processor.config,
+            'processing_steps': [step['name'] for step in self.post_processor.steps]
+        }
+        
+        with open(output_path, 'w') as f:
+            json.dump(info, f, indent=2)
+
+
+def main():
+    """Main function for command-line usage."""
+    parser = argparse.ArgumentParser(description="Myotube Instance Segmentation for Fiji")
+    parser.add_argument("input_image", help="Path to input image")
+    parser.add_argument("output_dir", help="Output directory for results")
+    parser.add_argument("--config", help="Path to model config file")
+    parser.add_argument("--weights", help="Path to model weights")
+    parser.add_argument("--confidence", type=float, default=0.5, 
+                       help="Confidence threshold for detection")
+    parser.add_argument("--min-area", type=int, default=100,
+                       help="Minimum myotube area in pixels")
+    parser.add_argument("--max-area", type=int, default=50000,
+                       help="Maximum myotube area in pixels")
+    
+    args = parser.parse_args()
+    
+    # Custom post-processing config
+    custom_config = {
+        'confidence_threshold': args.confidence,
+        'min_area': args.min_area,
+        'max_area': args.max_area
+    }
+    
+    # Initialize integration
+    integration = MyotubeFijiIntegration(
+        config_file=args.config,
+        model_weights=args.weights
+    )
+    
+    # Process image
+    try:
+        output_files = integration.segment_image(
+            args.input_image, 
+            args.output_dir, 
+            custom_config
+        )
+        
+        print("\n" + "="*60)
+        print("🎉 MYOTUBE SEGMENTATION COMPLETED!")
+        print("="*60)
+        print(f"📊 Results: {output_files['count']} myotubes detected")
+        print(f"📁 Output files:")
+        for key, path in output_files.items():
+            if key != 'count':
+                print(f"   {key}: {os.path.basename(path)}")
+        print("="*60)
+        
+        # Signal success to ImageJ macro
+        success_file = os.path.join(args.output_dir, "SUCCESS")
+        with open(success_file, 'w') as f:
+            f.write(f"SUCCESS: {output_files['count']} myotubes detected\n")
+            f.write(f"ROI_FILE: {output_files['rois']}\n")
+            f.write(f"OVERLAY_FILE: {output_files['overlay']}\n")
+        
+    except Exception as e:
+        print(f"\n❌ ERROR: {e}")
+        import traceback
+        traceback.print_exc()
+        
+        # Signal failure to ImageJ macro
+        error_file = os.path.join(args.output_dir, "ERROR")
+        with open(error_file, 'w') as f:
+            f.write(f"ERROR: {str(e)}\n")
+        
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,481 @@
+/*
+ * Myotube Instance Segmentation for Fiji
+ * 
+ * This macro provides seamless integration of AI-powered myotube instance segmentation
+ * into the Fiji/ImageJ workflow. Users simply click a button to segment myotubes
+ * in the current image.
+ * 
+ * Features:
+ * - One-click myotube segmentation
+ * - Automatic ROI loading into ROI Manager
+ * - Colored overlay visualization
+ * - Measurement export to CSV
+ * - Progress feedback and error handling
+ * 
+ * Setup Requirements:
+ * 1. Python environment with required packages (see requirements.txt)
+ * 2. Trained Mask2Former model for myotubes
+ * 3. This macro file in Fiji plugins or macros folder
+ * 
+ * Usage:
+ * 1. Open an image in Fiji
+ * 2. Run "Segment Myotubes" macro (or press 'M' shortcut)
+ * 3. Wait for processing (progress shown in status bar)
+ * 4. View results in ROI Manager and overlay
+ */
+
+// Configuration - Update these paths for your system
+var PYTHON_COMMAND = "python";  // or "python3" on some systems
+var SCRIPT_PATH = "";  // Auto-detected based on macro location
+var CONFIG_FILE = "";  // Auto-detected
+var MODEL_WEIGHTS = "";  // Auto-detected
+
+// Processing parameters (can be adjusted by users)
+var CONFIDENCE_THRESHOLD = 0.5;
+var MIN_AREA = 100;
+var MAX_AREA = 50000;
+
+// UI and workflow state
+var TEMP_DIR = "";
+var OUTPUT_DIR = "";
+
+/*
+ * Main macro function - this is what users click
+ */
+macro "Segment Myotubes [M]" {
+    segmentMyotubes();
+}
+
+/*
+ * Alternative macro with custom parameters
+ */
+macro "Segment Myotubes (Custom Parameters)..." {
+    if (showParameterDialog()) {
+        segmentMyotubes();
+    }
+}
+
+/*
+ * Load previous results (if user wants to reload ROIs)
+ */
+macro "Load Myotube Results..." {
+    loadPreviousResults();
+}
+
+/*
+ * Main segmentation function
+ */
+function segmentMyotubes() {
+    // Validate prerequisites
+    if (!validateSetup()) {
+        return;
+    }
+    
+    // Check if image is open
+    if (nImages == 0) {
+        showMessage("No Image", "Please open an image first.");
+        return;
+    }
+    
+    // Get current image info
+    original_title = getTitle();
+    original_id = getImageID();
+    
+    print("\\Clear");  // Clear log
+    print("=== Myotube Segmentation Started ===");
+    print("Image: " + original_title);
+    print("Time: " + getTime());
+    
+    // Setup directories
+    setupDirectories();
+    
+    // Save current image to temporary location
+    temp_input = TEMP_DIR + File.separator + "input_" + original_title;
+    if (endsWith(temp_input, ".tif") == false) {
+        temp_input = temp_input + ".tif";
+    }
+    
+    print("Saving input image: " + temp_input);
+    saveAs("Tiff", temp_input);
+    
+    // Show progress
+    showProgress(0.1);
+    showStatus("Running myotube segmentation...");
+    
+    // Construct Python command
+    python_cmd = buildPythonCommand(temp_input);
+    print("Command: " + python_cmd);
+    
+    // Execute segmentation
+    print("Executing segmentation...");
+    start_time = getTime();
+    
+    // Use eval to execute the command (platform independent)
+    if (startsWith(getInfo("os.name"), "Windows")) {
+        exec("cmd", "/c", python_cmd);
+    } else {
+        exec("sh", "-c", python_cmd);
+    }
+    
+    end_time = getTime();
+    processing_time = (end_time - start_time) / 1000;
+    
+    showProgress(0.8);
+    showStatus("Loading results...");
+    
+    // Check for success/error
+    success_file = OUTPUT_DIR + File.separator + "SUCCESS";
+    error_file = OUTPUT_DIR + File.separator + "ERROR";
+    
+    if (File.exists(success_file)) {
+        // Success - load results
+        loadResults(success_file);
+        print("✅ Segmentation completed successfully in " + processing_time + " seconds");
+        showStatus("Myotube segmentation completed successfully!");
+    } else if (File.exists(error_file)) {
+        // Error occurred
+        error_message = File.openAsString(error_file);
+        print("❌ Segmentation failed:");
+        print(error_message);
+        showMessage("Segmentation Failed", 
+                   "An error occurred during segmentation:\\n\\n" + error_message);
+        showStatus("Segmentation failed - check log for details");
+    } else {
+        // Unknown state
+        print("⚠️  No success or error file found - unknown status");
+        showMessage("Unknown Status", 
+                   "Segmentation completed but status is unclear.\\n" +
+                   "Check the output directory: " + OUTPUT_DIR);
+        showStatus("Segmentation status unknown");
+    }
+    
+    showProgress(1.0);
+    
+    // Cleanup temporary files
+    if (File.exists(temp_input)) {
+        File.delete(temp_input);
+    }
+    
+    print("=== Segmentation Complete ===\\n");
+}
+
+/*
+ * Validate that all prerequisites are met
+ */
+function validateSetup() {
+    // Auto-detect paths if not set
+    if (SCRIPT_PATH == "") {
+        macro_dir = getDirectory("macros");
+        plugin_dir = getDirectory("plugins");
+        
+        // Try to find the script in common locations
+        script_locations = newArray(
+            macro_dir + "myotube_segmentation.py",
+            plugin_dir + "myotube_segmentation.py",
+            getDirectory("startup") + "myotube_segmentation.py"
+        );
+        
+        for (i = 0; i < script_locations.length; i++) {
+            if (File.exists(script_locations[i])) {
+                SCRIPT_PATH = script_locations[i];
+                break;
+            }
+        }
+        
+        if (SCRIPT_PATH == "") {
+            showMessage("Setup Error", 
+                       "Could not find myotube_segmentation.py script.\\n\\n" +
+                       "Please ensure the script is in one of these locations:\\n" +
+                       "- Fiji macros folder\\n" +
+                       "- Fiji plugins folder\\n" +
+                       "- Fiji startup folder");
+            return false;
+        }
+    }
+    
+    // Test Python availability
+    if (!testPythonCommand()) {
+        return false;
+    }
+    
+    print("✅ Setup validation passed");
+    print("Script path: " + SCRIPT_PATH);
+    return true;
+}
+
+/*
+ * Test if Python command works
+ */
+function testPythonCommand() {
+    // Create a simple test file
+    test_dir = getDirectory("temp");
+    test_file = test_dir + "python_test.txt";
+    
+    // Try to run a simple Python command
+    test_cmd = PYTHON_COMMAND + " -c \"print('Python test OK')\" > \"" + test_file + "\"";
+    
+    if (startsWith(getInfo("os.name"), "Windows")) {
+        exec("cmd", "/c", test_cmd);
+    } else {
+        exec("sh", "-c", test_cmd);
+    }
+    
+    // Check if test file was created
+    wait(1000);  // Wait 1 second
+    
+    if (File.exists(test_file)) {
+        File.delete(test_file);
+        return true;
+    } else {
+        showMessage("Python Error", 
+                   "Could not execute Python command: " + PYTHON_COMMAND + "\\n\\n" +
+                   "Please ensure:\\n" +
+                   "1. Python is installed\\n" +
+                   "2. Python is in your system PATH\\n" +
+                   "3. Required packages are installed (see requirements.txt)\\n\\n" +
+                   "You may need to change PYTHON_COMMAND in the macro to 'python3' or full path.");
+        return false;
+    }
+}
+
+/*
+ * Setup temporary and output directories
+ */
+function setupDirectories() {
+    TEMP_DIR = getDirectory("temp") + "myotube_segmentation";
+    OUTPUT_DIR = TEMP_DIR + File.separator + "output";
+    
+    // Create directories if they don't exist
+    File.makeDirectory(TEMP_DIR);
+    File.makeDirectory(OUTPUT_DIR);
+    
+    print("Temp directory: " + TEMP_DIR);
+    print("Output directory: " + OUTPUT_DIR);
+}
+
+/*
+ * Build the Python command with all parameters
+ */
+function buildPythonCommand(input_image) {
+    cmd = PYTHON_COMMAND + " \"" + SCRIPT_PATH + "\"";
+    cmd = cmd + " \"" + input_image + "\"";
+    cmd = cmd + " \"" + OUTPUT_DIR + "\"";
+    cmd = cmd + " --confidence " + CONFIDENCE_THRESHOLD;
+    cmd = cmd + " --min-area " + MIN_AREA;
+    cmd = cmd + " --max-area " + MAX_AREA;
+    
+    if (CONFIG_FILE != "") {
+        cmd = cmd + " --config \"" + CONFIG_FILE + "\"";
+    }
+    if (MODEL_WEIGHTS != "") {
+        cmd = cmd + " --weights \"" + MODEL_WEIGHTS + "\"";
+    }
+    
+    return cmd;
+}
+
+/*
+ * Load segmentation results into Fiji
+ */
+function loadResults(success_file) {
+    // Read success file to get result file paths
+    success_content = File.openAsString(success_file);
+    lines = split(success_content, "\\n");
+    
+    roi_file = "";
+    overlay_file = "";
+    num_instances = 0;
+    
+    for (i = 0; i < lines.length; i++) {
+        if (startsWith(lines[i], "ROI_FILE:")) {
+            roi_file = substring(lines[i], 10);
+        } else if (startsWith(lines[i], "OVERLAY_FILE:")) {
+            overlay_file = substring(lines[i], 13);
+        } else if (startsWith(lines[i], "SUCCESS:")) {
+            // Extract number of instances
+            parts = split(lines[i], " ");
+            if (parts.length > 1) {
+                num_instances = parseInt(parts[1]);
+            }
+        }
+    }
+    
+    print("Loading results:");
+    print("  ROI file: " + roi_file);
+    print("  Overlay file: " + overlay_file);
+    print("  Instances: " + num_instances);
+    
+    // Load ROIs into ROI Manager
+    if (File.exists(roi_file) && num_instances > 0) {
+        // Clear existing ROIs (ask user first)
+        if (roiManager("count") > 0) {
+            result = getBoolean("Clear existing ROIs in ROI Manager?");
+            if (result) {
+                roiManager("reset");
+            }
+        }
+        
+        // Load new ROIs
+        roiManager("Open", roi_file);
+        print("✅ Loaded " + roiManager("count") + " ROIs into ROI Manager");
+        
+        // Show all ROIs on original image
+        if (roiManager("count") > 0) {
+            roiManager("Show All");
+            roiManager("Show All with labels");
+        }
+    }
+    
+    // Open overlay image
+    if (File.exists(overlay_file)) {
+        open(overlay_file);
+        overlay_title = getTitle();
+        print("✅ Opened overlay image: " + overlay_title);
+        
+        // Arrange windows nicely
+        arrangeWindows();
+    }
+    
+    // Show summary
+    showSummaryDialog(num_instances);
+}
+
+/*
+ * Arrange windows for best viewing
+ */
+function arrangeWindows() {
+    // Get screen dimensions
+    screen_width = screenWidth;
+    screen_height = screenHeight;
+    
+    // If we have multiple images, arrange them side by side
+    if (nImages >= 2) {
+        window_width = screen_width / 2 - 50;
+        window_height = screen_height - 200;
+        
+        // Select and position original image
+        selectWindow(1);
+        setLocation(10, 10, window_width, window_height);
+        
+        // Select and position overlay
+        selectWindow(2);
+        setLocation(window_width + 30, 10, window_width, window_height);
+    }
+    
+    // Show ROI Manager if it has ROIs
+    if (roiManager("count") > 0) {
+        roiManager("Show All");
+    }
+}
+
+/*
+ * Show parameter dialog for custom processing
+ */
+function showParameterDialog() {
+    Dialog.create("Myotube Segmentation Parameters");
+    Dialog.addMessage("Adjust segmentation parameters:");
+    Dialog.addNumber("Confidence Threshold (0-1):", CONFIDENCE_THRESHOLD);
+    Dialog.addNumber("Minimum Area (pixels):", MIN_AREA);
+    Dialog.addNumber("Maximum Area (pixels):", MAX_AREA);
+    Dialog.addMessage("\\nAdvanced Options:");
+    Dialog.addString("Python Command:", PYTHON_COMMAND, 20);
+    Dialog.addMessage("(Change to 'python3' or full path if needed)");
+    
+    Dialog.show();
+    
+    // Get values
+    CONFIDENCE_THRESHOLD = Dialog.getNumber();
+    MIN_AREA = Dialog.getNumber();
+    MAX_AREA = Dialog.getNumber();
+    PYTHON_COMMAND = Dialog.getString();
+    
+    // Validate parameters
+    if (CONFIDENCE_THRESHOLD < 0 || CONFIDENCE_THRESHOLD > 1) {
+        showMessage("Invalid Parameter", "Confidence threshold must be between 0 and 1");
+        return false;
+    }
+    
+    if (MIN_AREA <= 0 || MAX_AREA <= MIN_AREA) {
+        showMessage("Invalid Parameter", "Area values must be positive and max > min");
+        return false;
+    }
+    
+    return true;
+}
+
+/*
+ * Load previous segmentation results
+ */
+function loadPreviousResults() {
+    output_dir = getDirectory("Choose output directory with previous results");
+    if (output_dir == "") return;
+    
+    // Look for success file
+    success_file = output_dir + "SUCCESS";
+    if (File.exists(success_file)) {
+        loadResults(success_file);
+    } else {
+        showMessage("No Results", "No valid segmentation results found in selected directory.");
+    }
+}
+
+/*
+ * Show summary dialog with results
+ */
+function showSummaryDialog(num_instances) {
+    message = "Segmentation Results:\\n\\n";
+    message = message + "🔬 Myotubes detected: " + num_instances + "\\n";
+    message = message + "📊 ROIs loaded: " + roiManager("count") + "\\n\\n";
+    
+    if (num_instances > 0) {
+        message = message + "Next steps:\\n";
+        message = message + "• Review ROIs in ROI Manager\\n";
+        message = message + "• Delete false positives if needed\\n";
+        message = message + "• Use 'Measure' to analyze myotubes\\n";
+        message = message + "• Export measurements to CSV\\n";
+    } else {
+        message = message + "No myotubes detected.\\n";
+        message = message + "Try adjusting parameters or check image quality.";
+    }
+    
+    showMessage("Segmentation Complete", message);
+}
+
+/*
+ * Utility function to show messages with proper formatting
+ */
+function showMessage(title, message) {
+    // Replace \\n with actual newlines for display
+    formatted_message = replace(message, "\\n", "\n");
+    Dialog.create(title);
+    Dialog.addMessage(formatted_message);
+    Dialog.show();
+}
+
+/*
+ * Installation and setup instructions (help macro)
+ */
+macro "Myotube Segmentation Help" {
+    help_text = "Myotube Instance Segmentation for Fiji\\n\\n";
+    help_text = help_text + "SETUP INSTRUCTIONS:\\n";
+    help_text = help_text + "1. Install Python with required packages\\n";
+    help_text = help_text + "2. Place myotube_segmentation.py in Fiji folder\\n";
+    help_text = help_text + "3. Ensure trained model weights are available\\n\\n";
+    help_text = help_text + "USAGE:\\n";
+    help_text = help_text + "1. Open image in Fiji\\n";
+    help_text = help_text + "2. Run 'Segment Myotubes' macro\\n";
+    help_text = help_text + "3. Review results in ROI Manager\\n\\n";
+    help_text = help_text + "TROUBLESHOOTING:\\n";
+    help_text = help_text + "• Check Python installation and PATH\\n";
+    help_text = help_text + "• Verify all required packages installed\\n";
+    help_text = help_text + "• Check model file paths\\n";
+    help_text = help_text + "• See console/log for error details\\n\\n";
+    help_text = help_text + "For more information, see README.md";
+    
+    showMessage("Myotube Segmentation Help", help_text);
+}
+
+// Initialization message
+print("Myotube Segmentation macro loaded successfully!");
+print("Use 'Segment Myotubes' or press 'M' to start segmentation.");
+print("Use 'Myotube Segmentation Help' for setup instructions.");
