@@ -41,14 +41,14 @@ def build_transform_gen(cfg, is_train):
     Returns:
         list[Augmentation]
     """
-    assert is_train, "Only support training augmentation"
     image_size = cfg.INPUT.IMAGE_SIZE
     min_scale = cfg.INPUT.MIN_SCALE
     max_scale = cfg.INPUT.MAX_SCALE
 
     augmentation = []
 
-    if cfg.INPUT.RANDOM_FLIP != "none":
+    # Only add random augmentations during training
+    if is_train and cfg.INPUT.RANDOM_FLIP != "none":
         augmentation.append(
             T.RandomFlip(
                 horizontal=cfg.INPUT.RANDOM_FLIP == "horizontal",
@@ -62,21 +62,48 @@ def build_transform_gen(cfg, is_train):
     # For high-res images, crop a large region first, then scale down
     if hasattr(cfg.INPUT, 'CROP') and cfg.INPUT.CROP.ENABLED:
         # Use crop settings from config if available
-        augmentation.append(
-            T.RandomCrop(cfg.INPUT.CROP.TYPE, cfg.INPUT.CROP.SIZE)
-        )
+        if is_train:
+            # Training: Random crop
+            augmentation.append(
+                T.RandomCrop(cfg.INPUT.CROP.TYPE, cfg.INPUT.CROP.SIZE)
+            )
+        else:
+            # Evaluation: Center crop for consistency
+            # Use the same crop size but center crop instead of random
+            if cfg.INPUT.CROP.TYPE == "relative_range":
+                # For relative_range, use the average of min and max
+                crop_size = cfg.INPUT.CROP.SIZE
+                if isinstance(crop_size, (list, tuple)) and len(crop_size) == 2:
+                    avg_crop_size = (crop_size[0] + crop_size[1]) / 2
+                else:
+                    avg_crop_size = crop_size
+                augmentation.append(
+                    T.CenterCrop(crop_size=(avg_crop_size, avg_crop_size))
+                )
+            else:
+                # For absolute size, use center crop with same size
+                augmentation.append(
+                    T.CenterCrop(crop_size=cfg.INPUT.CROP.SIZE)
+                )
+        
         # Then resize the cropped region to target size
         augmentation.append(
             T.ResizeShortestEdge(image_size, image_size)
         )
     else:
         # Fallback: Traditional approach for backward compatibility
-        augmentation.extend([
-            T.ResizeScale(
-                min_scale=min_scale, max_scale=max_scale, target_height=image_size, target_width=image_size
-            ),
-            T.FixedSizeCrop(crop_size=(image_size, image_size)),
-        ])
+        if is_train:
+            augmentation.extend([
+                T.ResizeScale(
+                    min_scale=min_scale, max_scale=max_scale, target_height=image_size, target_width=image_size
+                ),
+                T.FixedSizeCrop(crop_size=(image_size, image_size)),
+            ])
+        else:
+            # For evaluation without explicit crop config, just resize
+            augmentation.append(
+                T.ResizeShortestEdge(image_size, image_size)
+            )
 
     return augmentation
 
@@ -114,8 +141,9 @@ class COCOInstanceNewBaselineDatasetMapper:
             image_format: an image format supported by :func:`detection_utils.read_image`.
         """
         self.tfm_gens = tfm_gens
+        mode = "training" if is_train else "evaluation"
         logging.getLogger(__name__).info(
-            "[COCOInstanceNewBaselineDatasetMapper] Full TransformGens used in training: {}".format(str(self.tfm_gens))
+            "[COCOInstanceNewBaselineDatasetMapper] Full TransformGens used in {}: {}".format(mode, str(self.tfm_gens))
         )
 
         self.img_format = image_format
@@ -123,7 +151,7 @@ class COCOInstanceNewBaselineDatasetMapper:
     
     @classmethod
     def from_config(cls, cfg, is_train=True):
-        # Build augmentation
+        # Build augmentation - now supports both training and evaluation
         tfm_gens = build_transform_gen(cfg, is_train)
 
         ret = {
@@ -163,8 +191,26 @@ class COCOInstanceNewBaselineDatasetMapper:
         dataset_dict["padding_mask"] = torch.as_tensor(np.ascontiguousarray(padding_mask))
 
         if not self.is_train:
-            # USER: Modify this if you want to keep them for some reason.
-            dataset_dict.pop("annotations", None)
+            # For evaluation: apply transforms (especially cropping) and transform annotations
+            if "annotations" in dataset_dict:
+                # Transform annotations to match the transformed image
+                annos = [
+                    utils.transform_instance_annotations(obj, transforms, image_shape)
+                    for obj in dataset_dict.pop("annotations")
+                    if obj.get("iscrowd", 0) == 0
+                ]
+                # Convert to instances for evaluation
+                instances = utils.annotations_to_instances(annos, image_shape)
+                instances.gt_boxes = instances.gt_masks.get_bounding_boxes()
+                instances = utils.filter_empty_instances(instances)
+                
+                # Generate masks from polygon
+                h, w = instances.image_size
+                if hasattr(instances, 'gt_masks'):
+                    gt_masks = instances.gt_masks
+                    gt_masks = convert_coco_poly_to_mask(gt_masks.polygons, h, w)
+                    instances.gt_masks = gt_masks
+                dataset_dict["instances"] = instances
             return dataset_dict
 
         if "annotations" in dataset_dict:
