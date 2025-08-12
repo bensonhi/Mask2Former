@@ -19,30 +19,36 @@ MODEL:
   
   # Fine-tuned settings for precise manual annotations
   MASK_FORMER:
+    # Preserve Stage 1 loss weights (don't change what works)
+    DEEP_SUPERVISION: True
+    CLASS_WEIGHT: 2.0    # Keep Stage 1 settings
+    MASK_WEIGHT: 25.0    # Keep Stage 1 settings  
+    DICE_WEIGHT: 2.0     # Keep Stage 1 settings
+    
     TEST:
-      OBJECT_MASK_THRESHOLD: 0.4  # Higher threshold for quality manual annotations
-      OVERLAP_THRESHOLD: 0.0  # Zero overlap - each myotube is completely distinct
+      OBJECT_MASK_THRESHOLD: 0.3  # Slightly higher than Stage 1 for precision
 
 # Dataset configuration for Stage 2 (manual annotations)
 DATASETS:
   TRAIN: ("myotube_stage2_train",)
   TEST: ("myotube_stage2_val",)
 
-# Stage 2 Solver: Fine-tuning settings for manual annotations (7 images)
+# Stage 2 Solver: Fine-tuning settings for 4x training data (28 crops from 7 images)
 SOLVER:
   IMS_PER_BATCH: 1  # Single image batch (optimized for memory)
-  BASE_LR: 0.00005  # Conservative LR for 7 images (more stable training)
-  MAX_ITER: 1400    # For 7 images: ~200 epochs (7 images × 200 = 1400 iter)
-  STEPS: (980, 1260) # LR drops at 70% and 90% of 1400 iterations
+  BASE_LR: 0.00004  # Conservative LR for fine-tuning from improved Stage 1
+  MAX_ITER: 5000    # 4x increase: 28 crops × 180 epochs = ~5,000 iterations
+  STEPS: (3500, 4500) # LR drops at 70% and 90% of 5,000 iterations
   WARMUP_FACTOR: 0.1
-  WARMUP_ITERS: 70  # Proportional warmup for longer training
+  WARMUP_ITERS: 200   # Extended warmup for longer training
   WEIGHT_DECAY: 0.01  # Reduced weight decay for fine-tuning
   OPTIMIZER: "ADAMW"
-  BACKBONE_MULTIPLIER: 0.03  # Very conservative backbone for precise tuning
+  BACKBONE_MULTIPLIER: 0.05  # Slightly higher - can learn more since Stage 1 is better
+  CHECKPOINT_PERIOD: 1000  # Save checkpoints every evaluation period
   CLIP_GRADIENTS:
     ENABLED: True
     CLIP_TYPE: "full_model"
-    CLIP_VALUE: 0.003  # Very small gradient clipping for precise tuning
+    CLIP_VALUE: 0.005  # Slightly relaxed clipping for better adaptation
     NORM_TYPE: 2.0
   AMP:
     ENABLED: True
@@ -55,21 +61,21 @@ INPUT:
   FORMAT: "RGB"
   DATASET_MAPPER_NAME: "coco_instance_lsj"
   
-  # Enhanced but careful augmentations for manual annotations
+  # CONSISTENT: Use same crop size as Stage 1 for transfer learning
   CROP:
     ENABLED: True
     TYPE: "relative_range"
-    SIZE: [0.15, 0.25]  # Moderate cropping while preserving myotube connectivity
+    SIZE: [0.2, 0.3]  # Same as Stage 1 - important for consistent feature learning
   
-  # Mild color augmentation to preserve manual annotation integrity
-  COLOR_AUG_SSD: True
+  # Conservative augmentations to preserve manual annotation precision
+  COLOR_AUG_SSD: True  # Mild color augmentation for fluorescence variations
   
   # All orientations (myotubes in all directions in the image)
   RANDOM_FLIP: "horizontal"
 
 # Evaluation configuration  
 TEST:
-  EVAL_PERIOD: 140  # Evaluate every 20 epochs (7 images × 20 = 140 iterations)
+  EVAL_PERIOD: 1000  # Evaluate every 36 epochs (5000 iter ÷ 28 crops × 36 = 1000 iterations)
 
 # Data loader configuration
 DATALOADER:
