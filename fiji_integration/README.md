@@ -16,11 +16,11 @@ This package provides seamless integration of AI-powered myotube instance segmen
 
 ### 1. Install Python Environment
 
-**Option A: Using Conda (Recommended)**
+**Using Conda (Required for Fiji Integration)**
 ```bash
-# Create new environment
-conda create -n myotube python=3.8
-conda activate myotube
+# Create new environment named 'm2f' (as expected by Fiji macro)
+conda create -n m2f python=3.8
+conda activate m2f
 
 # Install PyTorch (choose based on your system)
 # For CPU only:
@@ -33,25 +33,7 @@ pip install torch torchvision --extra-index-url https://download.pytorch.org/whl
 pip install -r requirements.txt
 ```
 
-**Option B: Using pip**
-```bash
-# Install requirements directly
-pip install -r requirements.txt
-```
-
-**Option C: System-specific setups**
-
-*Windows:*
-- Install Python 3.8+ from python.org
-- Use Command Prompt or PowerShell to run pip commands
-
-*macOS:*
-- Install Python via Homebrew: `brew install python`
-- Use Terminal to run pip commands
-
-*Linux:*
-- Install Python via package manager: `sudo apt install python3 python3-pip`
-- Use terminal to run pip commands
+**⚠️ Important:** The Fiji macro is configured to use conda environment named `m2f`. If you want to use a different name, you'll need to edit the `CONDA_ENV` variable in the macro file.
 
 ### 2. Install Detectron2
 
@@ -76,14 +58,16 @@ pip install detectron2 -f https://dl.fbaipublicfiles.com/detectron2/wheels/cu113
    Myotube_Segmentation.ijm → Fiji.app/macros/
    ```
 
-2. **Test Python installation:**
+2. **Test conda environment:**
    - Open Terminal/Command Prompt
+   - Type: `conda activate m2f`
    - Type: `python --version` (should show Python 3.8+)
    - Type: `python -c "import torch; print('PyTorch OK')"` (should print "PyTorch OK")
 
-3. **Configure paths (if needed):**
+3. **Configure environment (if needed):**
    - Open `Myotube_Segmentation.ijm` in text editor
-   - Modify `PYTHON_COMMAND` if needed (e.g., change to `python3` or full path)
+   - Modify `CONDA_ENV` if you used a different environment name
+   - Modify `PYTHON_COMMAND` if needed (usually `python` works within conda env)
    - Save and restart Fiji
 
 ### 4. Verify Setup

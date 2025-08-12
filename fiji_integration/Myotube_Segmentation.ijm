@@ -25,7 +25,8 @@
  */
 
 // Configuration - Update these paths for your system
-var PYTHON_COMMAND = "python";  // or "python3" on some systems
+var CONDA_ENV = "m2f";  // Conda environment name
+var PYTHON_COMMAND = "python";  // Python command within the conda environment
 var SCRIPT_PATH = "";  // Auto-detected based on macro location
 var CONFIG_FILE = "";  // Auto-detected
 var MODEL_WEIGHTS = "";  // Auto-detected
@@ -204,36 +205,40 @@ function validateSetup() {
 }
 
 /*
- * Test if Python command works
+ * Test if conda environment and Python command work`
  */
 function testPythonCommand() {
     // Create a simple test file
     test_dir = getDirectory("temp");
     test_file = test_dir + "python_test.txt";
     
-    // Try to run a simple Python command
-    test_cmd = PYTHON_COMMAND + " -c \"print('Python test OK')\" > \"" + test_file + "\"";
-    
+    // Build conda activation command with Python test
     if (startsWith(getInfo("os.name"), "Windows")) {
+        // Windows conda activation
+        test_cmd = "conda activate " + CONDA_ENV + " && " + PYTHON_COMMAND + " -c \"print('Python test OK')\" > \"" + test_file + "\"";
         exec("cmd", "/c", test_cmd);
     } else {
+        // Unix/Mac conda activation
+        test_cmd = "source $(conda info --base)/etc/profile.d/conda.sh && conda activate " + CONDA_ENV + " && " + PYTHON_COMMAND + " -c \"print('Python test OK')\" > \"" + test_file + "\"";
         exec("sh", "-c", test_cmd);
     }
     
     // Check if test file was created
-    wait(1000);  // Wait 1 second
+    wait(2000);  // Wait 2 seconds for conda activation
     
     if (File.exists(test_file)) {
         File.delete(test_file);
         return true;
     } else {
-        showMessage("Python Error", 
-                   "Could not execute Python command: " + PYTHON_COMMAND + "\\n\\n" +
+        showMessage("Conda/Python Error", 
+                   "Could not execute conda environment: " + CONDA_ENV + "\\n\\n" +
                    "Please ensure:\\n" +
-                   "1. Python is installed\\n" +
-                   "2. Python is in your system PATH\\n" +
-                   "3. Required packages are installed (see requirements.txt)\\n\\n" +
-                   "You may need to change PYTHON_COMMAND in the macro to 'python3' or full path.");
+                   "1. Conda is installed and in PATH\\n" +
+                   "2. Environment '" + CONDA_ENV + "' exists\\n" +
+                   "3. Environment has required packages\\n\\n" +
+                   "Test manually:\\n" +
+                   "conda activate " + CONDA_ENV + "\\n" +
+                   "python -c \"import torch; print('OK')\"");
         return false;
     }
 }
@@ -254,24 +259,34 @@ function setupDirectories() {
 }
 
 /*
- * Build the Python command with all parameters
+ * Build the Python command with conda activation and all parameters
  */
 function buildPythonCommand(input_image) {
-    cmd = PYTHON_COMMAND + " \"" + SCRIPT_PATH + "\"";
-    cmd = cmd + " \"" + input_image + "\"";
-    cmd = cmd + " \"" + OUTPUT_DIR + "\"";
-    cmd = cmd + " --confidence " + CONFIDENCE_THRESHOLD;
-    cmd = cmd + " --min-area " + MIN_AREA;
-    cmd = cmd + " --max-area " + MAX_AREA;
+    // Build the Python script command
+    python_script_cmd = PYTHON_COMMAND + " \"" + SCRIPT_PATH + "\"";
+    python_script_cmd = python_script_cmd + " \"" + input_image + "\"";
+    python_script_cmd = python_script_cmd + " \"" + OUTPUT_DIR + "\"";
+    python_script_cmd = python_script_cmd + " --confidence " + CONFIDENCE_THRESHOLD;
+    python_script_cmd = python_script_cmd + " --min-area " + MIN_AREA;
+    python_script_cmd = python_script_cmd + " --max-area " + MAX_AREA;
     
     if (CONFIG_FILE != "") {
-        cmd = cmd + " --config \"" + CONFIG_FILE + "\"";
+        python_script_cmd = python_script_cmd + " --config \"" + CONFIG_FILE + "\"";
     }
     if (MODEL_WEIGHTS != "") {
-        cmd = cmd + " --weights \"" + MODEL_WEIGHTS + "\"";
+        python_script_cmd = python_script_cmd + " --weights \"" + MODEL_WEIGHTS + "\"";
     }
     
-    return cmd;
+    // Wrap with conda activation
+    if (startsWith(getInfo("os.name"), "Windows")) {
+        // Windows conda activation
+        full_cmd = "conda activate " + CONDA_ENV + " && " + python_script_cmd;
+    } else {
+        // Unix/Mac conda activation
+        full_cmd = "source $(conda info --base)/etc/profile.d/conda.sh && conda activate " + CONDA_ENV + " && " + python_script_cmd;
+    }
+    
+    return full_cmd;
 }
 
 /*
@@ -378,8 +393,9 @@ function showParameterDialog() {
     Dialog.addNumber("Minimum Area (pixels):", MIN_AREA);
     Dialog.addNumber("Maximum Area (pixels):", MAX_AREA);
     Dialog.addMessage("\\nAdvanced Options:");
+    Dialog.addString("Conda Environment:", CONDA_ENV, 20);
     Dialog.addString("Python Command:", PYTHON_COMMAND, 20);
-    Dialog.addMessage("(Change to 'python3' or full path if needed)");
+    Dialog.addMessage("(Python command within the conda environment)");
     
     Dialog.show();
     
@@ -387,6 +403,7 @@ function showParameterDialog() {
     CONFIDENCE_THRESHOLD = Dialog.getNumber();
     MIN_AREA = Dialog.getNumber();
     MAX_AREA = Dialog.getNumber();
+    CONDA_ENV = Dialog.getString();
     PYTHON_COMMAND = Dialog.getString();
     
     // Validate parameters
@@ -458,15 +475,21 @@ function showMessage(title, message) {
 macro "Myotube Segmentation Help" {
     help_text = "Myotube Instance Segmentation for Fiji\\n\\n";
     help_text = help_text + "SETUP INSTRUCTIONS:\\n";
-    help_text = help_text + "1. Install Python with required packages\\n";
-    help_text = help_text + "2. Place myotube_segmentation.py in Fiji folder\\n";
-    help_text = help_text + "3. Ensure trained model weights are available\\n\\n";
+    help_text = help_text + "1. Create conda environment 'm2f'\\n";
+    help_text = help_text + "2. Install required packages in environment\\n";
+    help_text = help_text + "3. Place myotube_segmentation.py in Fiji folder\\n";
+    help_text = help_text + "4. Ensure trained model weights are available\\n\\n";
+    help_text = help_text + "CONDA SETUP:\\n";
+    help_text = help_text + "conda create -n m2f python=3.8\\n";
+    help_text = help_text + "conda activate m2f\\n";
+    help_text = help_text + "pip install -r requirements.txt\\n\\n";
     help_text = help_text + "USAGE:\\n";
     help_text = help_text + "1. Open image in Fiji\\n";
-    help_text = help_text + "2. Run 'Segment Myotubes' macro\\n";
+    help_text = help_text + "2. Run 'Segment Myotubes' macro or press 'M'\\n";
     help_text = help_text + "3. Review results in ROI Manager\\n\\n";
     help_text = help_text + "TROUBLESHOOTING:\\n";
-    help_text = help_text + "• Check Python installation and PATH\\n";
+    help_text = help_text + "• Test: conda activate m2f && python -c 'import torch'\\n";
+    help_text = help_text + "• Check conda environment exists\\n";
     help_text = help_text + "• Verify all required packages installed\\n";
     help_text = help_text + "• Check model file paths\\n";
     help_text = help_text + "• See console/log for error details\\n\\n";
