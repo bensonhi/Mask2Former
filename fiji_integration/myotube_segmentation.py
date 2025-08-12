@@ -81,7 +81,7 @@ def find_mask2former_project():
 project_dir = find_mask2former_project()
 sys.path.insert(0, project_dir)
 
-from demo.predictor import MyotubePredictor
+from detectron2.engine.defaults import DefaultPredictor
 from detectron2.config import get_cfg
 from detectron2.data.detection_utils import read_image
 from mask2former import add_maskformer2_config
@@ -612,7 +612,7 @@ class MyotubeFijiIntegration:
         if self.predictor is not None:
             return
         
-        print("🚀 Initializing myotube predictor...")
+        print("🚀 Initializing Mask2Former predictor...")
         
         # Setup configuration
         cfg = get_cfg()
@@ -622,7 +622,7 @@ class MyotubeFijiIntegration:
         cfg.MODEL.MASK_FORMER.TEST.OBJECT_MASK_THRESHOLD = 0.25  # Lower threshold for better detection
         cfg.freeze()
         
-        self.predictor = MyotubePredictor(cfg)
+        self.predictor = DefaultPredictor(cfg)
         print("✅ Predictor initialized successfully!")
     
     def segment_image(self, image_path: str, output_dir: str, 
