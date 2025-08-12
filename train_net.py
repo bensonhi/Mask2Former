@@ -74,12 +74,12 @@ class Trainer(DefaultTrainer):
         # Add BestCheckpointer hook to save best model based on evaluation metrics
         # This will save model_best.pth when validation metrics improve
         if self.cfg.TEST.EVAL_PERIOD > 0:
-            # For instance segmentation, use bbox AP as the metric
+            # For instance segmentation, use bbox AP50 as the metric (more forgiving for boundary precision)
             # For semantic/panoptic, could use mIoU or other metrics
             hooks.insert(-1, BestCheckpointer(
                 eval_period=self.cfg.TEST.EVAL_PERIOD,
                 checkpointer=self.checkpointer,
-                val_metric="bbox/AP",  # Primary metric for instance segmentation
+                val_metric="segm/AP50",  # Use segmentation AP50 - more relevant for mask prediction
                 mode="max",  # Higher is better
                 file_prefix="model_best"  # Will save as model_best.pth
             ))
