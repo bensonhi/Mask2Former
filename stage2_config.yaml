@@ -54,8 +54,6 @@ SOLVER:
     NORM_TYPE: 2.0
   AMP:
     ENABLED: True
-  # Memory optimization for Swin-Large
-  FIND_UNUSED_PARAMETERS: False
 
 # Input configuration optimized for manual annotations
 INPUT:
