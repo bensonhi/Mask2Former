@@ -37,7 +37,7 @@ def convert_coco_poly_to_mask(segmentations, height, width):
 def build_transform_gen(cfg, is_train):
     """
     Create a list of default :class:`Augmentation` from config.
-    Now it includes resizing and flipping.
+    OPTIMIZED: Crop first at full resolution, then resize for maximum detail preservation.
     Returns:
         list[Augmentation]
     """
@@ -56,12 +56,27 @@ def build_transform_gen(cfg, is_train):
             )
         )
 
-    augmentation.extend([
-        T.ResizeScale(
-            min_scale=min_scale, max_scale=max_scale, target_height=image_size, target_width=image_size
-        ),
-        T.FixedSizeCrop(crop_size=(image_size, image_size)),
-    ])
+    # OPTIMIZED ORDER: Crop first at full resolution, then resize
+    # This preserves maximum detail for high-resolution myotube images
+    
+    # For high-res images, crop a large region first, then scale down
+    if hasattr(cfg.INPUT, 'CROP') and cfg.INPUT.CROP.ENABLED:
+        # Use crop settings from config if available
+        augmentation.append(
+            T.RandomCrop(cfg.INPUT.CROP.TYPE, cfg.INPUT.CROP.SIZE)
+        )
+        # Then resize the cropped region to target size
+        augmentation.append(
+            T.ResizeShortestEdge(image_size, image_size)
+        )
+    else:
+        # Fallback: Traditional approach for backward compatibility
+        augmentation.extend([
+            T.ResizeScale(
+                min_scale=min_scale, max_scale=max_scale, target_height=image_size, target_width=image_size
+            ),
+            T.FixedSizeCrop(crop_size=(image_size, image_size)),
+        ])
 
     return augmentation
 

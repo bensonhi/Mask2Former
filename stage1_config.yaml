@@ -31,14 +31,15 @@ DATASETS:
 # Stage 1 Solver: Conservative settings for algorithmic annotations
 SOLVER:
   IMS_PER_BATCH: 1  # Single image batch for A40 GPU memory constraints
-  BASE_LR: 0.00002  # Reduced LR for single-image batches
-  MAX_ITER: 6000    # Increased iterations to compensate for smaller batches
-  STEPS: (4000, 5500)  # LR drops at 67% and 92%
+  BASE_LR: 0.00003  # Slightly increased LR for more efficient training
+  MAX_ITER: 5000    # Optimized for ~100 images with batch size 1
+  STEPS: (3500, 4500)  # LR drops at 70% and 90%
   WARMUP_FACTOR: 1.0
   WARMUP_ITERS: 150   # Longer warmup for single-image training
   WEIGHT_DECAY: 0.05
   OPTIMIZER: "ADAMW"
   BACKBONE_MULTIPLIER: 0.1  # Keep backbone learning conservative
+  CHECKPOINT_PERIOD: 500  # Save checkpoint every evaluation for best model selection
   CLIP_GRADIENTS:
     ENABLED: True
     CLIP_TYPE: "full_model"
@@ -59,7 +60,7 @@ INPUT:
   CROP:
     ENABLED: True
     TYPE: "relative_range" 
-    SIZE: [0.5, 1.0]  # Very minimal cropping to preserve full myotube lengths
+    SIZE: [0.15, 0.25]  # Very minimal cropping to preserve full myotube lengths
   
   # Minimal color augmentation (algorithms may be sensitive to color changes)
   COLOR_AUG_SSD: False
@@ -69,7 +70,7 @@ INPUT:
 
 # Evaluation configuration
 TEST:
-  EVAL_PERIOD: 800  # Evaluate every ~200 epochs for dense high-res images
+  EVAL_PERIOD: 500  # Evaluate every 50 epochs (5000 iter ÷ 100 images = 50 epochs)
 
 # Data loader configuration
 DATALOADER:

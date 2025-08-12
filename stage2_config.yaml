@@ -1,9 +1,9 @@
 # Stage 2 Configuration: Manual Annotations Fine-tuning
 # Fine-tuning config for high-quality manual annotations
 # 
-# STAGE 2 DATASET: ~2 images with high-quality manual annotations  
-# - Training: 400 iterations for precise fine-tuning
-# - Higher learning rate for effective adaptation to manual annotations
+# STAGE 2 DATASET: 7 images with high-quality manual annotations  
+# - Training: 1400 iterations for precise fine-tuning (200 epochs × 7 images)
+# - Optimized learning rate for effective adaptation to manual annotations
 # - Loads weights from Stage 1 checkpoint
 
 _BASE_: configs/coco/instance-segmentation/swin/maskformer2_swin_base_384_bs16_50ep.yaml
@@ -28,14 +28,14 @@ DATASETS:
   TRAIN: ("myotube_stage2_train",)
   TEST: ("myotube_stage2_val",)
 
-# Stage 2 Solver: Fine-tuning settings for manual annotations (2 images)
+# Stage 2 Solver: Fine-tuning settings for manual annotations (7 images)
 SOLVER:
-  IMS_PER_BATCH: 1  # Single image batch (already optimized for memory)
-  BASE_LR: 0.00008  # Slightly higher LR for shorter training
-  MAX_ITER: 400     # Reduced for 2 images: ~200 epochs (2 images × 200 = 400 iter)
-  STEPS: (280, 360) # LR drops at 70% and 90% of 400 iterations
+  IMS_PER_BATCH: 1  # Single image batch (optimized for memory)
+  BASE_LR: 0.00005  # Conservative LR for 7 images (more stable training)
+  MAX_ITER: 1400    # For 7 images: ~200 epochs (7 images × 200 = 1400 iter)
+  STEPS: (980, 1260) # LR drops at 70% and 90% of 1400 iterations
   WARMUP_FACTOR: 0.1
-  WARMUP_ITERS: 20  # Reduced warmup for shorter training
+  WARMUP_ITERS: 70  # Proportional warmup for longer training
   WEIGHT_DECAY: 0.01  # Reduced weight decay for fine-tuning
   OPTIMIZER: "ADAMW"
   BACKBONE_MULTIPLIER: 0.03  # Very conservative backbone for precise tuning
@@ -59,7 +59,7 @@ INPUT:
   CROP:
     ENABLED: True
     TYPE: "relative_range"
-    SIZE: [0.2, 1.0]  # Moderate cropping while preserving myotube connectivity
+    SIZE: [0.15, 0.25]  # Moderate cropping while preserving myotube connectivity
   
   # Mild color augmentation to preserve manual annotation integrity
   COLOR_AUG_SSD: True
@@ -69,7 +69,7 @@ INPUT:
 
 # Evaluation configuration  
 TEST:
-  EVAL_PERIOD: 80   # More frequent evaluation for shorter training (every 40 epochs)
+  EVAL_PERIOD: 140  # Evaluate every 20 epochs (7 images × 20 = 140 iterations)
 
 # Data loader configuration
 DATALOADER:

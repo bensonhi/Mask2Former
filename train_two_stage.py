@@ -72,6 +72,41 @@ def find_latest_checkpoint(output_dir: str) -> str:
     return checkpoints[0]
 
 
+def find_best_checkpoint(output_dir: str) -> str:
+    """
+    Find the best checkpoint based on evaluation metrics.
+    
+    Args:
+        output_dir: Path to training output directory
+        
+    Returns:
+        Path to best checkpoint file, or latest if best not found
+    """
+    if not os.path.exists(output_dir):
+        return ""
+    
+    # Look for best checkpoint files first
+    best_patterns = [
+        "model_best.pth",  # Common best checkpoint name
+        "best_model.pth",
+        "model_best_*.pth"
+    ]
+    
+    for pattern in best_patterns:
+        best_files = glob.glob(os.path.join(output_dir, pattern))
+        if best_files:
+            # Sort by modification time and return the latest best
+            best_files.sort(key=os.path.getmtime, reverse=True)
+            print(f"   ✅ Found best checkpoint: {best_files[0]}")
+            return best_files[0]
+    
+    # Fallback to latest checkpoint
+    latest = find_latest_checkpoint(output_dir)
+    if latest:
+        print(f"   ⚠️  No best checkpoint found, using latest: {latest}")
+    return latest
+
+
 def count_dataset_images(dataset_root, stage, mode="instance"):
     """Count images in a dataset stage for specified mode."""
     import json
@@ -181,8 +216,8 @@ def stage2_training(args, dataset_root, stage1_checkpoint: str = "", mode="insta
     
     # Determine checkpoint to use for Stage 2
     if not stage1_checkpoint:
-        # Look for existing Stage 1 checkpoint
-        stage1_checkpoint = find_latest_checkpoint(stage1_default_dir)
+        # Look for best Stage 1 checkpoint first, fallback to latest
+        stage1_checkpoint = find_best_checkpoint(stage1_default_dir)
         
     if stage1_checkpoint:
         print(f"   Checkpoint: {stage1_checkpoint}")
