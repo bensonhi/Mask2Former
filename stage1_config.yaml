@@ -6,12 +6,12 @@
 # - Conservative learning rate for stable training on noisy annotations
 # - Focus on learning general myotube features
 
-_BASE_: configs/coco/instance-segmentation/swin/maskformer2_swin_base_384_bs16_50ep.yaml
+_BASE_: configs/coco/instance-segmentation/swin/maskformer2_swin_large_IN21k_384_bs16_100ep.yaml
 
 # Model configuration
 MODEL:
-  # Use COCO pre-trained weights for initialization
-  WEIGHTS: "model_final_83d103.pkl"
+  # Use Swin-Large COCO pre-trained weights for initialization  
+  WEIGHTS: "model_final_e5f453.pkl"
   
   SEM_SEG_HEAD:
     # Single class: myotube
@@ -19,6 +19,7 @@ MODEL:
   
   # Optimize for dense overlapping myotube structures
   MASK_FORMER:
+    # Swin-Large already has 200 queries - perfect for dense myotube fields
     # Enhanced loss weights for overlapping structures
     DEEP_SUPERVISION: True
     CLASS_WEIGHT: 2.0    # Higher class weight for better myotube vs background
@@ -34,16 +35,18 @@ DATASETS:
   TRAIN: ("myotube_stage1_train",)
   TEST: ("myotube_stage1_val",)
 
-# Stage 1 Solver: Optimized for 4x training data (360 crops from 90 images)
+# Stage 1 Solver: Optimized for Swin-Large with 4x training data (360 crops from 90 images)
 SOLVER:
-  IMS_PER_BATCH: 1  # Single image batch for A40 GPU memory constraints
-  BASE_LR: 0.00002  # Stable LR for extended training with 4x data
-  MAX_ITER: 18000   # 4x increase: 360 crops × 50 epochs = 18,000 iterations
-  STEPS: (12600, 16200)  # LR drops at 70% and 90% of 18,000 iterations
+  IMS_PER_BATCH: 2  # A40 48GB can handle 2 images with Swin-Large
+  GRADIENT_ACCUMULATION_STEPS: 2  # Effective batch size = 4 (2×2)
+  BASE_LR: 0.00002  # Slightly higher LR for larger effective batch size
+  MAX_ITER: 9000    # Adjusted for 4x effective batch size: 360 crops × 25 epochs = 9,000 iterations
+  # STEPS: (12600, 16200)  # Not needed for cosine LR schedule
   WARMUP_FACTOR: 1.0
-  WARMUP_ITERS: 500   # Extended warmup for longer training
+  WARMUP_ITERS: 1000   # Longer warmup for large model
   WEIGHT_DECAY: 0.05
   OPTIMIZER: "ADAMW"
+  LR_SCHEDULER_NAME: "WarmupCosineLR"  # Better convergence than step decay
   BACKBONE_MULTIPLIER: 0.1  # Keep backbone learning conservative
   CHECKPOINT_PERIOD: 1000  # Less frequent checkpoints for longer training
   CLIP_GRADIENTS:
@@ -71,17 +74,21 @@ INPUT:
   # Enhanced augmentations for dense overlapping myotubes
   COLOR_AUG_SSD: True  # Helps with varying fluorescence intensity
   
-  # Horizontal and vertical flip (myotubes oriented in all directions)
   RANDOM_FLIP: "horizontal"
+  # Add rotation for multi-directional myotube structures
+  ROTATION_ANGLES: [-10, 10]  # Small rotations to avoid distorting myotube structures
 
 # Evaluation configuration  
 TEST:
-  EVAL_PERIOD: 1800  # Evaluate every 50 epochs (18000 iter ÷ 360 crops = 50 epochs)
+  EVAL_PERIOD: 900  # Evaluate every 25 epochs (9000 iter ÷ 360 crops × 4 eff_batch = 25 epochs)
 
-# Data loader configuration
+# Data loader configuration - optimized for 52 CPUs + 1TB RAM
 DATALOADER:
   FILTER_EMPTY_ANNOTATIONS: True
-  NUM_WORKERS: 4
+  NUM_WORKERS: 16          # Utilize more CPUs for faster data loading
+  PREFETCH_FACTOR: 4       # Prefetch 4 batches per worker (better GPU utilization)
+  PERSISTENT_WORKERS: True # Keep workers alive between epochs (faster)
+  PIN_MEMORY: True         # Faster GPU transfer with 1TB RAM
 
 # Output directory for Stage 1
 OUTPUT_DIR: "./output_stage1_algorithmic"

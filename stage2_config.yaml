@@ -6,7 +6,7 @@
 # - Optimized learning rate for effective adaptation to manual annotations
 # - Loads weights from Stage 1 checkpoint
 
-_BASE_: configs/coco/instance-segmentation/swin/maskformer2_swin_base_384_bs16_50ep.yaml
+_BASE_: configs/coco/instance-segmentation/swin/maskformer2_swin_large_IN21k_384_bs16_100ep.yaml
 
 # Model configuration
 MODEL:
@@ -19,6 +19,7 @@ MODEL:
   
   # Fine-tuned settings for precise manual annotations
   MASK_FORMER:
+    # Inherit Swin-Large with 200 queries from Stage 1
     # Preserve Stage 1 loss weights (don't change what works)
     DEEP_SUPERVISION: True
     CLASS_WEIGHT: 2.0    # Keep Stage 1 settings
@@ -33,16 +34,18 @@ DATASETS:
   TRAIN: ("myotube_stage2_train",)
   TEST: ("myotube_stage2_val",)
 
-# Stage 2 Solver: Fine-tuning settings for 4x training data (28 crops from 7 images)
+# Stage 2 Solver: Fine-tuning Swin-Large with 4x training data (28 crops from 7 images)
 SOLVER:
-  IMS_PER_BATCH: 1  # Single image batch (optimized for memory)
-  BASE_LR: 0.00004  # Conservative LR for fine-tuning from improved Stage 1
-  MAX_ITER: 5000    # 4x increase: 28 crops × 180 epochs = ~5,000 iterations
-  STEPS: (3500, 4500) # LR drops at 70% and 90% of 5,000 iterations
+  IMS_PER_BATCH: 2  # A40 48GB can handle 2 images for fine-tuning
+  GRADIENT_ACCUMULATION_STEPS: 2  # Effective batch size = 4 (2×2)
+  BASE_LR: 0.00004  # Higher LR for larger effective batch size in fine-tuning
+  MAX_ITER: 2500    # Adjusted for 4x effective batch size: 28 crops × 90 epochs = 2,500 iterations
+  # STEPS: (3500, 4500) # Not needed for cosine LR schedule
   WARMUP_FACTOR: 0.1
-  WARMUP_ITERS: 200   # Extended warmup for longer training
+  WARMUP_ITERS: 300   # Extended warmup for large model fine-tuning
   WEIGHT_DECAY: 0.01  # Reduced weight decay for fine-tuning
   OPTIMIZER: "ADAMW"
+  LR_SCHEDULER_NAME: "WarmupCosineLR"  # Better convergence for fine-tuning
   BACKBONE_MULTIPLIER: 0.05  # Slightly higher - can learn more since Stage 1 is better
   CHECKPOINT_PERIOD: 1000  # Save checkpoints every evaluation period
   CLIP_GRADIENTS:
@@ -70,17 +73,22 @@ INPUT:
   # Conservative augmentations to preserve manual annotation precision
   COLOR_AUG_SSD: True  # Mild color augmentation for fluorescence variations
   
-  # All orientations (myotubes in all directions in the image)
   RANDOM_FLIP: "horizontal"
+  
+  # Add rotation for multi-directional myotube structures (same as Stage 1)
+  ROTATION_ANGLES: [-10, 10]  # Small rotations to avoid distorting myotube structures
 
 # Evaluation configuration  
 TEST:
-  EVAL_PERIOD: 1000  # Evaluate every 36 epochs (5000 iter ÷ 28 crops × 36 = 1000 iterations)
+  EVAL_PERIOD: 500  # Evaluate every 18 epochs (2500 iter ÷ 28 crops × 4 eff_batch × 18 = 500 iterations)
 
-# Data loader configuration
+# Data loader configuration - optimized for 52 CPUs + 1TB RAM  
 DATALOADER:
   FILTER_EMPTY_ANNOTATIONS: True
-  NUM_WORKERS: 1  # Single worker for high-res images to avoid memory issues
+  NUM_WORKERS: 8           # More workers for fine-tuning (fewer images, more parallel processing)
+  PREFETCH_FACTOR: 4       # Prefetch 4 batches per worker (better GPU utilization)
+  PERSISTENT_WORKERS: True # Keep workers alive between epochs (faster)
+  PIN_MEMORY: True         # Faster GPU transfer with 1TB RAM
 
 # Output directory for Stage 2
 OUTPUT_DIR: "./output_stage2_manual"
