@@ -37,9 +37,8 @@ DATASETS:
 # Stage 2 Solver: Fine-tuning Swin-Large with 4x training data (28 crops from 7 images)
 SOLVER:
   IMS_PER_BATCH: 2  # A40 48GB can handle 2 images for fine-tuning
-  GRADIENT_ACCUMULATION_STEPS: 2  # Effective batch size = 4 (2×2)
-  BASE_LR: 0.00004  # Higher LR for larger effective batch size in fine-tuning
-  MAX_ITER: 2500    # Adjusted for 4x effective batch size: 28 crops × 90 epochs = 2,500 iterations
+  BASE_LR: 0.00004  # Optimized LR for batch size 2 in fine-tuning
+  MAX_ITER: 2500    # 28 crops × 90 epochs = 2,500 iterations
   # STEPS: (3500, 4500) # Not needed for cosine LR schedule
   WARMUP_FACTOR: 0.1
   WARMUP_ITERS: 300   # Extended warmup for large model fine-tuning
@@ -80,7 +79,7 @@ INPUT:
 
 # Evaluation configuration  
 TEST:
-  EVAL_PERIOD: 500  # Evaluate every 18 epochs (2500 iter ÷ 28 crops × 4 eff_batch × 18 = 500 iterations)
+  EVAL_PERIOD: 500  # Evaluate every 20 epochs (2500 iter ÷ 28 crops × 0.4 = 500 iterations)
 
 # Data loader configuration - optimized for 52 CPUs + 1TB RAM  
 DATALOADER:

@@ -38,9 +38,8 @@ DATASETS:
 # Stage 1 Solver: Optimized for Swin-Large with 4x training data (360 crops from 90 images)
 SOLVER:
   IMS_PER_BATCH: 2  # A40 48GB can handle 2 images with Swin-Large
-  GRADIENT_ACCUMULATION_STEPS: 2  # Effective batch size = 4 (2×2)
-  BASE_LR: 0.00002  # Slightly higher LR for larger effective batch size
-  MAX_ITER: 9000    # Adjusted for 4x effective batch size: 360 crops × 25 epochs = 9,000 iterations
+  BASE_LR: 0.00002  # Optimized LR for batch size 2
+  MAX_ITER: 9000    # 360 crops × 25 epochs = 9,000 iterations
   # STEPS: (12600, 16200)  # Not needed for cosine LR schedule
   WARMUP_FACTOR: 1.0
   WARMUP_ITERS: 1000   # Longer warmup for large model
@@ -80,7 +79,7 @@ INPUT:
 
 # Evaluation configuration  
 TEST:
-  EVAL_PERIOD: 900  # Evaluate every 25 epochs (9000 iter ÷ 360 crops × 4 eff_batch = 25 epochs)
+  EVAL_PERIOD: 900  # Evaluate every 25 epochs (9000 iter ÷ 360 crops = 25 epochs)
 
 # Data loader configuration - optimized for 52 CPUs + 1TB RAM
 DATALOADER:
