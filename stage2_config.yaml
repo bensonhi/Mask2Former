@@ -82,7 +82,6 @@ TEST:
 DATALOADER:
   FILTER_EMPTY_ANNOTATIONS: True
   NUM_WORKERS: 8           # More workers for fine-tuning (fewer images, more parallel processing)
-  PERSISTENT_WORKERS: True # Keep workers alive between epochs (faster)
   PIN_MEMORY: True         # Faster GPU transfer with 1TB RAM
 
 # Output directory for Stage 2
