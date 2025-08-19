@@ -512,6 +512,7 @@ class ImageJROIGenerator:
     def mask_to_roi_file(self, mask: np.ndarray, name: str = "") -> bytes:
         """
         Convert a binary mask to ImageJ ROI file format.
+        Creates filled polygon ROIs that represent the actual myotube regions.
         
         Args:
             mask: Binary mask array (2D numpy array)
@@ -520,27 +521,75 @@ class ImageJROIGenerator:
         Returns:
             Bytes content of the ROI file
         """
-        from skimage import measure
+        import cv2
         
-        # Find contours in the mask
-        contours = measure.find_contours(mask, 0.5)
+        # Ensure mask is binary and uint8 for contour detection
+        binary_mask = (mask > 0).astype(np.uint8)
         
-        if len(contours) == 0:
-            # Create empty ROI if no contours found
+        if binary_mask.sum() == 0:
             return self._create_empty_roi(name)
         
-        # For composite ROIs (multi-segment instances), we need to handle multiple contours
-        if len(contours) == 1:
-            # Single contour - create simple polygon ROI
-            return self._create_polygon_roi(contours[0], name)
-        else:
-            # Multiple contours - create composite ROI using largest contour
-            # In the future, this could be enhanced to create true composite ROIs
-            largest_contour = max(contours, key=len)
-            return self._create_polygon_roi(largest_contour, name)
+        # Find external contours using OpenCV (better for filled regions)
+        # RETR_EXTERNAL gets only outer contours, CHAIN_APPROX_SIMPLE reduces points
+        contours, _ = cv2.findContours(binary_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        
+        if len(contours) == 0:
+            return self._create_empty_roi(name)
+        
+        # Get the largest contour (main myotube body)
+        largest_contour = max(contours, key=cv2.contourArea)
+        
+        # Convert OpenCV contour format (N,1,2) to (N,2) and swap x,y to y,x for ImageJ
+        if len(largest_contour) < 3:
+            return self._create_empty_roi(name)
+            
+        # OpenCV contours are (x,y), but ImageJ expects (y,x) for polygon creation
+        contour_points = largest_contour.reshape(-1, 2)  # Remove middle dimension
+        
+        # Create polygon ROI from the contour
+        return self._create_polygon_roi_from_points(contour_points, name)
+    
+    def _create_polygon_roi_from_points(self, contour_points: np.ndarray, name: str = "") -> bytes:
+        """Create a polygon ROI from OpenCV contour points (x,y format)."""
+        import struct
+        
+        # Convert contour points from (x, y) format to list of tuples
+        coords = [(int(point[0]), int(point[1])) for point in contour_points]
+        
+        if len(coords) < 3:
+            return self._create_empty_roi(name)
+        
+        # Calculate bounding box
+        x_coords = [coord[0] for coord in coords]
+        y_coords = [coord[1] for coord in coords]
+        left = min(x_coords)
+        top = min(y_coords)
+        right = max(x_coords)
+        bottom = max(y_coords)
+        
+        # Convert to relative coordinates
+        rel_coords = [(x - left, y - top) for x, y in coords]
+        
+        # Create ROI header
+        roi_header = self._create_roi_header(
+            roi_type=self.POLYGON,
+            top=top,
+            left=left,
+            bottom=bottom,
+            right=right,
+            n_coordinates=len(coords),
+            name=name
+        )
+        
+        # Pack coordinate data
+        coord_data = b''
+        for x, y in rel_coords:
+            coord_data += struct.pack('>hh', x, y)  # signed 16-bit coordinates
+        
+        return roi_header + coord_data
     
     def _create_polygon_roi(self, contour: np.ndarray, name: str = "") -> bytes:
-        """Create a polygon ROI from contour coordinates."""
+        """Create a polygon ROI from skimage contour coordinates (y,x format) - LEGACY METHOD."""
         import struct
         
         # Convert contour coordinates (y, x) to (x, y) and ensure integers
