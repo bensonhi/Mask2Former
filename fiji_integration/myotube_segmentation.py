@@ -512,7 +512,7 @@ class ImageJROIGenerator:
     def mask_to_roi_file(self, mask: np.ndarray, name: str = "") -> bytes:
         """
         Convert a binary mask to ImageJ ROI file format.
-        Creates filled polygon ROIs that represent the actual myotube regions.
+        Creates COMPOSITE ROI with filled regions for proper myotube visualization.
         
         Args:
             mask: Binary mask array (2D numpy array)
@@ -521,36 +521,57 @@ class ImageJROIGenerator:
         Returns:
             Bytes content of the ROI file
         """
-        import cv2
-        
-        # Ensure mask is binary and uint8 for contour detection
-        binary_mask = (mask > 0).astype(np.uint8)
+        # Ensure mask is binary
+        binary_mask = (mask > 0).astype(bool)
         
         if binary_mask.sum() == 0:
             return self._create_empty_roi(name)
         
-        # Find external contours using OpenCV (better for filled regions)
-        # RETR_EXTERNAL gets only outer contours, CHAIN_APPROX_SIMPLE reduces points
-        contours, _ = cv2.findContours(binary_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        
-        if len(contours) == 0:
-            return self._create_empty_roi(name)
-        
-        # Get the largest contour (main myotube body)
-        largest_contour = max(contours, key=cv2.contourArea)
-        
-        # Convert OpenCV contour format (N,1,2) to (N,2) and swap x,y to y,x for ImageJ
-        if len(largest_contour) < 3:
+        # Find bounding box of the entire mask
+        y_coords, x_coords = np.where(binary_mask)
+        if len(y_coords) == 0:
             return self._create_empty_roi(name)
             
-        # OpenCV contours are (x,y), but ImageJ expects (y,x) for polygon creation
-        contour_points = largest_contour.reshape(-1, 2)  # Remove middle dimension
+        left = int(x_coords.min())
+        right = int(x_coords.max())
+        top = int(y_coords.min())
+        bottom = int(y_coords.max())
         
-        # Create polygon ROI from the contour
-        return self._create_polygon_roi_from_points(contour_points, name)
+        # Extract the mask region
+        mask_region = binary_mask[top:bottom+1, left:right+1]
+        
+        # Create a composite ROI using the mask data directly
+        return self._create_composite_roi(mask_region, left, top, right, bottom, name)
+    
+    def _create_composite_roi(self, mask_region: np.ndarray, left: int, top: int, right: int, bottom: int, name: str = "") -> bytes:
+        """Create a composite ROI that shows filled regions properly in ImageJ."""
+        import struct
+        
+        # Use TRACED ROI type (8) which can handle arbitrary mask data
+        roi_type = self.TRACED
+        
+        # Get mask dimensions
+        height, width = mask_region.shape
+        
+        # Create ROI header
+        roi_header = self._create_roi_header(
+            roi_type=roi_type,
+            top=top,
+            left=left,
+            bottom=bottom,
+            right=right,
+            n_coordinates=0,  # No coordinate data for TRACED ROI
+            name=name
+        )
+        
+        # For TRACED ROI, we include the mask data as bytes
+        # ImageJ expects 1-byte per pixel (0 or 255)
+        mask_data = (mask_region * 255).astype(np.uint8).tobytes()
+        
+        return roi_header + mask_data
     
     def _create_polygon_roi_from_points(self, contour_points: np.ndarray, name: str = "") -> bytes:
-        """Create a polygon ROI from OpenCV contour points (x,y format)."""
+        """Create a filled ROI from OpenCV contour points (x,y format)."""
         import struct
         
         # Convert contour points from (x, y) format to list of tuples
@@ -570,9 +591,9 @@ class ImageJROIGenerator:
         # Convert to relative coordinates
         rel_coords = [(x - left, y - top) for x, y in coords]
         
-        # Create ROI header
+        # Create ROI header - use FREEHAND for filled regions
         roi_header = self._create_roi_header(
-            roi_type=self.POLYGON,
+            roi_type=self.FREEHAND,
             top=top,
             left=left,
             bottom=bottom,
