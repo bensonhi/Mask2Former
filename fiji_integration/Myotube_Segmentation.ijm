@@ -391,7 +391,7 @@ function loadResults(success_file) {
     }
     
     base_dir = "";
-    dir_chunks = newArray(20); // Support up to 20 chunks
+    dir_chunks = newArray(50); // Support up to 50 chunks for 5-char pieces
     roi_file = "";
     overlay_file = "";
     num_instances = 0;
@@ -408,7 +408,7 @@ function loadResults(success_file) {
             
             // Check if prefix is a number (directory chunk)
             chunk_idx = parseInt(prefix);
-            if (chunk_idx >= 0 && chunk_idx < 20) {
+            if (chunk_idx >= 0 && chunk_idx < 50) {  // Increased to support more 5-char chunks
                 dir_chunks[chunk_idx] = content;
                 if (chunk_idx > max_chunk_idx) max_chunk_idx = chunk_idx;
                 print("🔍 Chunk " + chunk_idx + ": '" + content + "'");
@@ -423,7 +423,7 @@ function loadResults(success_file) {
     // Reconstruct base directory from chunks
     if (max_chunk_idx >= 0) {
         for (j = 0; j <= max_chunk_idx; j++) {
-            if (dir_chunks[j] != "") {
+            if (j < 50 && dir_chunks[j] != "") {
                 base_dir = base_dir + dir_chunks[j];
             }
         }

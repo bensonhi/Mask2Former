@@ -1283,32 +1283,33 @@ def main():
         # Signal success to ImageJ macro (format expected by Fiji macro)
         success_file = os.path.join(args.output_dir, "SUCCESS")
         
-        # Use ultra-short format for ImageJ line length limits (40-50 chars max)
+        # Use ultra-short format for ImageJ line length limits (5-char chunks!)
         base_dir = os.path.dirname(output_files['rois'])
         
         # Debug: Print what we're about to write
         print(f"📝 Writing SUCCESS file: {success_file}")
         print(f"   DIR:{base_dir}")
         print(f"   COUNT:{output_files['count']}")
+        print(f"   Using 5-char chunks with \\r\\n line endings")
         
-        # Write in ultra-short format for ImageJ (max 10 chars per line!)
-        # Based on empirical evidence: ImageJ truncates at ~12 characters
-        with open(success_file, 'w', encoding='utf-8') as f:
-            # Split directory into multiple 8-char chunks
+        # Write in EXTREMELY short format for ImageJ (max 6 chars per line!)
+        # Use Windows line endings to see if that helps
+        with open(success_file, 'w', encoding='utf-8', newline='') as f:
+            # Split directory into multiple 5-char chunks
             dir_chunks = []
             remaining = base_dir
             while remaining:
-                chunk = remaining[:8]
+                chunk = remaining[:5]
                 dir_chunks.append(chunk)
-                remaining = remaining[8:]
+                remaining = remaining[5:]
             
-            # Write directory chunks
+            # Write directory chunks with explicit \r\n
             for i, chunk in enumerate(dir_chunks):
-                f.write(f"{i}:{chunk}\n")
+                f.write(f"{i}:{chunk}\r\n")
             
             # Write count
-            f.write(f"N:{output_files['count']}\n")
-            f.write("END\n")
+            f.write(f"N:{output_files['count']}\r\n")
+            f.write("END\r\n")
         
         # Debug: Verify what was written
         try:
