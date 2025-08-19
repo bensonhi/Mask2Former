@@ -1066,23 +1066,34 @@ class MyotubeFijiIntegration:
             for i, mask in enumerate(instances['masks']):
                 roi_name = f"Myotube_{i+1}.roi"
                 
+                # Skip empty masks early to avoid corruption
+                if mask.sum() == 0:
+                    print(f"      ⚠️  Warning: Mask {i+1} is empty at inference resolution - skipping")
+                    continue
+                
                 # Resize mask to original image size for ROI generation
                 if hasattr(self, '_scale_factor') and self._scale_factor != 1.0:
                     original_h, original_w = self._original_size
+                    # Ensure mask is in the right format before resizing
+                    mask_uint8 = (mask * 255).astype(np.uint8) if mask.dtype == bool else mask.astype(np.uint8)
                     resized_mask = cv2.resize(
-                        mask.astype(np.uint8), 
+                        mask_uint8, 
                         (original_w, original_h), 
                         interpolation=cv2.INTER_NEAREST
-                    ).astype(bool)
+                    )
+                    # Convert back to boolean and ensure it's not empty
+                    resized_mask = (resized_mask > 128).astype(bool)
                     print(f"      🔧 Resized mask {i+1}: {mask.shape} → {resized_mask.shape}")
+                    
+                    # Double-check that resizing didn't corrupt the mask
+                    if resized_mask.sum() == 0:
+                        print(f"      ❌ Warning: Mask {i+1} became empty after resizing - skipping")
+                        continue
                 else:
                     resized_mask = mask.astype(bool)
                 
-                # Check if mask has any pixels
+                # Get final pixel count
                 pixel_count = resized_mask.sum()
-                if pixel_count == 0:
-                    print(f"      ⚠️  Warning: Mask {i+1} is empty (0 pixels)")
-                    continue
                 
                 # Generate proper ImageJ ROI file
                 roi_content = roi_generator.mask_to_roi_file(resized_mask, f"Myotube_{i+1}")
@@ -1116,19 +1127,31 @@ class MyotubeFijiIntegration:
         # Generate distinct colors for each instance
         colors = plt.cm.Set3(np.linspace(0, 1, len(instances['masks'])))
         
+        valid_count = 0
         for i, (mask, score) in enumerate(zip(instances['masks'], instances['scores'])):
+            # Skip empty masks early
+            if mask.sum() == 0:
+                continue
+                
             # Create colored mask
             color = (colors[i][:3] * 255).astype(np.uint8)
             
-            # Resize mask to match original image size
+            # Resize mask to match original image size with improved logic
             if hasattr(self, '_scale_factor') and self._scale_factor != 1.0:
-                # Resize mask to original image size
                 original_h, original_w = self._original_size
+                # Ensure mask is in the right format before resizing
+                mask_uint8 = (mask * 255).astype(np.uint8) if mask.dtype == bool else mask.astype(np.uint8)
                 resized_mask = cv2.resize(
-                    mask.astype(np.uint8), 
+                    mask_uint8, 
                     (original_w, original_h), 
                     interpolation=cv2.INTER_NEAREST
-                ).astype(bool)
+                )
+                # Convert back to boolean and check validity
+                resized_mask = (resized_mask > 128).astype(bool)
+                
+                # Skip if resizing corrupted the mask
+                if resized_mask.sum() == 0:
+                    continue
             else:
                 resized_mask = mask.astype(bool)
             
@@ -1140,13 +1163,17 @@ class MyotubeFijiIntegration:
             alpha = 0.6
             overlay = cv2.addWeighted(overlay, 1-alpha, colored_mask, alpha, 0)
             
-            # Add confidence score text
-            coords = np.where(mask)
+            # Add confidence score text using RESIZED mask coordinates
+            coords = np.where(resized_mask)
             if len(coords[0]) > 0:
                 center_y, center_x = coords[0].mean(), coords[1].mean()
                 cv2.putText(overlay, f"{score:.2f}", 
                            (int(center_x), int(center_y)), 
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+                           cv2.FONT_HERSHEY_SIMPLEX, 2.0, (255, 255, 255), 4)  # Larger text for big image
+                           
+            valid_count += 1
+        
+        print(f"   🎨 Generated overlay with {valid_count} visible myotubes")
         
         # Save overlay
         cv2.imwrite(output_path, overlay)
