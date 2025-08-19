@@ -369,6 +369,7 @@ function loadResults(success_file) {
         print("  Line " + j + ": '" + lines[j] + "'");
     }
     
+    base_dir = "";
     roi_file = "";
     overlay_file = "";
     num_instances = 0;
@@ -376,11 +377,16 @@ function loadResults(success_file) {
     for (i = 0; i < lines.length; i++) {
         line = lines[i];
         
-        if (startsWith(line, "ROI_FILE:")) {
-            roi_file = substring(line, 9);
+        if (startsWith(line, "BASE_DIR:")) {
+            base_dir = substring(line, 9);
+            print("🔍 Extracted base dir: '" + base_dir + "'");
+        } else if (startsWith(line, "ROI_FILE:")) {
+            roi_filename = substring(line, 9);
+            roi_file = base_dir + File.separator + roi_filename;
             print("🔍 Extracted ROI file: '" + roi_file + "'");
         } else if (startsWith(line, "OVERLAY_FILE:")) {
-            overlay_file = substring(line, 12);
+            overlay_filename = substring(line, 12);
+            overlay_file = base_dir + File.separator + overlay_filename;
             print("🔍 Extracted overlay file: '" + overlay_file + "'");
         } else if (startsWith(line, "SUCCESS:")) {
             // Extract number of instances
