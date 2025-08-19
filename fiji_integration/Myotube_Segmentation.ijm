@@ -359,21 +359,30 @@ function loadResults(success_file) {
     success_content = File.openAsString(success_file);
     lines = split(success_content, "\\n");
     
+    print("🔍 DEBUG: SUCCESS file contains " + lines.length + " lines:");
+    for (j = 0; j < lines.length; j++) {
+        print("  Line " + j + ": '" + lines[j] + "'");
+    }
+    
     roi_file = "";
     overlay_file = "";
     num_instances = 0;
     
     for (i = 0; i < lines.length; i++) {
-        if (startsWith(lines[i], "ROI_FILE:")) {
-            roi_file = substring(lines[i], 10);
-        } else if (startsWith(lines[i], "OVERLAY_FILE:")) {
-            overlay_file = substring(lines[i], 13);
-        } else if (startsWith(lines[i], "SUCCESS:")) {
+        line = lines[i];
+        print("🔍 Processing line: '" + line + "'");
+        
+        if (startsWith(line, "ROI_FILE:")) {
+            roi_file = substring(line, 9);
+            print("🔍 Extracted ROI file: '" + roi_file + "'");
+        } else if (startsWith(line, "OVERLAY_FILE:")) {
+            overlay_file = substring(line, 12);
+            print("🔍 Extracted overlay file: '" + overlay_file + "'");
+        } else if (startsWith(line, "SUCCESS:")) {
             // Extract number of instances
-            parts = split(lines[i], " ");
-            if (parts.length > 1) {
-                num_instances = parseInt(parts[1]);
-            }
+            success_part = substring(line, 8);
+            num_instances = parseInt(success_part);
+            print("🔍 Extracted instances: " + num_instances);
         }
     }
     
