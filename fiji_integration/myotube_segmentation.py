@@ -121,14 +121,16 @@ class PostProcessingPipeline:
         }
     
     def _setup_default_pipeline(self):
-        """Setup default post-processing steps."""
-        self.add_step('filter_by_confidence', self._filter_by_confidence)
-        self.add_step('filter_by_area', self._filter_by_area)
-        self.add_step('filter_by_aspect_ratio', self._filter_by_aspect_ratio)
-        self.add_step('fill_holes', self._fill_holes)
-        self.add_step('smooth_boundaries', self._smooth_boundaries)
-        self.add_step('remove_edge_instances', self._remove_edge_instances)
-        self.add_step('merge_overlapping', self._merge_overlapping_instances)
+        """Setup default post-processing steps - ALL DISABLED FOR DEBUGGING."""
+        print("⚠️ ALL POST-PROCESSING DISABLED - Using raw model output")
+        # All steps commented out to see raw model predictions:
+        # self.add_step('filter_by_confidence', self._filter_by_confidence)
+        # self.add_step('filter_by_area', self._filter_by_area)
+        # self.add_step('filter_by_aspect_ratio', self._filter_by_aspect_ratio)
+        # self.add_step('fill_holes', self._fill_holes)
+        # self.add_step('smooth_boundaries', self._smooth_boundaries)
+        # self.add_step('remove_edge_instances', self._remove_edge_instances)
+        # self.add_step('merge_overlapping', self._merge_overlapping_instances)
     
     def add_step(self, name: str, function: callable, position: int = -1):
         """
