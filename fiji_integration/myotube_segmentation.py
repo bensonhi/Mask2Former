@@ -84,6 +84,8 @@ sys.path.insert(0, project_dir)
 from detectron2.engine.defaults import DefaultPredictor
 from detectron2.config import get_cfg
 from detectron2.data.detection_utils import read_image
+from detectron2.projects.deeplab import add_deeplab_config
+from detectron2.utils.logger import setup_logger
 from mask2former import add_maskformer2_config
 
 
@@ -662,9 +664,10 @@ class MyotubeFijiIntegration:
         if not os.path.exists(self.config_file):
             raise FileNotFoundError(f"Config file not found: {self.config_file}")
         
-        # Setup configuration in correct order
+        # Setup configuration in correct order (like demo.py)
         cfg = get_cfg()
-        # CRITICAL: Add mask2former config BEFORE loading any config file
+        # CRITICAL: Add configs in same order as demo.py
+        add_deeplab_config(cfg)
         add_maskformer2_config(cfg)
         
         try:
@@ -1068,6 +1071,24 @@ class MyotubeFijiIntegration:
 
 def main():
     """Main function for command-line usage."""
+    
+    # Setup environment like demo.py does
+    mp.set_start_method("spawn", force=True)
+    setup_logger(name="fvcore")
+    setup_logger()
+    
+    # Register datasets like demo.py does (if register_two_stage_datasets exists)
+    try:
+        from register_two_stage_datasets import register_two_stage_datasets
+        register_two_stage_datasets(
+            dataset_root="./myotube_batch_output", 
+            register_instance=True, 
+            register_panoptic=True
+        )
+    except ImportError:
+        # Dataset registration not available, continue without it
+        pass
+    
     parser = argparse.ArgumentParser(description="Myotube Instance Segmentation for Fiji")
     parser.add_argument("input_image", help="Path to input image")
     parser.add_argument("output_dir", help="Output directory for results")
