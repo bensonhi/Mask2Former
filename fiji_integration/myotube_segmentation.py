@@ -1146,9 +1146,8 @@ class MyotubeFijiIntegration:
         if len(instances['masks']) > 0:
             # Ensure masks are at original image resolution for visualization
             final_masks = []
-            final_boxes = []
             
-            for i, (mask, box) in enumerate(zip(instances['masks'], instances['boxes'])):
+            for i, mask in enumerate(instances['masks']):
                 # Resize mask to original image size if needed
                 if hasattr(self, '_scale_factor') and self._scale_factor != 1.0:
                     original_h, original_w = self._original_size
@@ -1160,24 +1159,19 @@ class MyotubeFijiIntegration:
                         interpolation=cv2.INTER_NEAREST
                     )
                     resized_mask = (resized_mask > 128)  # Keep as boolean numpy array for now
-                    
-                    # Scale bounding box to original coordinates
-                    scale_factor = 1.0 / self._scale_factor
-                    scaled_box = box * scale_factor
                 else:
                     resized_mask = mask > 0  # Ensure boolean
-                    scaled_box = box
                 
                 final_masks.append(resized_mask)
-                final_boxes.append(scaled_box)
             
             # Convert to torch tensors (demo.py moves to CPU, so we do the same)
             torch_instances.pred_masks = torch.tensor(np.array(final_masks)).cpu()
             torch_instances.scores = torch.tensor(instances['scores']).cpu()
             
-            # Ensure boxes are in the right format [N, 4] for Detectron2
+            # Use empty bounding boxes like the original Mask2Former model does
+            # This prevents bounding boxes from being drawn, showing only masks
             from detectron2.structures import Boxes
-            torch_instances.pred_boxes = Boxes(torch.tensor(np.array(final_boxes)).cpu())
+            torch_instances.pred_boxes = Boxes(torch.zeros(len(instances['masks']), 4).cpu())
             
             # Add dummy classes (all myotubes are the same class)
             torch_instances.pred_classes = torch.zeros(len(instances['masks']), dtype=torch.long).cpu()
