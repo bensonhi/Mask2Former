@@ -1075,19 +1075,9 @@ class MyotubeFijiIntegration:
                 if hasattr(self, '_scale_factor') and self._scale_factor != 1.0:
                     original_h, original_w = self._original_size
                     
-                    # DEBUG: Inspect mask before resizing (only for first few masks)
-                    if i < 3:
-                        print(f"      🔍 DEBUG Mask {i+1} BEFORE resize:")
-                        print(f"         Shape: {mask.shape}, dtype: {mask.dtype}")
-                        print(f"         Min: {mask.min()}, Max: {mask.max()}, Sum: {mask.sum()}")
-                        print(f"         Unique values: {np.unique(mask)}")
-                    
                     # Ensure mask is in the right format before resizing
                     # Always scale to 0-255 range regardless of input dtype
                     mask_uint8 = (mask * 255).astype(np.uint8)
-                    
-                    if i < 3:
-                        print(f"         After uint8 conversion: min={mask_uint8.min()}, max={mask_uint8.max()}, sum={mask_uint8.sum()}")
                     
                     resized_mask = cv2.resize(
                         mask_uint8, 
@@ -1095,14 +1085,8 @@ class MyotubeFijiIntegration:
                         interpolation=cv2.INTER_NEAREST
                     )
                     
-                    if i < 3:
-                        print(f"         After cv2.resize: shape={resized_mask.shape}, min={resized_mask.min()}, max={resized_mask.max()}, sum={resized_mask.sum()}")
-                    
                     # Convert back to boolean and ensure it's not empty
                     resized_mask = (resized_mask > 128).astype(bool)
-                    
-                    if i < 3:
-                        print(f"         After thresholding: sum={resized_mask.sum()}")
                     
                     print(f"      🔧 Resized mask {i+1}: {mask.shape} → {resized_mask.shape}")
                     
@@ -1138,67 +1122,91 @@ class MyotubeFijiIntegration:
     
     def _save_colored_overlay(self, instances: Dict[str, Any], original_image: np.ndarray, 
                              output_path: str):
-        """Save colored overlay for visualization."""
-        import matplotlib.pyplot as plt
-        import matplotlib.colors as mcolors
+        """Save colored overlay using Detectron2's built-in visualizer like demo.py."""
+        from detectron2.utils.visualizer import Visualizer, ColorMode
+        from detectron2.data import MetadataCatalog
+        from detectron2.structures import Instances
+        import torch
         
-        # Create colored overlay
-        overlay = original_image.copy()
+        print(f"   🎨 Generating overlay using Detectron2's Visualizer (like demo.py)")
         
-        # Generate distinct colors for each instance
-        colors = plt.cm.Set3(np.linspace(0, 1, len(instances['masks'])))
+        # Get metadata (try to use the same as our dataset, fallback to COCO)
+        try:
+            metadata = MetadataCatalog.get("myotube_stage2_train")
+        except:
+            try:
+                metadata = MetadataCatalog.get("coco_2017_val")
+            except:
+                metadata = None
         
-        valid_count = 0
-        for i, (mask, score) in enumerate(zip(instances['masks'], instances['scores'])):
-            # Skip empty masks early
-            if mask.sum() == 0:
-                continue
+        # Convert our processed instances back to Detectron2 Instances format
+        # This is the same format that demo.py uses
+        torch_instances = Instances(original_image.shape[:2])
+        
+        if len(instances['masks']) > 0:
+            # Ensure masks are at original image resolution for visualization
+            final_masks = []
+            final_boxes = []
+            
+            for i, (mask, box) in enumerate(zip(instances['masks'], instances['boxes'])):
+                # Resize mask to original image size if needed
+                if hasattr(self, '_scale_factor') and self._scale_factor != 1.0:
+                    original_h, original_w = self._original_size
+                    # Use the same scaling we perfected for ROIs
+                    mask_uint8 = (mask * 255).astype(np.uint8)
+                    resized_mask = cv2.resize(
+                        mask_uint8, 
+                        (original_w, original_h), 
+                        interpolation=cv2.INTER_NEAREST
+                    )
+                    resized_mask = (resized_mask > 128)  # Keep as boolean numpy array for now
+                    
+                    # Scale bounding box to original coordinates
+                    scale_factor = 1.0 / self._scale_factor
+                    scaled_box = box * scale_factor
+                else:
+                    resized_mask = mask > 0  # Ensure boolean
+                    scaled_box = box
                 
-            # Create colored mask
-            color = (colors[i][:3] * 255).astype(np.uint8)
+                final_masks.append(resized_mask)
+                final_boxes.append(scaled_box)
             
-            # Resize mask to match original image size with improved logic
-            if hasattr(self, '_scale_factor') and self._scale_factor != 1.0:
-                original_h, original_w = self._original_size
-                # Ensure mask is in the right format before resizing
-                # Always scale to 0-255 range regardless of input dtype
-                mask_uint8 = (mask * 255).astype(np.uint8)
-                resized_mask = cv2.resize(
-                    mask_uint8, 
-                    (original_w, original_h), 
-                    interpolation=cv2.INTER_NEAREST
-                )
-                # Convert back to boolean and check validity
-                resized_mask = (resized_mask > 128).astype(bool)
-                
-                # Skip if resizing corrupted the mask
-                if resized_mask.sum() == 0:
-                    continue
-            else:
-                resized_mask = mask.astype(bool)
+            # Convert to torch tensors (demo.py moves to CPU, so we do the same)
+            torch_instances.pred_masks = torch.tensor(np.array(final_masks)).cpu()
+            torch_instances.scores = torch.tensor(instances['scores']).cpu()
             
-            # Apply color to mask region
-            colored_mask = np.zeros_like(original_image)
-            colored_mask[resized_mask] = color
+            # Ensure boxes are in the right format [N, 4] for Detectron2
+            from detectron2.structures import Boxes
+            torch_instances.pred_boxes = Boxes(torch.tensor(np.array(final_boxes)).cpu())
             
-            # Blend with original image
-            alpha = 0.6
-            overlay = cv2.addWeighted(overlay, 1-alpha, colored_mask, alpha, 0)
-            
-            # Add confidence score text using RESIZED mask coordinates
-            coords = np.where(resized_mask)
-            if len(coords[0]) > 0:
-                center_y, center_x = coords[0].mean(), coords[1].mean()
-                cv2.putText(overlay, f"{score:.2f}", 
-                           (int(center_x), int(center_y)), 
-                           cv2.FONT_HERSHEY_SIMPLEX, 2.0, (255, 255, 255), 4)  # Larger text for big image
-                           
-            valid_count += 1
+            # Add dummy classes (all myotubes are the same class)
+            torch_instances.pred_classes = torch.zeros(len(instances['masks']), dtype=torch.long).cpu()
         
-        print(f"   🎨 Generated overlay with {valid_count} visible myotubes")
+        print(f"   📊 Created Detectron2 Instances with {len(instances['masks'])} instances")
         
-        # Save overlay
-        cv2.imwrite(output_path, overlay)
+        # Use Detectron2's visualizer exactly like demo.py does
+        # Convert BGR to RGB for visualization (demo.py does this: image[:, :, ::-1])
+        rgb_image = original_image[:, :, ::-1]
+        visualizer = Visualizer(rgb_image, metadata, instance_mode=ColorMode.IMAGE)
+        
+        # This is the exact same call that demo.py uses!
+        vis_output = visualizer.draw_instance_predictions(predictions=torch_instances)
+        
+        # Get the visualization as an image and convert back to BGR for saving
+        vis_image = vis_output.get_image()[:, :, ::-1]  # RGB back to BGR
+        
+        print(f"   💾 Saving overlay to: {output_path}")
+        
+        # Save the visualization
+        success = cv2.imwrite(output_path, vis_image)
+        if success:
+            print(f"   ✅ Overlay saved successfully using Detectron2's Visualizer")
+        else:
+            print(f"   ❌ Failed to save overlay")
+            
+        # Debug info
+        instance_count = len(instances['masks'])
+        print(f"   🔍 Detectron2 visualizer processed {instance_count} instances")
     
     def _save_measurements(self, instances: Dict[str, Any], output_path: str):
         """Save measurements CSV for analysis."""
@@ -1211,11 +1219,14 @@ class MyotubeFijiIntegration:
             # Resize mask to original size for accurate measurements
             if hasattr(self, '_scale_factor') and self._scale_factor != 1.0:
                 original_h, original_w = self._original_size
+                # Use proper mask scaling like in ROI generation
+                mask_uint8 = (mask * 255).astype(np.uint8)
                 resized_mask = cv2.resize(
-                    mask.astype(np.uint8), 
+                    mask_uint8, 
                     (original_w, original_h), 
                     interpolation=cv2.INTER_NEAREST
-                ).astype(bool)
+                )
+                resized_mask = (resized_mask > 128).astype(bool)
                 
                 # Scale bounding box back to original coordinates
                 scale_factor = 1.0 / self._scale_factor
