@@ -433,16 +433,25 @@ function loadResults(success_file) {
         
         print("🔍 ROI Manager count before loading: " + roiManager("count"));
         
+        // Open overlay image first
+        if (File.exists(overlay_file)) {
+            open(overlay_file);
+            print("✅ Opened overlay image: " + overlay_file);
+        }
+        
         // Load new ROIs
         if (File.exists(roi_file)) {
             roiManager("Open", roi_file);
             print("🔍 ROI Manager count after loading: " + roiManager("count"));
             print("✅ Loaded " + roiManager("count") + " ROIs into ROI Manager");
             
-            // Show all ROIs on original image
-            if (roiManager("count") > 0) {
+            // Show all ROIs on the overlay image (only if we have an open window)
+            if (roiManager("count") > 0 && nImages > 0) {
                 roiManager("Show All");
                 roiManager("Show All with labels");
+                print("✅ Displayed " + roiManager("count") + " ROIs on overlay image");
+            } else if (roiManager("count") > 0) {
+                print("✅ " + roiManager("count") + " ROIs loaded - open an image to display them");
             } else {
                 print("⚠️ No ROIs loaded - check ROI file format");
             }
@@ -455,9 +464,8 @@ function loadResults(success_file) {
         print("   Instances: " + num_instances);
     }
     
-    // Open overlay image
-    if (File.exists(overlay_file)) {
-        open(overlay_file);
+    // Additional overlay image processing
+    if (File.exists(overlay_file) && nImages > 0) {
         overlay_title = getTitle();
         print("✅ Opened overlay image: " + overlay_title);
         
