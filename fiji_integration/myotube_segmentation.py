@@ -660,6 +660,9 @@ class MyotubeFijiIntegration:
         add_maskformer2_config(cfg)
         
         try:
+            # Temporarily allow unknown keys to accommodate minor version diffs
+            if hasattr(cfg, 'set_new_allowed'):
+                cfg.set_new_allowed(True)
             cfg.merge_from_file(self.config_file)
         except Exception as e:
             print(f"❌ Error loading config file: {self.config_file}")
@@ -670,6 +673,8 @@ class MyotubeFijiIntegration:
             if os.path.exists(fallback_config):
                 print(f"   🔄 Trying fallback config: {fallback_config}")
                 try:
+                    if hasattr(cfg, 'set_new_allowed'):
+                        cfg.set_new_allowed(True)
                     cfg.merge_from_file(fallback_config)
                 except Exception as e2:
                     print(f"   ❌ Fallback config also failed: {e2}")
@@ -678,6 +683,10 @@ class MyotubeFijiIntegration:
             else:
                 print("   🔧 Creating minimal working config...")
                 self._setup_minimal_config(cfg)
+        finally:
+            # Disallow unknown keys after merging to avoid silent errors later
+            if hasattr(cfg, 'set_new_allowed'):
+                cfg.set_new_allowed(False)
         
         cfg.MODEL.WEIGHTS = self.model_weights
         
