@@ -1283,27 +1283,26 @@ def main():
         # Signal success to ImageJ macro (format expected by Fiji macro)
         success_file = os.path.join(args.output_dir, "SUCCESS")
         
-        # Use relative paths to avoid line length issues in ImageJ
+        # Use ultra-short format for ImageJ line length limits (40-50 chars max)
         base_dir = os.path.dirname(output_files['rois'])
-        roi_file = os.path.basename(output_files['rois'])
-        overlay_file = os.path.basename(output_files['overlay'])
-        measurements_file = os.path.basename(output_files['measurements'])
-        info_file = os.path.basename(output_files['info'])
         
         # Debug: Print what we're about to write
         print(f"📝 Writing SUCCESS file: {success_file}")
-        print(f"   BASE_DIR:{base_dir}")
-        print(f"   ROI_FILE:{roi_file}")
-        print(f"   OVERLAY_FILE:{overlay_file}")
-        print(f"   SUCCESS:{output_files['count']}")
+        print(f"   DIR:{base_dir}")
+        print(f"   COUNT:{output_files['count']}")
         
+        # Write in ultra-short format that ImageJ can handle
+        # Each line must be under 40 characters
         with open(success_file, 'w', encoding='utf-8') as f:
-            f.write(f"BASE_DIR:{base_dir}\n")
-            f.write(f"ROI_FILE:{roi_file}\n")
-            f.write(f"OVERLAY_FILE:{overlay_file}\n")
-            f.write(f"MEASUREMENTS_FILE:{measurements_file}\n")
-            f.write(f"INFO_FILE:{info_file}\n")
-            f.write(f"SUCCESS:{output_files['count']}\n")
+            # Write base directory in chunks if needed
+            if len(base_dir) > 35:
+                # Split long path
+                f.write(f"DIR1:{base_dir[:35]}\n")
+                f.write(f"DIR2:{base_dir[35:]}\n")
+            else:
+                f.write(f"DIR:{base_dir}\n")
+            f.write(f"COUNT:{output_files['count']}\n")
+            f.write("DONE\n")
         
         # Debug: Verify what was written
         try:

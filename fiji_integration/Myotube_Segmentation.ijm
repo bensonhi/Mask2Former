@@ -370,6 +370,8 @@ function loadResults(success_file) {
     }
     
     base_dir = "";
+    dir_part1 = "";
+    dir_part2 = "";
     roi_file = "";
     overlay_file = "";
     num_instances = 0;
@@ -377,22 +379,39 @@ function loadResults(success_file) {
     for (i = 0; i < lines.length; i++) {
         line = lines[i];
         
-        if (startsWith(line, "BASE_DIR:")) {
-            base_dir = substring(line, 9);
+        if (startsWith(line, "DIR:")) {
+            base_dir = substring(line, 4);
             print("🔍 Extracted base dir: '" + base_dir + "'");
-        } else if (startsWith(line, "ROI_FILE:")) {
-            roi_filename = substring(line, 9);
-            roi_file = base_dir + File.separator + roi_filename;
-            print("🔍 Extracted ROI file: '" + roi_file + "'");
-        } else if (startsWith(line, "OVERLAY_FILE:")) {
-            overlay_filename = substring(line, 12);
-            overlay_file = base_dir + File.separator + overlay_filename;
-            print("🔍 Extracted overlay file: '" + overlay_file + "'");
-        } else if (startsWith(line, "SUCCESS:")) {
-            // Extract number of instances
-            success_part = substring(line, 8);
-            num_instances = parseInt(success_part);
+        } else if (startsWith(line, "DIR1:")) {
+            dir_part1 = substring(line, 5);
+            print("🔍 Extracted dir part 1: '" + dir_part1 + "'");
+        } else if (startsWith(line, "DIR2:")) {
+            dir_part2 = substring(line, 5);
+            base_dir = dir_part1 + dir_part2;
+            print("🔍 Extracted dir part 2: '" + dir_part2 + "'");
+            print("🔍 Combined base dir: '" + base_dir + "'");
+        } else if (startsWith(line, "COUNT:")) {
+            count_part = substring(line, 6);
+            num_instances = parseInt(count_part);
             print("🔍 Extracted instances: " + num_instances);
+        }
+    }
+    
+    // Find ROI and overlay files in the directory
+    if (base_dir != "" && num_instances > 0) {
+        print("🔍 Looking for files in: " + base_dir);
+        
+        // Look for ROI zip file
+        file_list = getFileList(base_dir);
+        for (j = 0; j < file_list.length; j++) {
+            filename = file_list[j];
+            if (endsWith(filename, "_rois.zip")) {
+                roi_file = base_dir + File.separator + filename;
+                print("🔍 Found ROI file: '" + roi_file + "'");
+            } else if (endsWith(filename, "_overlay.tif")) {
+                overlay_file = base_dir + File.separator + filename;
+                print("🔍 Found overlay file: '" + overlay_file + "'");
+            }
         }
     }
     
