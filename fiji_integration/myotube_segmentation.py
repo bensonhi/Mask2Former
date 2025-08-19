@@ -1036,6 +1036,9 @@ class MyotubeFijiIntegration:
         """Save instances as composite ROIs for Fiji ROI Manager."""
         roi_generator = ImageJROIGenerator()
         
+        print(f"   💾 Generating ROI file: {output_path}")
+        print(f"   📊 Processing {len(instances['masks'])} instances for ROI generation")
+        
         with zipfile.ZipFile(output_path, 'w') as zf:
             for i, mask in enumerate(instances['masks']):
                 roi_name = f"Myotube_{i+1}.roi"
@@ -1048,12 +1051,33 @@ class MyotubeFijiIntegration:
                         (original_w, original_h), 
                         interpolation=cv2.INTER_NEAREST
                     ).astype(bool)
+                    print(f"      🔧 Resized mask {i+1}: {mask.shape} → {resized_mask.shape}")
                 else:
                     resized_mask = mask.astype(bool)
                 
+                # Check if mask has any pixels
+                pixel_count = resized_mask.sum()
+                if pixel_count == 0:
+                    print(f"      ⚠️  Warning: Mask {i+1} is empty (0 pixels)")
+                    continue
+                
                 # Generate proper ImageJ ROI file
                 roi_content = roi_generator.mask_to_roi_file(resized_mask, f"Myotube_{i+1}")
+                
+                if len(roi_content) == 0:
+                    print(f"      ⚠️  Warning: ROI content for mask {i+1} is empty")
+                    continue
+                    
                 zf.writestr(roi_name, roi_content)
+                print(f"      ✅ Generated ROI {i+1}: {len(roi_content)} bytes, {pixel_count} pixels")
+        
+        # Check final zip file
+        try:
+            with zipfile.ZipFile(output_path, 'r') as zf:
+                roi_count = len(zf.namelist())
+                print(f"   📦 ROI zip contains {roi_count} files: {zf.namelist()[:3]}{'...' if roi_count > 3 else ''}")
+        except Exception as e:
+            print(f"   ❌ Error reading ROI zip: {e}")
     
 
     

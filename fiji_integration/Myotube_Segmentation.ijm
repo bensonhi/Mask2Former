@@ -384,6 +384,9 @@ function loadResults(success_file) {
     
     // Load ROIs into ROI Manager
     if (File.exists(roi_file) && num_instances > 0) {
+        print("🔍 ROI file exists: " + roi_file);
+        print("🔍 File size: " + File.length(roi_file) + " bytes");
+        
         // Clear existing ROIs (ask user first)
         if (roiManager("count") > 0) {
             result = getBoolean("Clear existing ROIs in ROI Manager?");
@@ -392,15 +395,28 @@ function loadResults(success_file) {
             }
         }
         
-        // Load new ROIs
-        roiManager("Open", roi_file);
-        print("✅ Loaded " + roiManager("count") + " ROIs into ROI Manager");
+        print("🔍 ROI Manager count before loading: " + roiManager("count"));
         
-        // Show all ROIs on original image
-        if (roiManager("count") > 0) {
-            roiManager("Show All");
-            roiManager("Show All with labels");
+        // Load new ROIs
+        try {
+            roiManager("Open", roi_file);
+            print("🔍 ROI Manager count after loading: " + roiManager("count"));
+            print("✅ Loaded " + roiManager("count") + " ROIs into ROI Manager");
+            
+            // Show all ROIs on original image
+            if (roiManager("count") > 0) {
+                roiManager("Show All");
+                roiManager("Show All with labels");
+            } else {
+                print("⚠️ No ROIs loaded - check ROI file format");
+            }
+        } catch (error) {
+            print("❌ Error loading ROIs: " + error);
         }
+    } else {
+        print("❌ ROI file missing or no instances:");
+        print("   File exists: " + File.exists(roi_file));
+        print("   Instances: " + num_instances);
     }
     
     // Open overlay image
