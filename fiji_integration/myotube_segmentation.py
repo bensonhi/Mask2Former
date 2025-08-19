@@ -125,7 +125,7 @@ class PostProcessingPipeline:
         self.add_step('filter_by_confidence', self._filter_by_confidence)
         self.add_step('filter_by_area', self._filter_by_area)
         self.add_step('filter_by_aspect_ratio', self._filter_by_aspect_ratio)
-        # TEMPORARILY DISABLED: self.add_step('fill_holes', self._fill_holes)
+        self.add_step('fill_holes', self._fill_holes)
         self.add_step('smooth_boundaries', self._smooth_boundaries)
         self.add_step('remove_edge_instances', self._remove_edge_instances)
         self.add_step('merge_overlapping', self._merge_overlapping_instances)
@@ -190,7 +190,35 @@ class PostProcessingPipeline:
             # Detectron2 Instances format
             masks = instances.pred_masks.cpu().numpy()
             scores = instances.scores.cpu().numpy()
-            boxes = instances.pred_boxes.tensor.cpu().numpy()
+            
+            # Get boxes from model, but validate them
+            pred_boxes = instances.pred_boxes.tensor.cpu().numpy()
+            
+            # Check if predicted boxes are valid
+            valid_boxes = []
+            for i, (mask, box) in enumerate(zip(masks, pred_boxes)):
+                width = box[2] - box[0]
+                height = box[3] - box[1]
+                
+                # If model box is invalid, calculate from mask
+                if width <= 0 or height <= 0:
+                    # Calculate bounding box from mask
+                    coords = np.where(mask)
+                    if len(coords[0]) > 0:
+                        y_min, y_max = coords[0].min(), coords[0].max()
+                        x_min, x_max = coords[1].min(), coords[1].max()
+                        calculated_box = np.array([x_min, y_min, x_max, y_max])
+                        valid_boxes.append(calculated_box)
+                        if i < 3:  # Only print for first few
+                            print(f"      🔧 Fixed box {i}: [0,0,0,0] → [{x_min},{y_min},{x_max},{y_max}]")
+                    else:
+                        # Empty mask, use original (probably will be filtered out anyway)
+                        valid_boxes.append(box)
+                else:
+                    # Use original valid box
+                    valid_boxes.append(box)
+            
+            boxes = np.array(valid_boxes)
         else:
             # Already in our format
             return instances
@@ -282,39 +310,24 @@ class PostProcessingPipeline:
         if len(instances['masks']) == 0:
             return instances
         
-        print(f"      🔍 DEBUG: Input has {len(instances['masks'])} masks")
-        print(f"      🔍 DEBUG: First mask shape: {instances['masks'][0].shape if len(instances['masks']) > 0 else 'N/A'}")
-        
         try:
             from scipy import ndimage
             filled_masks = []
             
-            for i, mask in enumerate(instances['masks']):
-                print(f"      🔍 DEBUG: Processing mask {i}, shape: {mask.shape}, dtype: {mask.dtype}")
+            for mask in instances['masks']:
                 # Ensure mask is boolean for fill_holes
                 bool_mask = mask.astype(bool)
-                print(f"      🔍 DEBUG: Bool mask shape: {bool_mask.shape}, any True: {bool_mask.any()}")
                 # Fill holes using binary fill_holes
                 filled_mask = ndimage.binary_fill_holes(bool_mask)
-                print(f"      🔍 DEBUG: Filled mask shape: {filled_mask.shape}, any True: {filled_mask.any()}")
                 # Convert back to original dtype
                 filled_masks.append(filled_mask.astype(mask.dtype))
             
-            print(f"      🔍 DEBUG: Created {len(filled_masks)} filled masks")
-            
-            # Preserve array structure - don't create new array if it breaks shape
+            # Preserve array structure
             if len(filled_masks) > 0:
-                print(f"      🔍 DEBUG: Converting to array...")
-                new_masks = np.array(filled_masks)
-                print(f"      🔍 DEBUG: New array shape: {new_masks.shape}")
-                instances['masks'] = new_masks
-                print(f"      🔍 DEBUG: Final instances['masks'] length: {len(instances['masks'])}")
+                instances['masks'] = np.array(filled_masks)
             
         except Exception as e:
             print(f"      ⚠️  Warning: Fill holes failed ({e}), keeping original masks")
-            # Return original masks if fill_holes fails
-            import traceback
-            print(f"      🔍 DEBUG: Full traceback: {traceback.format_exc()}")
             
         return instances
     
