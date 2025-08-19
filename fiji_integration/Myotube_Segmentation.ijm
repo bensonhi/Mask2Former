@@ -434,7 +434,7 @@ function loadResults(success_file) {
         print("🔍 ROI Manager count before loading: " + roiManager("count"));
         
         // Load new ROIs
-        try {
+        if (File.exists(roi_file)) {
             roiManager("Open", roi_file);
             print("🔍 ROI Manager count after loading: " + roiManager("count"));
             print("✅ Loaded " + roiManager("count") + " ROIs into ROI Manager");
@@ -446,8 +446,8 @@ function loadResults(success_file) {
             } else {
                 print("⚠️ No ROIs loaded - check ROI file format");
             }
-        } catch (error) {
-            print("❌ Error loading ROIs: " + error);
+        } else {
+            print("❌ ROI file not found: " + roi_file);
         }
     } else {
         print("❌ ROI file missing or no instances:");
