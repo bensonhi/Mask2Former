@@ -643,12 +643,20 @@ class MyotubeFijiIntegration:
         print(f"📁 Config file: {self.config_file}")
         print(f"🔮 Model weights: {self.model_weights}")
     
-    def initialize_predictor(self):
+    def initialize_predictor(self, force_cpu=False):
         """Initialize the segmentation predictor."""
         if self.predictor is not None:
             return
         
+        self.force_cpu = force_cpu
+        
         print("🚀 Initializing Mask2Former predictor...")
+        
+        # Clear GPU cache before initialization
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            print(f"   💾 GPU Memory: {torch.cuda.get_device_properties(0).total_memory // 1e9:.1f}GB total")
+            print(f"   🔥 GPU Memory: {torch.cuda.memory_allocated() // 1e6:.0f}MB allocated before init")
         
         # Validate files exist
         if not os.path.exists(self.config_file):
@@ -690,14 +698,60 @@ class MyotubeFijiIntegration:
         
         cfg.MODEL.WEIGHTS = self.model_weights
         
+        # Memory optimization: preserve training resolution by default
+        original_size = getattr(cfg.INPUT, 'IMAGE_SIZE', 1024)
+        
+        # Only reduce if extremely large (>2048) - otherwise preserve training resolution
+        if cfg.INPUT.IMAGE_SIZE > 2048:
+            cfg.INPUT.IMAGE_SIZE = 1500  # Use your training size as reasonable max
+            print(f"   🔧 Reduced input size: {original_size} → {cfg.INPUT.IMAGE_SIZE} (extreme size limit)")
+        else:
+            print(f"   ✅ Using training resolution: {cfg.INPUT.IMAGE_SIZE}px (matching training config)")
+        
+        # Store training size for later use
+        self.training_image_size = cfg.INPUT.IMAGE_SIZE
+        
+        # Memory optimization: ensure batch size is 1 for inference
+        if hasattr(cfg.SOLVER, 'IMS_PER_BATCH'):
+            cfg.SOLVER.IMS_PER_BATCH = 1
+        
         # Only set threshold if this is a mask2former config
         if hasattr(cfg.MODEL, 'MASK_FORMER'):
             cfg.MODEL.MASK_FORMER.TEST.OBJECT_MASK_THRESHOLD = 0.25  # Lower threshold for better detection
         
+        # Force CPU if requested
+        if self.force_cpu or not torch.cuda.is_available():
+            cfg.MODEL.DEVICE = "cpu"
+            print("   🖥️  Using CPU inference")
+        
         cfg.freeze()
         
-        self.predictor = DefaultPredictor(cfg)
-        print("✅ Predictor initialized successfully!")
+        try:
+            self.predictor = DefaultPredictor(cfg)
+            device = "CPU" if cfg.MODEL.DEVICE == "cpu" else "GPU"
+            print(f"✅ Predictor initialized successfully on {device}!")
+            
+            if torch.cuda.is_available() and cfg.MODEL.DEVICE != "cpu":
+                print(f"   🔥 GPU Memory: {torch.cuda.memory_allocated() // 1e6:.0f}MB allocated after init")
+                
+        except RuntimeError as e:
+            if "out of memory" in str(e).lower():
+                print(f"❌ GPU out of memory during initialization")
+                print(f"   💡 Trying CPU fallback...")
+                
+                # Clear GPU cache and try CPU
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                
+                # Force CPU inference
+                cfg = cfg.clone()
+                cfg.MODEL.DEVICE = "cpu"
+                cfg.freeze()
+                
+                self.predictor = DefaultPredictor(cfg)
+                print("✅ Predictor initialized successfully on CPU!")
+            else:
+                raise e
     
     def _setup_minimal_config(self, cfg):
         """Setup minimal working Mask2Former config when file configs fail."""
@@ -774,7 +828,8 @@ class MyotubeFijiIntegration:
         print(f"🔬 Segmenting myotubes in: {os.path.basename(image_path)}")
         
         # Initialize predictor if needed
-        self.initialize_predictor()
+        force_cpu = custom_config.get('force_cpu', False) if custom_config else False
+        self.initialize_predictor(force_cpu=force_cpu)
         
         # Update post-processing config if provided
         if custom_config:
@@ -784,9 +839,49 @@ class MyotubeFijiIntegration:
         image = read_image(image_path, format="BGR")
         original_image = cv2.imread(image_path)
         
+        # Smart image resizing: respect training resolution unless explicitly overridden
+        h, w = image.shape[:2]
+        training_size = getattr(self, 'training_image_size', 1500)
+        max_size = custom_config.get('max_image_size', None) if custom_config else None
+        
+        # Determine target size
+        if max_size and max_size < training_size:
+            # User explicitly wants smaller images for memory
+            target_size = max_size
+            reason = "user-requested memory optimization"
+        elif max(h, w) > training_size * 1.5:  # Only resize if much larger than training
+            target_size = training_size
+            reason = "matching training resolution"
+        elif max_size and max(h, w) > max_size:
+            target_size = max_size  
+            reason = "size limit"
+        else:
+            target_size = None  # No resizing needed
+        
+        if target_size and max(h, w) > target_size:
+            scale = target_size / max(h, w)
+            new_h, new_w = int(h * scale), int(w * scale)
+            image = cv2.resize(image, (new_w, new_h))
+            print(f"   🔧 Resized image: {w}×{h} → {new_w}×{new_h} ({reason})")
+        else:
+            print(f"   ✅ Keeping original size: {w}×{h} (within training resolution range)")
+        
+        # Clear GPU cache before inference
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            print(f"   🔥 GPU Memory before inference: {torch.cuda.memory_allocated() // 1e6:.0f}MB")
+        
         # Run segmentation
         print("   🔄 Running inference...")
-        predictions = self.predictor(image)
+        try:
+            predictions = self.predictor(image)
+        except RuntimeError as e:
+            if "out of memory" in str(e).lower():
+                print("   ❌ GPU out of memory during inference")
+                print("   💡 Try reducing image size or using CPU mode")
+                raise RuntimeError("GPU out of memory. Try: --cpu or resize image to <1024px") from e
+            else:
+                raise e
         instances = predictions["instances"]
         
         if len(instances) == 0:
@@ -978,14 +1073,23 @@ def main():
                        help="Minimum myotube area in pixels")
     parser.add_argument("--max-area", type=int, default=50000,
                        help="Maximum myotube area in pixels")
+    parser.add_argument("--cpu", action="store_true",
+                       help="Force CPU inference (slower but uses less memory)")
+    parser.add_argument("--max-image-size", type=int, default=None,
+                       help="Maximum image dimension (larger images will be resized). Default: respect training resolution")
+    parser.add_argument("--force-1024", action="store_true",
+                       help="Force 1024px input resolution for memory optimization (may reduce accuracy)")
     
     args = parser.parse_args()
     
     # Custom post-processing config
+    max_image_size = 1024 if args.force_1024 else args.max_image_size
     custom_config = {
         'confidence_threshold': args.confidence,
         'min_area': args.min_area,
-        'max_area': args.max_area
+        'max_area': args.max_area,
+        'max_image_size': max_image_size,
+        'force_cpu': args.cpu
     }
     
     # Initialize integration
@@ -993,6 +1097,16 @@ def main():
         config_file=args.config,
         model_weights=args.weights
     )
+    
+    # Apply memory optimization settings
+    if args.cpu:
+        print("🖥️  CPU inference mode enabled")
+    if args.force_1024:
+        print("📏 Forced 1024px input resolution (memory optimization - may reduce accuracy)")
+    elif args.max_image_size:
+        print(f"📏 Max image size set to: {args.max_image_size}px")
+    else:
+        print("📏 Using training resolution (1500px) for best accuracy")
     
     # Process image
     try:

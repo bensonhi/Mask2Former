@@ -36,6 +36,9 @@ var MODEL_WEIGHTS = "";  // Auto-detected
 var CONFIDENCE_THRESHOLD = 0.5;
 var MIN_AREA = 100;
 var MAX_AREA = 50000;
+var USE_CPU = false;  // Set to true to force CPU inference (slower but less memory)
+var MAX_IMAGE_SIZE = 2048;  // Maximum image dimension (larger images will be resized)
+var FORCE_SMALL_INPUT = false;  // Set to true to force 1024px input (memory optimization, may reduce accuracy)
 
 // UI and workflow state
 var TEMP_DIR = "";
@@ -55,6 +58,34 @@ macro "Segment Myotubes (Custom Parameters)..." {
     if (showParameterDialog()) {
         segmentMyotubes();
     }
+}
+
+/*
+ * CPU-only macro for memory-constrained systems
+ */
+macro "Segment Myotubes (CPU Mode) [C]" {
+    // Temporarily enable CPU mode
+    original_cpu = USE_CPU;
+    USE_CPU = true;
+    
+    segmentMyotubes();
+    
+    // Restore original setting
+    USE_CPU = original_cpu;
+}
+
+/*
+ * Memory-optimized macro with 1024px input resolution
+ */
+macro "Segment Myotubes (Memory Optimized) [X]" {
+    // Temporarily enable memory optimization
+    original_force = FORCE_SMALL_INPUT;
+    FORCE_SMALL_INPUT = true;
+    
+    segmentMyotubes();
+    
+    // Restore original setting
+    FORCE_SMALL_INPUT = original_force;
 }
 
 /*
@@ -289,6 +320,16 @@ function buildPythonCommand(input_image) {
     python_script_cmd = python_script_cmd + " --min-area " + MIN_AREA;
     python_script_cmd = python_script_cmd + " --max-area " + MAX_AREA;
     
+    if (FORCE_SMALL_INPUT) {
+        python_script_cmd = python_script_cmd + " --force-1024";
+    } else {
+        python_script_cmd = python_script_cmd + " --max-image-size " + MAX_IMAGE_SIZE;
+    }
+    
+    if (USE_CPU) {
+        python_script_cmd = python_script_cmd + " --cpu";
+    }
+    
     if (CONFIG_FILE != "") {
         python_script_cmd = python_script_cmd + " --config \"" + CONFIG_FILE + "\"";
     }
@@ -413,6 +454,10 @@ function showParameterDialog() {
     Dialog.addNumber("Confidence Threshold (0-1):", CONFIDENCE_THRESHOLD);
     Dialog.addNumber("Minimum Area (pixels):", MIN_AREA);
     Dialog.addNumber("Maximum Area (pixels):", MAX_AREA);
+    Dialog.addMessage("\\nMemory & Performance Options:");
+    Dialog.addCheckbox("Use CPU (slower but less memory)", USE_CPU);
+    Dialog.addCheckbox("Force 1024px input (memory optimization, may reduce accuracy)", FORCE_SMALL_INPUT);
+    Dialog.addNumber("Max Image Size (pixels):", MAX_IMAGE_SIZE);
     Dialog.addMessage("\\nAdvanced Options:");
     Dialog.addString("Conda Environment:", CONDA_ENV, 20);
     Dialog.addString("Python Command:", PYTHON_COMMAND, 20);
@@ -425,6 +470,9 @@ function showParameterDialog() {
     CONFIDENCE_THRESHOLD = Dialog.getNumber();
     MIN_AREA = Dialog.getNumber();
     MAX_AREA = Dialog.getNumber();
+    USE_CPU = Dialog.getCheckbox();
+    FORCE_SMALL_INPUT = Dialog.getCheckbox();
+    MAX_IMAGE_SIZE = Dialog.getNumber();
     CONDA_ENV = Dialog.getString();
     PYTHON_COMMAND = Dialog.getString();
     MASK2FORMER_PATH = Dialog.getString();
