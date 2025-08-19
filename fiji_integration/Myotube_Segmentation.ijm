@@ -302,7 +302,9 @@ function testPythonCommand() {
  * Setup temporary and output directories
  */
 function setupDirectories() {
-    TEMP_DIR = getDirectory("temp") + "myotube_segmentation";
+    // Use user's home directory instead of system temp
+    home_dir = getInfo("user.home");
+    TEMP_DIR = home_dir + File.separator + "tmp" + File.separator + "myotube_segmentation";
     OUTPUT_DIR = TEMP_DIR + File.separator + "output";
     
     // Create directories if they don't exist
