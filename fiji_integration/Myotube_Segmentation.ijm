@@ -391,31 +391,43 @@ function loadResults(success_file) {
     }
     
     base_dir = "";
-    dir_part1 = "";
-    dir_part2 = "";
+    dir_chunks = newArray(20); // Support up to 20 chunks
     roi_file = "";
     overlay_file = "";
     num_instances = 0;
+    max_chunk_idx = -1;
     
     for (i = 0; i < lines.length; i++) {
         line = lines[i];
         
-        if (startsWith(line, "DIR:")) {
-            base_dir = substring(line, 4);
-            print("🔍 Extracted base dir: '" + base_dir + "'");
-        } else if (startsWith(line, "D1:")) {
-            dir_part1 = substring(line, 3);
-            print("🔍 Extracted dir part 1: '" + dir_part1 + "'");
-        } else if (startsWith(line, "D2:")) {
-            dir_part2 = substring(line, 3);
-            base_dir = dir_part1 + dir_part2;
-            print("🔍 Extracted dir part 2: '" + dir_part2 + "'");
-            print("🔍 Combined base dir: '" + base_dir + "'");
-        } else if (startsWith(line, "CNT:")) {
-            count_part = substring(line, 4);
+        // Check for numbered directory chunks (0:, 1:, 2:, etc.)
+        if (indexOf(line, ":") > 0) {
+            colon_pos = indexOf(line, ":");
+            prefix = substring(line, 0, colon_pos);
+            content = substring(line, colon_pos + 1);
+            
+            // Check if prefix is a number (directory chunk)
+            chunk_idx = parseInt(prefix);
+            if (chunk_idx >= 0 && chunk_idx < 20) {
+                dir_chunks[chunk_idx] = content;
+                if (chunk_idx > max_chunk_idx) max_chunk_idx = chunk_idx;
+                print("🔍 Chunk " + chunk_idx + ": '" + content + "'");
+            }
+        } else if (startsWith(line, "N:")) {
+            count_part = substring(line, 2);
             num_instances = parseInt(count_part);
             print("🔍 Extracted instances: " + num_instances);
         }
+    }
+    
+    // Reconstruct base directory from chunks
+    if (max_chunk_idx >= 0) {
+        for (j = 0; j <= max_chunk_idx; j++) {
+            if (dir_chunks[j] != "") {
+                base_dir = base_dir + dir_chunks[j];
+            }
+        }
+        print("🔍 Reconstructed base dir: '" + base_dir + "'");
     }
     
     // Find ROI and overlay files in the directory

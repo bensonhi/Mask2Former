@@ -1291,27 +1291,24 @@ def main():
         print(f"   DIR:{base_dir}")
         print(f"   COUNT:{output_files['count']}")
         
-        # Write in ultra-short format that ImageJ can handle
-        # Each line must be under 20 characters (ImageJ truncates at ~25)
+        # Write in ultra-short format for ImageJ (max 10 chars per line!)
+        # Based on empirical evidence: ImageJ truncates at ~12 characters
         with open(success_file, 'w', encoding='utf-8') as f:
-            # Always split directory path for safety
-            if len(base_dir) > 20:
-                # Find a good split point (prefer splitting at path separators)
-                split_point = len(base_dir) // 2
-                # Try to split at a path separator near the middle
-                for i in range(split_point - 5, split_point + 5):
-                    if i > 0 and i < len(base_dir) and base_dir[i] == '/':
-                        split_point = i
-                        break
-                
-                dir1 = base_dir[:split_point]
-                dir2 = base_dir[split_point:]
-                f.write(f"D1:{dir1}\n")
-                f.write(f"D2:{dir2}\n")
-            else:
-                f.write(f"DIR:{base_dir}\n")
-            f.write(f"CNT:{output_files['count']}\n")
-            f.write("OK\n")
+            # Split directory into multiple 8-char chunks
+            dir_chunks = []
+            remaining = base_dir
+            while remaining:
+                chunk = remaining[:8]
+                dir_chunks.append(chunk)
+                remaining = remaining[8:]
+            
+            # Write directory chunks
+            for i, chunk in enumerate(dir_chunks):
+                f.write(f"{i}:{chunk}\n")
+            
+            # Write count
+            f.write(f"N:{output_files['count']}\n")
+            f.write("END\n")
         
         # Debug: Verify what was written
         try:
