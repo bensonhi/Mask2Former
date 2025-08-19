@@ -1083,7 +1083,8 @@ class MyotubeFijiIntegration:
                         print(f"         Unique values: {np.unique(mask)}")
                     
                     # Ensure mask is in the right format before resizing
-                    mask_uint8 = (mask * 255).astype(np.uint8) if mask.dtype == bool else mask.astype(np.uint8)
+                    # Always scale to 0-255 range regardless of input dtype
+                    mask_uint8 = (mask * 255).astype(np.uint8)
                     
                     if i < 3:
                         print(f"         After uint8 conversion: min={mask_uint8.min()}, max={mask_uint8.max()}, sum={mask_uint8.sum()}")
@@ -1160,7 +1161,8 @@ class MyotubeFijiIntegration:
             if hasattr(self, '_scale_factor') and self._scale_factor != 1.0:
                 original_h, original_w = self._original_size
                 # Ensure mask is in the right format before resizing
-                mask_uint8 = (mask * 255).astype(np.uint8) if mask.dtype == bool else mask.astype(np.uint8)
+                # Always scale to 0-255 range regardless of input dtype
+                mask_uint8 = (mask * 255).astype(np.uint8)
                 resized_mask = cv2.resize(
                     mask_uint8, 
                     (original_w, original_h), 
