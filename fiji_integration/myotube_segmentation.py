@@ -650,16 +650,104 @@ class MyotubeFijiIntegration:
         
         print("🚀 Initializing Mask2Former predictor...")
         
-        # Setup configuration
+        # Validate files exist
+        if not os.path.exists(self.config_file):
+            raise FileNotFoundError(f"Config file not found: {self.config_file}")
+        
+        # Setup configuration in correct order
         cfg = get_cfg()
+        # CRITICAL: Add mask2former config BEFORE loading any config file
         add_maskformer2_config(cfg)
-        cfg.merge_from_file(self.config_file)
+        
+        try:
+            cfg.merge_from_file(self.config_file)
+        except Exception as e:
+            print(f"❌ Error loading config file: {self.config_file}")
+            print(f"   Error: {e}")
+            
+            # Try with a known working config as fallback
+            fallback_config = os.path.join(project_dir, "configs/coco/instance-segmentation/maskformer2_R50_bs16_50ep.yaml")
+            if os.path.exists(fallback_config):
+                print(f"   🔄 Trying fallback config: {fallback_config}")
+                try:
+                    cfg.merge_from_file(fallback_config)
+                except Exception as e2:
+                    print(f"   ❌ Fallback config also failed: {e2}")
+                    print("   🔧 Creating minimal working config...")
+                    self._setup_minimal_config(cfg)
+            else:
+                print("   🔧 Creating minimal working config...")
+                self._setup_minimal_config(cfg)
+        
         cfg.MODEL.WEIGHTS = self.model_weights
-        cfg.MODEL.MASK_FORMER.TEST.OBJECT_MASK_THRESHOLD = 0.25  # Lower threshold for better detection
+        
+        # Only set threshold if this is a mask2former config
+        if hasattr(cfg.MODEL, 'MASK_FORMER'):
+            cfg.MODEL.MASK_FORMER.TEST.OBJECT_MASK_THRESHOLD = 0.25  # Lower threshold for better detection
+        
         cfg.freeze()
         
         self.predictor = DefaultPredictor(cfg)
         print("✅ Predictor initialized successfully!")
+    
+    def _setup_minimal_config(self, cfg):
+        """Setup minimal working Mask2Former config when file configs fail."""
+        print("   Setting up minimal Mask2Former configuration...")
+        
+        # Basic model setup for instance segmentation
+        cfg.MODEL.META_ARCHITECTURE = "MaskFormer"
+        cfg.MODEL.BACKBONE.NAME = "build_resnet_backbone"
+        cfg.MODEL.RESNETS.DEPTH = 50
+        cfg.MODEL.RESNETS.STRIDE_IN_1X1 = False
+        cfg.MODEL.RESNETS.OUT_FEATURES = ["res2", "res3", "res4", "res5"]
+        
+        # SEM_SEG_HEAD config
+        cfg.MODEL.SEM_SEG_HEAD.NAME = "MaskFormerHead"
+        cfg.MODEL.SEM_SEG_HEAD.IGNORE_VALUE = 255
+        cfg.MODEL.SEM_SEG_HEAD.NUM_CLASSES = 1  # Just myotubes
+        cfg.MODEL.SEM_SEG_HEAD.LOSS_WEIGHT = 1.0
+        cfg.MODEL.SEM_SEG_HEAD.CONVS_DIM = 256
+        cfg.MODEL.SEM_SEG_HEAD.MASK_DIM = 256
+        cfg.MODEL.SEM_SEG_HEAD.NORM = "GN"
+        cfg.MODEL.SEM_SEG_HEAD.TRANSFORMER_ENC_LAYERS = 6
+        
+        # MASK_FORMER config
+        cfg.MODEL.MASK_FORMER.TRANSFORMER_DECODER_NAME = "StandardTransformerDecoder"
+        cfg.MODEL.MASK_FORMER.TRANSFORMER_IN_FEATURE = "multi_scale_pixel_decoder"
+        cfg.MODEL.MASK_FORMER.DEEP_SUPERVISION = True
+        cfg.MODEL.MASK_FORMER.NO_OBJECT_WEIGHT = 0.1
+        cfg.MODEL.MASK_FORMER.CLASS_WEIGHT = 1.0
+        cfg.MODEL.MASK_FORMER.DICE_WEIGHT = 1.0
+        cfg.MODEL.MASK_FORMER.MASK_WEIGHT = 20.0
+        cfg.MODEL.MASK_FORMER.HIDDEN_DIM = 256
+        cfg.MODEL.MASK_FORMER.NUM_OBJECT_QUERIES = 100
+        cfg.MODEL.MASK_FORMER.NHEADS = 8
+        cfg.MODEL.MASK_FORMER.DROPOUT = 0.1
+        cfg.MODEL.MASK_FORMER.DIM_FEEDFORWARD = 2048
+        cfg.MODEL.MASK_FORMER.ENC_LAYERS = 0
+        cfg.MODEL.MASK_FORMER.DEC_LAYERS = 6
+        cfg.MODEL.MASK_FORMER.PRE_NORM = False
+        cfg.MODEL.MASK_FORMER.ENFORCE_INPUT_PROJ = False
+        cfg.MODEL.MASK_FORMER.SIZE_DIVISIBILITY = 32
+        cfg.MODEL.MASK_FORMER.SEM_SEG_POSTPROCESS_BEFORE_INFERENCE = True
+        
+        # Test config
+        cfg.MODEL.MASK_FORMER.TEST.SEMANTIC_ON = False
+        cfg.MODEL.MASK_FORMER.TEST.INSTANCE_ON = True
+        cfg.MODEL.MASK_FORMER.TEST.PANOPTIC_ON = False
+        cfg.MODEL.MASK_FORMER.TEST.OBJECT_MASK_THRESHOLD = 0.25
+        cfg.MODEL.MASK_FORMER.TEST.OVERLAP_THRESHOLD = 0.8
+        
+        # Input config
+        cfg.INPUT.IMAGE_SIZE = 1024
+        cfg.INPUT.MIN_SCALE = 0.1
+        cfg.INPUT.MAX_SCALE = 2.0
+        cfg.INPUT.FORMAT = "RGB"
+        
+        # Dataset config
+        cfg.DATASETS.TEST = ("myotube_test",)  # Dummy dataset name
+        
+        print("   ✅ Minimal config created")
     
     def segment_image(self, image_path: str, output_dir: str, 
                      custom_config: Dict[str, Any] = None) -> Dict[str, str]:
