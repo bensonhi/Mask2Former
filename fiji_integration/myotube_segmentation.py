@@ -125,7 +125,7 @@ class PostProcessingPipeline:
         self.add_step('filter_by_confidence', self._filter_by_confidence)
         self.add_step('filter_by_area', self._filter_by_area)
         self.add_step('filter_by_aspect_ratio', self._filter_by_aspect_ratio)
-        self.add_step('fill_holes', self._fill_holes)
+        # TEMPORARILY DISABLED: self.add_step('fill_holes', self._fill_holes)
         self.add_step('smooth_boundaries', self._smooth_boundaries)
         self.add_step('remove_edge_instances', self._remove_edge_instances)
         self.add_step('merge_overlapping', self._merge_overlapping_instances)
@@ -169,9 +169,16 @@ class PostProcessingPipeline:
         for step in self.steps:
             try:
                 print(f"   ➤ {step['name']}: {len(processed_instances['masks'])} instances")
-                processed_instances = step['function'](processed_instances, image)
+                result = step['function'](processed_instances, image)
+                if result is not None:
+                    processed_instances = result
+                else:
+                    print(f"   ⚠️  Warning: Step '{step['name']}' returned None, keeping original")
             except Exception as e:
                 print(f"   ⚠️  Warning: Step '{step['name']}' failed: {e}")
+                import traceback
+                print(f"   🔍 DEBUG: Full traceback: {traceback.format_exc()}")
+                # Keep the original processed_instances on error
                 continue
         
         print(f"✅ Post-processing complete: {len(processed_instances['masks'])} final instances")
@@ -238,6 +245,12 @@ class PostProcessingPipeline:
             box = instances['boxes'][i]
             width = box[2] - box[0]
             height = box[3] - box[1]
+            
+            # Skip invalid boxes (zero width or height)
+            if width <= 0 or height <= 0:
+                print(f"      ⚠️  Skipping instance {i} with invalid box: width={width}, height={height}")
+                continue
+                
             aspect_ratio = max(width, height) / min(width, height)
             
             if aspect_ratio >= min_ratio:
