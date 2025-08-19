@@ -265,15 +265,31 @@ class PostProcessingPipeline:
         if not self.config.get('fill_holes', True):
             return instances
         
-        from scipy import ndimage
-        filled_masks = []
+        # Check if we have any masks to process
+        if len(instances['masks']) == 0:
+            return instances
         
-        for mask in instances['masks']:
-            # Fill holes using binary fill_holes
-            filled_mask = ndimage.binary_fill_holes(mask)
-            filled_masks.append(filled_mask.astype(mask.dtype))
-        
-        instances['masks'] = np.array(filled_masks)
+        try:
+            from scipy import ndimage
+            filled_masks = []
+            
+            for mask in instances['masks']:
+                # Ensure mask is boolean for fill_holes
+                bool_mask = mask.astype(bool)
+                # Fill holes using binary fill_holes
+                filled_mask = ndimage.binary_fill_holes(bool_mask)
+                # Convert back to original dtype
+                filled_masks.append(filled_mask.astype(mask.dtype))
+            
+            # Preserve array structure - don't create new array if it breaks shape
+            if len(filled_masks) > 0:
+                instances['masks'] = np.array(filled_masks)
+            
+        except Exception as e:
+            print(f"      ⚠️  Warning: Fill holes failed ({e}), keeping original masks")
+            # Return original masks if fill_holes fails
+            pass
+            
         return instances
     
     def _smooth_boundaries(self, instances: Dict[str, Any], image: np.ndarray) -> Dict[str, Any]:
