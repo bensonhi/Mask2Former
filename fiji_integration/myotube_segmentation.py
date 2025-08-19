@@ -302,7 +302,7 @@ class PostProcessingPipeline:
         }
     
     def _fill_holes(self, instances: Dict[str, Any], image: np.ndarray) -> Dict[str, Any]:
-        """Fill holes in segmentation masks."""
+        """Fill holes in segmentation masks - CONSERVATIVE approach to avoid web artifacts."""
         if not self.config.get('fill_holes', True):
             return instances
         
@@ -314,13 +314,28 @@ class PostProcessingPipeline:
             from scipy import ndimage
             filled_masks = []
             
-            for mask in instances['masks']:
+            for i, mask in enumerate(instances['masks']):
                 # Ensure mask is boolean for fill_holes
                 bool_mask = mask.astype(bool)
-                # Fill holes using binary fill_holes
-                filled_mask = ndimage.binary_fill_holes(bool_mask)
-                # Convert back to original dtype
-                filled_masks.append(filled_mask.astype(mask.dtype))
+                original_area = np.sum(bool_mask)
+                
+                if original_area > 0:
+                    # Fill holes using binary fill_holes
+                    filled_mask = ndimage.binary_fill_holes(bool_mask)
+                    filled_area = np.sum(filled_mask)
+                    
+                    # Only keep filled version if the change is small (< 10% increase)
+                    area_increase = filled_area - original_area
+                    if area_increase < original_area * 0.1:
+                        filled_masks.append(filled_mask.astype(mask.dtype))
+                        if i < 3:  # Debug first few
+                            print(f"      🔧 Mask {i+1}: filled {area_increase} hole pixels")
+                    else:
+                        filled_masks.append(mask)  # Keep original if too much filling
+                        if i < 3:
+                            print(f"      ⚠️ Mask {i+1}: skipped filling ({area_increase} pixels too many)")
+                else:
+                    filled_masks.append(mask)  # Keep empty masks as-is
             
             # Preserve array structure
             if len(filled_masks) > 0:
@@ -332,21 +347,23 @@ class PostProcessingPipeline:
         return instances
     
     def _smooth_boundaries(self, instances: Dict[str, Any], image: np.ndarray) -> Dict[str, Any]:
-        """Smooth mask boundaries."""
+        """Smooth mask boundaries - CONSERVATIVE to avoid web artifacts."""
         if not self.config.get('smooth_boundaries', True):
             return instances
         
-        smoothed_masks = []
-        
-        for mask in instances['masks']:
-            # Apply morphological opening and closing
-            kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
-            smoothed = cv2.morphologyEx(mask.astype(np.uint8), cv2.MORPH_OPEN, kernel)
-            smoothed = cv2.morphologyEx(smoothed, cv2.MORPH_CLOSE, kernel)
-            smoothed_masks.append(smoothed.astype(mask.dtype))
-        
-        instances['masks'] = np.array(smoothed_masks)
+        # DISABLE aggressive smoothing that can create web-like artifacts
+        print(f"      ⚠️ Skipping boundary smoothing to preserve ROI quality")
         return instances
+        
+        # Original smoothing code disabled to prevent web artifacts:
+        # smoothed_masks = []
+        # for mask in instances['masks']:
+        #     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+        #     smoothed = cv2.morphologyEx(mask.astype(np.uint8), cv2.MORPH_OPEN, kernel)
+        #     smoothed = cv2.morphologyEx(smoothed, cv2.MORPH_CLOSE, kernel)
+        #     smoothed_masks.append(smoothed.astype(mask.dtype))
+        # instances['masks'] = np.array(smoothed_masks)
+        # return instances
     
     def _remove_edge_instances(self, instances: Dict[str, Any], image: np.ndarray) -> Dict[str, Any]:
         """Remove instances that touch image edges."""
