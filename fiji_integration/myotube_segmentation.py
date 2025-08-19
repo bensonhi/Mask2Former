@@ -269,26 +269,39 @@ class PostProcessingPipeline:
         if len(instances['masks']) == 0:
             return instances
         
+        print(f"      🔍 DEBUG: Input has {len(instances['masks'])} masks")
+        print(f"      🔍 DEBUG: First mask shape: {instances['masks'][0].shape if len(instances['masks']) > 0 else 'N/A'}")
+        
         try:
             from scipy import ndimage
             filled_masks = []
             
-            for mask in instances['masks']:
+            for i, mask in enumerate(instances['masks']):
+                print(f"      🔍 DEBUG: Processing mask {i}, shape: {mask.shape}, dtype: {mask.dtype}")
                 # Ensure mask is boolean for fill_holes
                 bool_mask = mask.astype(bool)
+                print(f"      🔍 DEBUG: Bool mask shape: {bool_mask.shape}, any True: {bool_mask.any()}")
                 # Fill holes using binary fill_holes
                 filled_mask = ndimage.binary_fill_holes(bool_mask)
+                print(f"      🔍 DEBUG: Filled mask shape: {filled_mask.shape}, any True: {filled_mask.any()}")
                 # Convert back to original dtype
                 filled_masks.append(filled_mask.astype(mask.dtype))
             
+            print(f"      🔍 DEBUG: Created {len(filled_masks)} filled masks")
+            
             # Preserve array structure - don't create new array if it breaks shape
             if len(filled_masks) > 0:
-                instances['masks'] = np.array(filled_masks)
+                print(f"      🔍 DEBUG: Converting to array...")
+                new_masks = np.array(filled_masks)
+                print(f"      🔍 DEBUG: New array shape: {new_masks.shape}")
+                instances['masks'] = new_masks
+                print(f"      🔍 DEBUG: Final instances['masks'] length: {len(instances['masks'])}")
             
         except Exception as e:
             print(f"      ⚠️  Warning: Fill holes failed ({e}), keeping original masks")
             # Return original masks if fill_holes fails
-            pass
+            import traceback
+            print(f"      🔍 DEBUG: Full traceback: {traceback.format_exc()}")
             
         return instances
     
