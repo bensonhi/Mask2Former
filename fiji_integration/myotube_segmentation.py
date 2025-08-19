@@ -724,6 +724,7 @@ class MyotubeFijiIntegration:
             cfg.MODEL.DEVICE = "cpu"
             print("   🖥️  Using CPU inference")
         
+        # Freeze config before creating predictor (like demo.py does)
         cfg.freeze()
         
         try:
@@ -737,19 +738,24 @@ class MyotubeFijiIntegration:
         except RuntimeError as e:
             if "out of memory" in str(e).lower():
                 print(f"❌ GPU out of memory during initialization")
-                print(f"   💡 Trying CPU fallback...")
-                
-                # Clear GPU cache and try CPU
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
-                
-                # Force CPU inference
-                cfg = cfg.clone()
-                cfg.MODEL.DEVICE = "cpu"
-                cfg.freeze()
-                
-                self.predictor = DefaultPredictor(cfg)
-                print("✅ Predictor initialized successfully on CPU!")
+                if not force_cpu:  # Only try CPU fallback if not already using CPU
+                    print(f"   💡 Trying CPU fallback...")
+                    
+                    # Clear GPU cache
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+                    
+                    # Create new config for CPU (like AsyncPredictor does)
+                    cpu_cfg = cfg.clone()
+                    cpu_cfg.defrost()
+                    cpu_cfg.MODEL.DEVICE = "cpu"
+                    cpu_cfg.freeze()
+                    
+                    self.predictor = DefaultPredictor(cpu_cfg)
+                    print("✅ Successfully switched to CPU inference!")
+                else:
+                    print("❌ Out of memory even on CPU - try reducing image size")
+                    raise e
             else:
                 raise e
     
