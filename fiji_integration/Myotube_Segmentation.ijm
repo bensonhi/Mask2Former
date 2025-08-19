@@ -302,14 +302,33 @@ function testPythonCommand() {
  * Setup temporary and output directories
  */
 function setupDirectories() {
-    // Use user's home directory instead of system temp
+    // Try user's home directory first, fallback to system temp
     home_dir = getInfo("user.home");
-    TEMP_DIR = home_dir + File.separator + "tmp" + File.separator + "myotube_segmentation";
+    user_tmp = home_dir + File.separator + "tmp";
+    
+    // Create ~/tmp if it doesn't exist
+    if (!File.exists(user_tmp)) {
+        File.makeDirectory(user_tmp);
+    }
+    
+    // Check if we can write to ~/tmp, otherwise use system temp
+    if (File.exists(user_tmp) && File.canWrite(user_tmp)) {
+        TEMP_DIR = user_tmp + File.separator + "myotube_segmentation";
+        print("Using user temp directory: " + TEMP_DIR);
+    } else {
+        TEMP_DIR = getDirectory("temp") + "myotube_segmentation";
+        print("Falling back to system temp directory: " + TEMP_DIR);
+    }
+    
     OUTPUT_DIR = TEMP_DIR + File.separator + "output";
     
     // Create directories if they don't exist
-    File.makeDirectory(TEMP_DIR);
-    File.makeDirectory(OUTPUT_DIR);
+    if (!File.exists(TEMP_DIR)) {
+        File.makeDirectory(TEMP_DIR);
+    }
+    if (!File.exists(OUTPUT_DIR)) {
+        File.makeDirectory(OUTPUT_DIR);
+    }
     
     print("Temp directory: " + TEMP_DIR);
     print("Output directory: " + OUTPUT_DIR);
@@ -384,16 +403,16 @@ function loadResults(success_file) {
         if (startsWith(line, "DIR:")) {
             base_dir = substring(line, 4);
             print("🔍 Extracted base dir: '" + base_dir + "'");
-        } else if (startsWith(line, "DIR1:")) {
-            dir_part1 = substring(line, 5);
+        } else if (startsWith(line, "D1:")) {
+            dir_part1 = substring(line, 3);
             print("🔍 Extracted dir part 1: '" + dir_part1 + "'");
-        } else if (startsWith(line, "DIR2:")) {
-            dir_part2 = substring(line, 5);
+        } else if (startsWith(line, "D2:")) {
+            dir_part2 = substring(line, 3);
             base_dir = dir_part1 + dir_part2;
             print("🔍 Extracted dir part 2: '" + dir_part2 + "'");
             print("🔍 Combined base dir: '" + base_dir + "'");
-        } else if (startsWith(line, "COUNT:")) {
-            count_part = substring(line, 6);
+        } else if (startsWith(line, "CNT:")) {
+            count_part = substring(line, 4);
             num_instances = parseInt(count_part);
             print("🔍 Extracted instances: " + num_instances);
         }
