@@ -1280,12 +1280,14 @@ def main():
                 print(f"   {key}: {os.path.basename(path)}")
         print("="*60)
         
-        # Signal success to ImageJ macro
+        # Signal success to ImageJ macro (format expected by Fiji macro)
         success_file = os.path.join(args.output_dir, "SUCCESS")
         with open(success_file, 'w') as f:
-            f.write(f"SUCCESS: {output_files['count']} myotubes detected\n")
-            f.write(f"ROI_FILE: {output_files['rois']}\n")
-            f.write(f"OVERLAY_FILE: {output_files['overlay']}\n")
+            f.write(f"ROI_FILE:{output_files['rois']}\n")
+            f.write(f"OVERLAY_FILE:{output_files['overlay']}\n")
+            f.write(f"MEASUREMENTS_FILE:{output_files['measurements']}\n")
+            f.write(f"INFO_FILE:{output_files['info']}\n")
+            f.write(f"SUCCESS:{output_files['count']}\n")
         
     except Exception as e:
         print(f"\n❌ ERROR: {e}")
