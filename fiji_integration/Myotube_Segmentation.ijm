@@ -381,63 +381,28 @@ function buildPythonCommand(input_image) {
  * Load segmentation results into Fiji
  */
 function loadResults(success_file) {
-    // Read success file to get result file paths
+    // BYPASS broken File.openAsString() - just read the count and search for files!
     success_content = File.openAsString(success_file);
-    lines = split(success_content, "\\n");
+    num_instances = parseInt(success_content);
     
-    print("🔍 DEBUG: SUCCESS file contains " + lines.length + " lines:");
-    for (j = 0; j < lines.length; j++) {
-        print("  Line " + j + ": '" + lines[j] + "'");
-    }
+    print("🔍 SUCCESS file content: '" + success_content + "'");
+    print("🔍 Extracted instances: " + num_instances);
     
-    base_dir = "";
-    dir_chunks = newArray(50); // Support up to 50 chunks for 5-char pieces
+    // We know the output directory - it's the same directory as the SUCCESS file
+    base_dir = File.getParent(success_file);
+    print("🔍 Looking for files in: " + base_dir);
+    
     roi_file = "";
     overlay_file = "";
-    num_instances = 0;
-    max_chunk_idx = -1;
     
-    for (i = 0; i < lines.length; i++) {
-        line = lines[i];
-        
-        // Check for numbered directory chunks (0:, 1:, 2:, etc.)
-        if (indexOf(line, ":") > 0) {
-            colon_pos = indexOf(line, ":");
-            prefix = substring(line, 0, colon_pos);
-            content = substring(line, colon_pos + 1);
-            
-            // Check if prefix is a number (directory chunk)
-            chunk_idx = parseInt(prefix);
-            if (chunk_idx >= 0 && chunk_idx < 50) {  // Increased to support more 5-char chunks
-                dir_chunks[chunk_idx] = content;
-                if (chunk_idx > max_chunk_idx) max_chunk_idx = chunk_idx;
-                print("🔍 Chunk " + chunk_idx + ": '" + content + "'");
-            }
-        } else if (startsWith(line, "N:")) {
-            count_part = substring(line, 2);
-            num_instances = parseInt(count_part);
-            print("🔍 Extracted instances: " + num_instances);
-        }
-    }
-    
-    // Reconstruct base directory from chunks
-    if (max_chunk_idx >= 0) {
-        for (j = 0; j <= max_chunk_idx; j++) {
-            if (j < 50 && dir_chunks[j] != "") {
-                base_dir = base_dir + dir_chunks[j];
-            }
-        }
-        print("🔍 Reconstructed base dir: '" + base_dir + "'");
-    }
-    
-    // Find ROI and overlay files in the directory
+    // Find ROI and overlay files in the output directory
     if (base_dir != "" && num_instances > 0) {
-        print("🔍 Looking for files in: " + base_dir);
-        
-        // Look for ROI zip file
         file_list = getFileList(base_dir);
+        print("🔍 Found " + file_list.length + " files in output directory");
+        
         for (j = 0; j < file_list.length; j++) {
             filename = file_list[j];
+            print("  - " + filename);
             if (endsWith(filename, "_rois.zip")) {
                 roi_file = base_dir + File.separator + filename;
                 print("🔍 Found ROI file: '" + roi_file + "'");

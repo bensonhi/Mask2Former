@@ -1290,26 +1290,12 @@ def main():
         print(f"📝 Writing SUCCESS file: {success_file}")
         print(f"   DIR:{base_dir}")
         print(f"   COUNT:{output_files['count']}")
-        print(f"   Using 5-char chunks with \\r\\n line endings")
+        print(f"   Using SIMPLE format: just the number!")
         
-        # Write in EXTREMELY short format for ImageJ (max 6 chars per line!)
-        # Use Windows line endings to see if that helps
-        with open(success_file, 'w', encoding='utf-8', newline='') as f:
-            # Split directory into multiple 5-char chunks
-            dir_chunks = []
-            remaining = base_dir
-            while remaining:
-                chunk = remaining[:5]
-                dir_chunks.append(chunk)
-                remaining = remaining[5:]
-            
-            # Write directory chunks with explicit \r\n
-            for i, chunk in enumerate(dir_chunks):
-                f.write(f"{i}:{chunk}\r\n")
-            
-            # Write count
-            f.write(f"N:{output_files['count']}\r\n")
-            f.write("END\r\n")
+        # BYPASS broken File.openAsString() - just write the count!
+        # Fiji will search for ROI files in the known output directory
+        with open(success_file, 'w', encoding='utf-8') as f:
+            f.write(str(output_files['count']))  # Just the number, nothing else!
         
         # Debug: Verify what was written
         try:
