@@ -928,8 +928,16 @@ class MyotubeFijiIntegration:
             new_h, new_w = int(h * scale), int(w * scale)
             image = cv2.resize(image, (new_w, new_h))
             print(f"   🔧 Resized image: {w}×{h} → {new_w}×{new_h} ({reason})")
+            # Store scaling info for mask resizing later
+            self._scale_factor = scale
+            self._original_size = (h, w)
+            self._inference_size = (new_h, new_w)
         else:
             print(f"   ✅ Keeping original size: {w}×{h} (within training resolution range)")
+            # No scaling needed
+            self._scale_factor = 1.0
+            self._original_size = (h, w)
+            self._inference_size = (h, w)
         
         # Clear GPU cache before inference
         if torch.cuda.is_available():
@@ -1032,8 +1040,19 @@ class MyotubeFijiIntegration:
             for i, mask in enumerate(instances['masks']):
                 roi_name = f"Myotube_{i+1}.roi"
                 
+                # Resize mask to original image size for ROI generation
+                if hasattr(self, '_scale_factor') and self._scale_factor != 1.0:
+                    original_h, original_w = self._original_size
+                    resized_mask = cv2.resize(
+                        mask.astype(np.uint8), 
+                        (original_w, original_h), 
+                        interpolation=cv2.INTER_NEAREST
+                    ).astype(bool)
+                else:
+                    resized_mask = mask.astype(bool)
+                
                 # Generate proper ImageJ ROI file
-                roi_content = roi_generator.mask_to_roi_file(mask, f"Myotube_{i+1}")
+                roi_content = roi_generator.mask_to_roi_file(resized_mask, f"Myotube_{i+1}")
                 zf.writestr(roi_name, roi_content)
     
 
@@ -1054,11 +1073,21 @@ class MyotubeFijiIntegration:
             # Create colored mask
             color = (colors[i][:3] * 255).astype(np.uint8)
             
+            # Resize mask to match original image size
+            if hasattr(self, '_scale_factor') and self._scale_factor != 1.0:
+                # Resize mask to original image size
+                original_h, original_w = self._original_size
+                resized_mask = cv2.resize(
+                    mask.astype(np.uint8), 
+                    (original_w, original_h), 
+                    interpolation=cv2.INTER_NEAREST
+                ).astype(bool)
+            else:
+                resized_mask = mask.astype(bool)
+            
             # Apply color to mask region
             colored_mask = np.zeros_like(original_image)
-            # Ensure mask is boolean for indexing
-            bool_mask = mask.astype(bool)
-            colored_mask[bool_mask] = color
+            colored_mask[resized_mask] = color
             
             # Blend with original image
             alpha = 0.6
@@ -1083,17 +1112,33 @@ class MyotubeFijiIntegration:
         measurements = []
         
         for i, (mask, score, box) in enumerate(zip(instances['masks'], instances['scores'], instances['boxes'])):
-            # Calculate basic measurements
-            area = mask.sum()
+            # Resize mask to original size for accurate measurements
+            if hasattr(self, '_scale_factor') and self._scale_factor != 1.0:
+                original_h, original_w = self._original_size
+                resized_mask = cv2.resize(
+                    mask.astype(np.uint8), 
+                    (original_w, original_h), 
+                    interpolation=cv2.INTER_NEAREST
+                ).astype(bool)
+                
+                # Scale bounding box back to original coordinates
+                scale_factor = 1.0 / self._scale_factor
+                scaled_box = box * scale_factor
+            else:
+                resized_mask = mask.astype(bool)
+                scaled_box = box
+            
+            # Calculate basic measurements (using resized mask for accuracy)
+            area = resized_mask.sum()
             
             # Calculate perimeter
-            contours = measure.find_contours(mask, 0.5)
+            contours = measure.find_contours(resized_mask, 0.5)
             perimeter = sum(len(contour) for contour in contours)
             
-            # Calculate aspect ratio from bounding box
-            width = box[2] - box[0]
-            height = box[3] - box[1]
-            aspect_ratio = max(width, height) / min(width, height)
+            # Calculate aspect ratio from scaled bounding box
+            width = scaled_box[2] - scaled_box[0]
+            height = scaled_box[3] - scaled_box[1]
+            aspect_ratio = max(width, height) / min(width, height) if min(width, height) > 0 else 0
             
             measurements.append({
                 'Instance': f'Myotube_{i+1}',
