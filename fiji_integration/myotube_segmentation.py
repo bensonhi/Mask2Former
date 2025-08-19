@@ -1056,7 +1056,9 @@ class MyotubeFijiIntegration:
             
             # Apply color to mask region
             colored_mask = np.zeros_like(original_image)
-            colored_mask[mask] = color
+            # Ensure mask is boolean for indexing
+            bool_mask = mask.astype(bool)
+            colored_mask[bool_mask] = color
             
             # Blend with original image
             alpha = 0.6
