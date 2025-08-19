@@ -131,6 +131,11 @@ function segmentMyotubes() {
     safe_name = replace(safe_name, "[", "_");
     safe_name = replace(safe_name, "]", "_");
     
+    // Remove any existing "input_" prefix to prevent accumulation
+    while (startsWith(safe_name, "input_")) {
+        safe_name = substring(safe_name, 6);
+    }
+    
     temp_input = TEMP_DIR + File.separator + "input_" + safe_name;
     if (endsWith(temp_input, ".tif") == false) {
         temp_input = temp_input + ".tif";
@@ -370,7 +375,6 @@ function loadResults(success_file) {
     
     for (i = 0; i < lines.length; i++) {
         line = lines[i];
-        print("🔍 Processing line: '" + line + "'");
         
         if (startsWith(line, "ROI_FILE:")) {
             roi_file = substring(line, 9);

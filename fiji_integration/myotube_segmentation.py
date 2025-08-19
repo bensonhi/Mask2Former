@@ -1282,12 +1282,30 @@ def main():
         
         # Signal success to ImageJ macro (format expected by Fiji macro)
         success_file = os.path.join(args.output_dir, "SUCCESS")
-        with open(success_file, 'w') as f:
+        
+        # Debug: Print what we're about to write
+        print(f"📝 Writing SUCCESS file: {success_file}")
+        print(f"   ROI_FILE:{output_files['rois']}")
+        print(f"   OVERLAY_FILE:{output_files['overlay']}")
+        print(f"   SUCCESS:{output_files['count']}")
+        
+        with open(success_file, 'w', encoding='utf-8') as f:
             f.write(f"ROI_FILE:{output_files['rois']}\n")
             f.write(f"OVERLAY_FILE:{output_files['overlay']}\n")
             f.write(f"MEASUREMENTS_FILE:{output_files['measurements']}\n")
             f.write(f"INFO_FILE:{output_files['info']}\n")
             f.write(f"SUCCESS:{output_files['count']}\n")
+        
+        # Debug: Verify what was written
+        try:
+            with open(success_file, 'r', encoding='utf-8') as f:
+                content = f.read()
+                print(f"📄 SUCCESS file content ({len(content)} chars):")
+                lines = content.split('\n')
+                for i, line in enumerate(lines):
+                    print(f"     Line {i}: '{line}'")
+        except Exception as e:
+            print(f"❌ Error reading SUCCESS file: {e}")
         
     except Exception as e:
         print(f"\n❌ ERROR: {e}")
