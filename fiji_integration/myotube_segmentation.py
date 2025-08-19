@@ -402,10 +402,14 @@ class PostProcessingPipeline:
         }
     
     def _merge_overlapping_instances(self, instances: Dict[str, Any], image: np.ndarray) -> Dict[str, Any]:
-        """Merge overlapping instances based on IoU threshold."""
-        merge_threshold = self.config.get('merge_threshold', 0.8)
-        if merge_threshold >= 1.0 or len(instances['masks']) <= 1:
-            return instances
+        """Merge overlapping instances - DISABLED to prevent over-merging myotubes."""
+        print(f"      ⚠️ Skipping instance merging to preserve individual myotubes")
+        return instances
+        
+        # Original merging code disabled to prevent combining separate myotubes:
+        # merge_threshold = self.config.get('merge_threshold', 0.8)
+        # if merge_threshold >= 1.0 or len(instances['masks']) <= 1:
+        #     return instances
         
         # Calculate IoU matrix
         masks = instances['masks']
