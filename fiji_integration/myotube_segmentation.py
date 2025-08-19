@@ -1074,15 +1074,35 @@ class MyotubeFijiIntegration:
                 # Resize mask to original image size for ROI generation
                 if hasattr(self, '_scale_factor') and self._scale_factor != 1.0:
                     original_h, original_w = self._original_size
+                    
+                    # DEBUG: Inspect mask before resizing (only for first few masks)
+                    if i < 3:
+                        print(f"      🔍 DEBUG Mask {i+1} BEFORE resize:")
+                        print(f"         Shape: {mask.shape}, dtype: {mask.dtype}")
+                        print(f"         Min: {mask.min()}, Max: {mask.max()}, Sum: {mask.sum()}")
+                        print(f"         Unique values: {np.unique(mask)}")
+                    
                     # Ensure mask is in the right format before resizing
                     mask_uint8 = (mask * 255).astype(np.uint8) if mask.dtype == bool else mask.astype(np.uint8)
+                    
+                    if i < 3:
+                        print(f"         After uint8 conversion: min={mask_uint8.min()}, max={mask_uint8.max()}, sum={mask_uint8.sum()}")
+                    
                     resized_mask = cv2.resize(
                         mask_uint8, 
                         (original_w, original_h), 
                         interpolation=cv2.INTER_NEAREST
                     )
+                    
+                    if i < 3:
+                        print(f"         After cv2.resize: shape={resized_mask.shape}, min={resized_mask.min()}, max={resized_mask.max()}, sum={resized_mask.sum()}")
+                    
                     # Convert back to boolean and ensure it's not empty
                     resized_mask = (resized_mask > 128).astype(bool)
+                    
+                    if i < 3:
+                        print(f"         After thresholding: sum={resized_mask.sum()}")
+                    
                     print(f"      🔧 Resized mask {i+1}: {mask.shape} → {resized_mask.shape}")
                     
                     # Double-check that resizing didn't corrupt the mask
