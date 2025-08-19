@@ -311,8 +311,8 @@ function setupDirectories() {
         File.makeDirectory(user_tmp);
     }
     
-    // Check if we can write to ~/tmp, otherwise use system temp
-    if (File.exists(user_tmp) && File.canWrite(user_tmp)) {
+    // Try to use ~/tmp, fallback to system temp if it fails
+    if (File.exists(user_tmp)) {
         TEMP_DIR = user_tmp + File.separator + "myotube_segmentation";
         print("Using user temp directory: " + TEMP_DIR);
     } else {
