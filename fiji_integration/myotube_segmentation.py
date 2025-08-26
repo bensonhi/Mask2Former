@@ -482,226 +482,6 @@ class PostProcessingPipeline:
         }
 
 
-class ImageJROIGenerator:
-    """
-    Generator for ImageJ-compatible ROI files from binary masks.
-    Creates proper ROI files that can be loaded into ImageJ/Fiji ROI Manager.
-    """
-    
-    # ImageJ ROI file format constants
-    MAGIC = b'Iout'
-    VERSION = 227
-    
-    # ROI types
-    POLYGON = 0
-    RECT = 1
-    OVAL = 2
-    LINE = 3
-    FREELINE = 4
-    POLYLINE = 5
-    NOROI = 6
-    FREEHAND = 7
-    TRACED = 8
-    ANGLE = 9
-    POINT = 10
-    
-    def __init__(self):
-        """Initialize ROI generator."""
-        pass
-    
-    def mask_to_roi_file(self, mask: np.ndarray, name: str = "") -> bytes:
-        """
-        Convert a binary mask to ImageJ ROI file format.
-        Creates COMPOSITE ROI with filled regions for proper myotube visualization.
-        
-        Args:
-            mask: Binary mask array (2D numpy array)
-            name: Name for the ROI
-            
-        Returns:
-            Bytes content of the ROI file
-        """
-        # Ensure mask is binary
-        binary_mask = (mask > 0).astype(bool)
-        
-        if binary_mask.sum() == 0:
-            return self._create_empty_roi(name)
-        
-        # Find bounding box of the entire mask
-        y_coords, x_coords = np.where(binary_mask)
-        if len(y_coords) == 0:
-            return self._create_empty_roi(name)
-            
-        left = int(x_coords.min())
-        right = int(x_coords.max())
-        top = int(y_coords.min())
-        bottom = int(y_coords.max())
-        
-        # Extract the mask region
-        mask_region = binary_mask[top:bottom+1, left:right+1]
-        
-        # Create a composite ROI using the mask data directly
-        return self._create_composite_roi(mask_region, left, top, right, bottom, name)
-    
-    def _create_composite_roi(self, mask_region: np.ndarray, left: int, top: int, right: int, bottom: int, name: str = "") -> bytes:
-        """Create a composite ROI that shows filled regions properly in ImageJ."""
-        import struct
-        
-        # Use TRACED ROI type (8) which can handle arbitrary mask data
-        roi_type = self.TRACED
-        
-        # Get mask dimensions
-        height, width = mask_region.shape
-        
-        # Create ROI header
-        roi_header = self._create_roi_header(
-            roi_type=roi_type,
-            top=top,
-            left=left,
-            bottom=bottom,
-            right=right,
-            n_coordinates=0,  # No coordinate data for TRACED ROI
-            name=name
-        )
-        
-        # For TRACED ROI, we include the mask data as bytes
-        # ImageJ expects 1-byte per pixel (0 or 255)
-        mask_data = (mask_region * 255).astype(np.uint8).tobytes()
-        
-        return roi_header + mask_data
-    
-    def _create_polygon_roi_from_points(self, contour_points: np.ndarray, name: str = "") -> bytes:
-        """Create a filled ROI from OpenCV contour points (x,y format)."""
-        import struct
-        
-        # Convert contour points from (x, y) format to list of tuples
-        coords = [(int(point[0]), int(point[1])) for point in contour_points]
-        
-        if len(coords) < 3:
-            return self._create_empty_roi(name)
-        
-        # Calculate bounding box
-        x_coords = [coord[0] for coord in coords]
-        y_coords = [coord[1] for coord in coords]
-        left = min(x_coords)
-        top = min(y_coords)
-        right = max(x_coords)
-        bottom = max(y_coords)
-        
-        # Convert to relative coordinates
-        rel_coords = [(x - left, y - top) for x, y in coords]
-        
-        # Create ROI header - use FREEHAND for filled regions
-        roi_header = self._create_roi_header(
-            roi_type=self.FREEHAND,
-            top=top,
-            left=left,
-            bottom=bottom,
-            right=right,
-            n_coordinates=len(coords),
-            name=name
-        )
-        
-        # Pack coordinate data
-        coord_data = b''
-        for x, y in rel_coords:
-            coord_data += struct.pack('>hh', x, y)  # signed 16-bit coordinates
-        
-        return roi_header + coord_data
-    
-    def _create_polygon_roi(self, contour: np.ndarray, name: str = "") -> bytes:
-        """Create a polygon ROI from skimage contour coordinates (y,x format) - LEGACY METHOD."""
-        import struct
-        
-        # Convert contour coordinates (y, x) to (x, y) and ensure integers
-        coords = [(int(point[1]), int(point[0])) for point in contour]
-        
-        if len(coords) < 3:
-            return self._create_empty_roi(name)
-        
-        # Calculate bounding box
-        x_coords = [coord[0] for coord in coords]
-        y_coords = [coord[1] for coord in coords]
-        left = min(x_coords)
-        top = min(y_coords)
-        right = max(x_coords)
-        bottom = max(y_coords)
-        
-        # Convert to relative coordinates
-        rel_coords = [(x - left, y - top) for x, y in coords]
-        
-        # Create ROI header
-        roi_header = self._create_roi_header(
-            roi_type=self.POLYGON,
-            top=top,
-            left=left,
-            bottom=bottom,
-            right=right,
-            n_coordinates=len(coords),
-            name=name
-        )
-        
-        # Pack coordinate data
-        coord_data = b''
-        for x, y in rel_coords:
-            coord_data += struct.pack('>hh', x, y)  # signed 16-bit coordinates
-        
-        return roi_header + coord_data
-    
-    def _create_empty_roi(self, name: str = "") -> bytes:
-        """Create an empty ROI file."""
-        return self._create_roi_header(
-            roi_type=self.NOROI,
-            top=0, left=0, bottom=0, right=0,
-            n_coordinates=0,
-            name=name
-        )
-    
-    def _create_roi_header(self, roi_type: int, top: int, left: int, bottom: int, right: int,
-                          n_coordinates: int, name: str = "") -> bytes:
-        """Create ROI file header in ImageJ format."""
-        import struct
-        
-        # Basic header
-        header = struct.pack('>4sH', self.MAGIC, self.VERSION)
-        
-        # ROI header (64 bytes total)
-        header_data = struct.pack(
-            '>BBHhhhhHHHHhhhhHHH',
-            roi_type,           # ROI type
-            0,                  # Subtype
-            top,                # Top
-            left,               # Left  
-            bottom,             # Bottom
-            right,              # Right
-            n_coordinates,      # N coordinates
-            0,                  # X1 (line start)
-            0,                  # Y1 (line start)
-            0,                  # X2 (line end)
-            0,                  # Y2 (line end)
-            0,                  # Reserved
-            0,                  # Reserved
-            0,                  # Reserved
-            0,                  # Reserved
-            0,                  # Stroke width
-            0,                  # Shape ROI size
-            0                   # Stroke color
-        )
-        
-        # Pad header to 64 bytes
-        header_size = len(header) + len(header_data)
-        padding_needed = 64 - header_size
-        if padding_needed > 0:
-            header_data += b'\x00' * padding_needed
-        
-        # Add name if provided (as null-terminated string)
-        name_data = b''
-        if name:
-            name_bytes = name.encode('utf-8')[:60]  # Limit name length
-            name_data = name_bytes + b'\x00'
-        
-        return header + header_data + name_data
-
 
 class MyotubeFijiIntegration:
     """
@@ -1071,10 +851,9 @@ class MyotubeFijiIntegration:
         os.makedirs(output_dir, exist_ok=True)
         base_name = Path(image_path).stem
         
-        # Create empty ROI file
-        roi_path = os.path.join(output_dir, f"{base_name}_rois.zip")
-        with zipfile.ZipFile(roi_path, 'w') as zf:
-            pass  # Empty zip file
+        # Create empty masks directory
+        masks_dir = os.path.join(output_dir, f"{base_name}_masks")
+        os.makedirs(masks_dir, exist_ok=True)
         
         # Create empty overlay (just copy original)
         overlay_path = os.path.join(output_dir, f"{base_name}_overlay.tif")
@@ -1087,7 +866,7 @@ class MyotubeFijiIntegration:
             f.write("Instance,Area,Perimeter,AspectRatio,Confidence\n")
         
         return {
-            'rois': roi_path,
+            'masks_dir': masks_dir,
             'overlay': overlay_path,
             'measurements': measurements_path,
             'count': 0
@@ -1099,9 +878,9 @@ class MyotubeFijiIntegration:
         os.makedirs(output_dir, exist_ok=True)
         base_name = Path(image_path).stem
         
-        # Generate composite ROIs
-        roi_path = os.path.join(output_dir, f"{base_name}_rois.zip")
-        self._save_composite_rois(instances, roi_path)
+        # Generate individual mask images (pixel-perfect accuracy!)
+        masks_dir = os.path.join(output_dir, f"{base_name}_masks")
+        self._save_individual_mask_images(instances, original_image, masks_dir)
         
         # Generate colored overlay
         overlay_path = os.path.join(output_dir, f"{base_name}_overlay.tif")
@@ -1118,75 +897,92 @@ class MyotubeFijiIntegration:
         print(f"✅ Generated outputs for {len(instances['masks'])} myotubes")
         
         return {
-            'rois': roi_path,
+            'masks_dir': masks_dir,
             'overlay': overlay_path,
             'measurements': measurements_path,
             'info': info_path,
             'count': len(instances['masks'])
         }
     
-    def _save_composite_rois(self, instances: Dict[str, Any], output_path: str):
-        """Save instances as composite ROIs for Fiji ROI Manager."""
-        roi_generator = ImageJROIGenerator()
+    def _save_individual_mask_images(self, instances: Dict[str, Any], original_image: np.ndarray, output_dir: str):
+        """Save each myotube mask as individual image files - pixel-perfect accuracy!"""
+        os.makedirs(output_dir, exist_ok=True)
         
-        print(f"   💾 Generating ROI file: {output_path}")
-        print(f"   📊 Processing {len(instances['masks'])} instances for ROI generation")
+        print(f"   🖼️  Generating individual mask images: {output_dir}")
+        print(f"   📊 Processing {len(instances['masks'])} instances for mask images")
         
-        with zipfile.ZipFile(output_path, 'w') as zf:
-            for i, mask in enumerate(instances['masks']):
-                roi_name = f"Myotube_{i+1}.roi"
+        successful_masks = 0
+        failed_masks = 0
+        
+        for i, mask in enumerate(instances['masks']):
+            mask_name = f"Myotube_{i+1}_mask.png"
+            mask_path = os.path.join(output_dir, mask_name)
+            
+            # Skip empty masks
+            if mask.sum() == 0:
+                print(f"      ⚠️  Warning: Mask {i+1} is empty - skipping")
+                failed_masks += 1
+                continue
+            
+            print(f"      🔍 Processing mask {i+1}: {mask.sum()} pixels at inference resolution")
+            
+            # Resize mask to original image size (same logic as overlay generation)
+            if hasattr(self, '_scale_factor') and self._scale_factor != 1.0:
+                original_h, original_w = self._original_size
                 
-                # Skip empty masks early to avoid corruption
-                if mask.sum() == 0:
-                    print(f"      ⚠️  Warning: Mask {i+1} is empty at inference resolution - skipping")
-                    continue
+                # Use same scaling as overlay generation for perfect alignment
+                mask_uint8 = (mask * 255).astype(np.uint8)
+                resized_mask = cv2.resize(
+                    mask_uint8, 
+                    (original_w, original_h), 
+                    interpolation=cv2.INTER_NEAREST
+                )
+                final_mask = (resized_mask > 128).astype(np.uint8) * 255
                 
-                # Resize mask to original image size for ROI generation
-                if hasattr(self, '_scale_factor') and self._scale_factor != 1.0:
-                    original_h, original_w = self._original_size
-                    
-                    # Ensure mask is in the right format before resizing
-                    # Always scale to 0-255 range regardless of input dtype
-                    mask_uint8 = (mask * 255).astype(np.uint8)
-                    
-                    resized_mask = cv2.resize(
-                        mask_uint8, 
-                        (original_w, original_h), 
-                        interpolation=cv2.INTER_NEAREST
-                    )
-                    
-                    # Convert back to boolean and ensure it's not empty
-                    resized_mask = (resized_mask > 128).astype(bool)
-                    
-                    print(f"      🔧 Resized mask {i+1}: {mask.shape} → {resized_mask.shape}")
-                    
-                    # Double-check that resizing didn't corrupt the mask
-                    if resized_mask.sum() == 0:
-                        print(f"      ❌ Warning: Mask {i+1} became empty after resizing - skipping")
-                        continue
+                print(f"         Scaled to original: {(final_mask > 0).sum()} pixels")
+            else:
+                final_mask = (mask * 255).astype(np.uint8)
+            
+            # Save mask as PNG image
+            try:
+                cv2.imwrite(mask_path, final_mask)
+                
+                # Verify file was created
+                if os.path.exists(mask_path):
+                    file_size_kb = os.path.getsize(mask_path) / 1024
+                    print(f"      ✅ Mask {i+1}: Saved as PNG ({file_size_kb:.1f} KB)")
+                    successful_masks += 1
                 else:
-                    resized_mask = mask.astype(bool)
-                
-                # Get final pixel count
-                pixel_count = resized_mask.sum()
-                
-                # Generate proper ImageJ ROI file
-                roi_content = roi_generator.mask_to_roi_file(resized_mask, f"Myotube_{i+1}")
-                
-                if len(roi_content) == 0:
-                    print(f"      ⚠️  Warning: ROI content for mask {i+1} is empty")
-                    continue
+                    print(f"      ❌ Mask {i+1}: Failed to save file")
+                    failed_masks += 1
                     
-                zf.writestr(roi_name, roi_content)
-                print(f"      ✅ Generated ROI {i+1}: {len(roi_content)} bytes, {pixel_count} pixels")
+            except Exception as e:
+                print(f"      ❌ Mask {i+1}: Error saving - {e}")
+                failed_masks += 1
         
-        # Check final zip file
-        try:
-            with zipfile.ZipFile(output_path, 'r') as zf:
-                roi_count = len(zf.namelist())
-                print(f"   📦 ROI zip contains {roi_count} files: {zf.namelist()[:3]}{'...' if roi_count > 3 else ''}")
-        except Exception as e:
-            print(f"   ❌ Error reading ROI zip: {e}")
+        # Final summary
+        print(f"   📊 Mask Image Generation Summary:")
+        print(f"      ✅ Successful: {successful_masks}")
+        print(f"      ❌ Failed: {failed_masks}")
+        print(f"      📁 Saved to: {output_dir}")
+        
+        # Create a summary file for easy reference
+        summary_path = os.path.join(output_dir, "README.txt")
+        with open(summary_path, 'w') as f:
+            f.write("Myotube Individual Mask Images\n")
+            f.write("==============================\n\n")
+            f.write(f"Total masks: {successful_masks}\n")
+            f.write(f"Image format: PNG (binary masks)\n")
+            f.write(f"Pixel values: 0 (background), 255 (myotube)\n")
+            f.write(f"Resolution: Same as original image\n\n")
+            f.write("Usage in ImageJ/Fiji:\n")
+            f.write("1. Open original image\n")
+            f.write("2. Load mask images as overlays: Image > Overlay > Add Image\n")
+            f.write("3. Perfect pixel alignment with Detectron2 results\n")
+            f.write("4. Use Image Calculator for measurements if needed\n")
+        
+        return successful_masks
+    
     
 
     
@@ -1431,7 +1227,7 @@ def main():
         success_file = os.path.join(args.output_dir, "SUCCESS")
         
         # Use ultra-short format for ImageJ line length limits (5-char chunks!)
-        base_dir = os.path.dirname(output_files['rois'])
+        base_dir = output_files['masks_dir']
         
         # Debug: Print what we're about to write
         print(f"📝 Writing SUCCESS file: {success_file}")

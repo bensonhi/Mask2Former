@@ -7,7 +7,7 @@
  * 
  * Features:
  * - One-click myotube segmentation
- * - Automatic ROI loading into ROI Manager
+ * - Individual mask image loading as overlays
  * - Colored overlay visualization
  * - Measurement export to CSV
  * - Progress feedback and error handling
@@ -21,7 +21,7 @@
  * 1. Open an image in Fiji
  * 2. Run "Segment Myotubes" macro (or press 'M' shortcut)
  * 3. Wait for processing (progress shown in status bar)
- * 4. View results in ROI Manager and overlay
+ * 4. View results as individual mask overlays
  */
 
 // Configuration - Update these paths for your system
@@ -89,7 +89,7 @@ macro "Segment Myotubes (Memory Optimized) [X]" {
 }
 
 /*
- * Load previous results (if user wants to reload ROIs)
+ * Load previous results (if user wants to reload mask overlays)
  */
 macro "Load Myotube Results..." {
     loadPreviousResults();
@@ -395,7 +395,8 @@ function loadResults(success_file) {
     roi_file = "";
     overlay_file = "";
     
-    // Find ROI and overlay files in the output directory
+    // Find masks directory and overlay files in the output directory
+    masks_dir = "";
     if (base_dir != "" && num_instances > 0) {
         file_list = getFileList(base_dir);
         print("🔍 Found " + file_list.length + " files in output directory");
@@ -403,9 +404,9 @@ function loadResults(success_file) {
         for (j = 0; j < file_list.length; j++) {
             filename = file_list[j];
             print("  - " + filename);
-            if (endsWith(filename, "_rois.zip")) {
-                roi_file = base_dir + File.separator + filename;
-                print("🔍 Found ROI file: '" + roi_file + "'");
+            if (endsWith(filename, "_masks") && File.isDirectory(base_dir + File.separator + filename)) {
+                masks_dir = base_dir + File.separator + filename;
+                print("🔍 Found masks directory: '" + masks_dir + "'");
             } else if (endsWith(filename, "_overlay.tif")) {
                 overlay_file = base_dir + File.separator + filename;
                 print("🔍 Found overlay file: '" + overlay_file + "'");
@@ -414,24 +415,17 @@ function loadResults(success_file) {
     }
     
     print("Loading results:");
-    print("  ROI file: " + roi_file);
+    print("  Masks directory: " + masks_dir);
     print("  Overlay file: " + overlay_file);
     print("  Instances: " + num_instances);
     
-    // Load ROIs into ROI Manager
-    if (File.exists(roi_file) && num_instances > 0) {
-        print("🔍 ROI file exists: " + roi_file);
-        print("🔍 File size: " + File.length(roi_file) + " bytes");
+    // Load individual mask images
+    if (File.exists(masks_dir) && File.isDirectory(masks_dir) && num_instances > 0) {
+        print("🔍 Masks directory exists: " + masks_dir);
         
-        // Clear existing ROIs (ask user first)
-        if (roiManager("count") > 0) {
-            result = getBoolean("Clear existing ROIs in ROI Manager?");
-            if (result) {
-                roiManager("reset");
-            }
-        }
-        
-        print("🔍 ROI Manager count before loading: " + roiManager("count"));
+        // Get list of mask files
+        mask_files = getFileList(masks_dir);
+        print("🔍 Found " + mask_files.length + " files in masks directory");
         
         // Open overlay image first
         if (File.exists(overlay_file)) {
