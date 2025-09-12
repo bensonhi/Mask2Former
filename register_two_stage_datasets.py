@@ -1,97 +1,30 @@
 #!/usr/bin/env python3
 
 """
-Two-Stage Dataset Registration for Myotube Segmentation
+Two-Stage Dataset Registration for Myotube Segmentation (Instance Only)
 
-This script registers datasets for two-stage training:
+This script registers datasets for two-stage instance segmentation training:
 - Stage 1: Algorithmic annotations (~100 images from batch processing)
 - Stage 2: Manual annotations (~5 images with high-quality annotations)
 
-Expected directory structure:
-- algorithmic_dataset/
-  ├── images/
-  └── annotations/
-      ├── train_annotations.json
-      └── test_annotations.json  (or val_annotations.json)
+Panoptic registration has been removed/disabled per project decision.
 
-- manual_dataset/
+Expected unified directory structure:
+dataset_root/
   ├── images/
   └── annotations/
-      ├── train_annotations.json
-      └── test_annotations.json  (or val_annotations.json)
+      ├── algorithmic_train_annotations.json
+      ├── algorithmic_test_annotations.json (or val)
+      ├── manual_train_annotations.json
+      └── manual_test_annotations.json (or val)
 """
 
 import os
 import json
 from detectron2.data.datasets import register_coco_instances, load_coco_json
 from detectron2.data import MetadataCatalog, DatasetCatalog
-from detectron2.utils.file_io import PathManager
-import detectron2.utils.comm as comm
-
-def load_myotube_panoptic_json(json_file, image_dir, gt_dir, name):
-    """
-    Load myotube panoptic JSON and convert to Detectron2 format.
-    """
-    # Now meta is fetched from the catalog
-    meta = MetadataCatalog.get(name)
-
-    def _convert_category_id(segment_info, meta):
-        """
-        Converts original category IDs to contiguous training IDs.
-        - Myotube (original ID 1) is mapped to training ID 0.
-        - Background (original ID 0) is mapped to training ID 1.
-        """
-        if "category_id" not in segment_info:
-            return None
-
-        original_category_id = segment_info["category_id"]
-
-        if original_category_id in meta.thing_dataset_id_to_contiguous_id:
-            segment_info["category_id"] = meta.thing_dataset_id_to_contiguous_id[
-                original_category_id
-            ]
-            segment_info["isthing"] = True  # CRITICAL FIX: Myotubes are "things"
-        elif original_category_id in meta.stuff_dataset_id_to_contiguous_id:
-            segment_info["category_id"] = meta.stuff_dataset_id_to_contiguous_id[
-                original_category_id
-            ]
-            segment_info["isthing"] = False
-        else:
-            return None
-
-        return segment_info
-
-    with PathManager.open(json_file) as f:
-        json_info = json.load(f)
-
-    ret = []
-    for ann in json_info["annotations"]:
-        image_id = ann["image_id"]
-        # Find corresponding image info
-        image_info = None
-        for img in json_info["images"]:
-            if img["id"] == image_id:
-                image_info = img
-                break
-        
-        if image_info is None:
-            continue
-            
-        image_file = os.path.join(image_dir, image_info["file_name"])
-        label_file = os.path.join(gt_dir, ann["file_name"])
-        segments_info = [_convert_category_id(x, meta) for x in ann["segments_info"]]
-        # Filter out None values from segments_info
-        segments_info = [s for s in segments_info if s is not None]
-        ret.append(
-            {
-                "file_name": image_file,
-                "image_id": image_id,
-                "pan_seg_file_name": label_file,
-                "segments_info": segments_info,
-            }
-        )
-    
-    return ret
+from detectron2.utils.file_io import PathManager  # unused now; kept for compatibility
+import detectron2.utils.comm as comm  # unused in this module; kept for compatibility
 
 def _register_instance_datasets(annotations_dir, images_dir):
     """Register instance segmentation datasets."""
@@ -156,185 +89,9 @@ def _register_instance_datasets(annotations_dir, images_dir):
     return registered
 
 def _register_panoptic_datasets(panoptic_dir, images_dir):
-    """Register panoptic segmentation datasets."""
-    registered = []
-    
-    # Define metadata for myotube panoptic segmentation
-    # Category ID 1 = myotube (thing), Category ID 0 = background (stuff)
-    panoptic_metadata = {
-        "thing_classes": ["myotube"],
-        "stuff_classes": ["background"],
-        "thing_dataset_id_to_contiguous_id": {1: 0},  # Map myotube (thing) category 1 -> class 0
-        "stuff_dataset_id_to_contiguous_id": {0: 1},  # Map background (stuff) category 0 -> class 1
-    }
-    
-    # Note: We pass the corresponding instance JSON files as the 6th parameter
-    # This is required for COCOEvaluator during training evaluation
-    
-    # Stage 1: Algorithmic panoptic annotations
-    print(f"   📊 Stage 1: Algorithmic Panoptic Annotations")
-    stage1_train_json = os.path.join(panoptic_dir, "algorithmic_train_panoptic.json")
-    stage1_train_masks = os.path.join(panoptic_dir, "algorithmic_train_panoptic_masks")
-    stage1_val_json = os.path.join(panoptic_dir, "algorithmic_test_panoptic.json")
-    stage1_val_masks = os.path.join(panoptic_dir, "algorithmic_test_panoptic_masks")
-    
-    if os.path.exists(stage1_train_json) and os.path.exists(stage1_train_masks):
-        # Get corresponding instance JSON for evaluation
-        instance_train_json = os.path.join(os.path.dirname(panoptic_dir), "annotations", "algorithmic_train_annotations.json")
-        
-        # Register dataset manually
-        DatasetCatalog.register(
-            "myotube_stage1_panoptic_train",
-            lambda: load_myotube_panoptic_json(stage1_train_json, images_dir, stage1_train_masks, "myotube_stage1_panoptic_train")
-        )
-        MetadataCatalog.get("myotube_stage1_panoptic_train").set(
-            panoptic_root=stage1_train_masks,
-            image_root=images_dir,
-            panoptic_json=stage1_train_json,
-            json_file=instance_train_json,
-            evaluator_type="coco_panoptic_seg",
-            ignore_label=255,
-            label_divisor=1000,
-            **panoptic_metadata,
-        )
-        
-        registered.append("myotube_stage1_panoptic_train")
-        print(f"      ✅ Registered myotube_stage1_panoptic_train")
-        
-        # Count images and annotations
-        with open(stage1_train_json, 'r') as f:
-            data = json.load(f)
-        print(f"      📈 Training images: {len(data['images'])}")
-        print(f"      📈 Training annotations: {len(data['annotations'])}")
-    else:
-        print(f"      ❌ Algorithmic panoptic train files not found")
-    
-    if os.path.exists(stage1_val_json) and os.path.exists(stage1_val_masks):
-        instance_val_json = os.path.join(os.path.dirname(panoptic_dir), "annotations", "algorithmic_test_annotations.json")
-        
-        # Register validation dataset manually
-        DatasetCatalog.register(
-            "myotube_stage1_panoptic_val",
-            lambda: load_myotube_panoptic_json(stage1_val_json, images_dir, stage1_val_masks, "myotube_stage1_panoptic_val")
-        )
-        MetadataCatalog.get("myotube_stage1_panoptic_val").set(
-            panoptic_root=stage1_val_masks,
-            image_root=images_dir,
-            panoptic_json=stage1_val_json,
-            json_file=instance_val_json,
-            evaluator_type="coco_panoptic_seg",
-            ignore_label=255,
-            label_divisor=1000,
-            **panoptic_metadata,
-        )
-        
-        registered.append("myotube_stage1_panoptic_val")
-        print(f"      ✅ Registered myotube_stage1_panoptic_val")
-    else:
-        print(f"      ⚠️  Algorithmic panoptic val files not found, using train for validation")
-        if os.path.exists(stage1_train_json) and os.path.exists(stage1_train_masks):
-            instance_train_json = os.path.join(os.path.dirname(panoptic_dir), "annotations", "algorithmic_train_annotations.json")
-            
-            # Register validation dataset manually (using train data)
-            DatasetCatalog.register(
-                "myotube_stage1_panoptic_val",
-                lambda: load_myotube_panoptic_json(stage1_train_json, images_dir, stage1_train_masks, "myotube_stage1_panoptic_val")
-            )
-            MetadataCatalog.get("myotube_stage1_panoptic_val").set(
-                panoptic_root=stage1_train_masks,
-                image_root=images_dir,
-                panoptic_json=stage1_train_json,
-                json_file=instance_train_json,
-                evaluator_type="coco_panoptic_seg",
-                ignore_label=255,
-                label_divisor=1000,
-                **panoptic_metadata,
-            )
-            
-            registered.append("myotube_stage1_panoptic_val")
-    
-    # Stage 2: Manual panoptic annotations
-    print(f"   🎯 Stage 2: Manual Panoptic Annotations")
-    stage2_train_json = os.path.join(panoptic_dir, "manual_train_panoptic.json")
-    stage2_train_masks = os.path.join(panoptic_dir, "manual_train_panoptic_masks")
-    stage2_val_json = os.path.join(panoptic_dir, "manual_test_panoptic.json")
-    stage2_val_masks = os.path.join(panoptic_dir, "manual_test_panoptic_masks")
-    
-    if os.path.exists(stage2_train_json) and os.path.exists(stage2_train_masks):
-        instance_train_json = os.path.join(os.path.dirname(panoptic_dir), "annotations", "manual_train_annotations.json")
-        
-        # Register stage 2 train dataset manually
-        DatasetCatalog.register(
-            "myotube_stage2_panoptic_train",
-            lambda: load_myotube_panoptic_json(stage2_train_json, images_dir, stage2_train_masks, "myotube_stage2_panoptic_train")
-        )
-        MetadataCatalog.get("myotube_stage2_panoptic_train").set(
-            panoptic_root=stage2_train_masks,
-            image_root=images_dir,
-            panoptic_json=stage2_train_json,
-            json_file=instance_train_json,
-            evaluator_type="coco_panoptic_seg",
-            ignore_label=255,
-            label_divisor=1000,
-            **panoptic_metadata,
-        )
-        
-        registered.append("myotube_stage2_panoptic_train")
-        print(f"      ✅ Registered myotube_stage2_panoptic_train")
-        
-        # Count images and annotations
-        with open(stage2_train_json, 'r') as f:
-            data = json.load(f)
-        print(f"      📈 Training images: {len(data['images'])}")
-        print(f"      📈 Training annotations: {len(data['annotations'])}")
-    else:
-        print(f"      ❌ Manual panoptic train files not found")
-    
-    if os.path.exists(stage2_val_json) and os.path.exists(stage2_val_masks):
-        instance_val_json = os.path.join(os.path.dirname(panoptic_dir), "annotations", "manual_test_annotations.json")
-        
-        # Register stage 2 val dataset manually
-        DatasetCatalog.register(
-            "myotube_stage2_panoptic_val",
-            lambda: load_myotube_panoptic_json(stage2_val_json, images_dir, stage2_val_masks, "myotube_stage2_panoptic_val")
-        )
-        MetadataCatalog.get("myotube_stage2_panoptic_val").set(
-            panoptic_root=stage2_val_masks,
-            image_root=images_dir,
-            panoptic_json=stage2_val_json,
-            json_file=instance_val_json,
-            evaluator_type="coco_panoptic_seg",
-            ignore_label=255,
-            label_divisor=1000,
-            **panoptic_metadata,
-        )
-        
-        registered.append("myotube_stage2_panoptic_val")
-        print(f"      ✅ Registered myotube_stage2_panoptic_val")
-    else:
-        print(f"      ⚠️  Manual panoptic val files not found, using train for validation")
-        if os.path.exists(stage2_train_json) and os.path.exists(stage2_train_masks):
-            instance_train_json = os.path.join(os.path.dirname(panoptic_dir), "annotations", "manual_train_annotations.json")
-            
-            # Register stage 2 val dataset manually (using train data)
-            DatasetCatalog.register(
-                "myotube_stage2_panoptic_val",
-                lambda: load_myotube_panoptic_json(stage2_train_json, images_dir, stage2_train_masks, "myotube_stage2_panoptic_val")
-            )
-            MetadataCatalog.get("myotube_stage2_panoptic_val").set(
-                panoptic_root=stage2_train_masks,
-                image_root=images_dir,
-                panoptic_json=stage2_train_json,
-                json_file=instance_train_json,
-                evaluator_type="coco_panoptic_seg",
-                ignore_label=255,
-                label_divisor=1000,
-                **panoptic_metadata,
-            )
-            
-            registered.append("myotube_stage2_panoptic_val")
-    
-    return registered
+    """Panoptic registration disabled. This function is kept for compatibility and returns empty list."""
+    print("   ⚠️ Panoptic registration is disabled in this project.")
+    return []
 
 def register_two_stage_datasets(
     dataset_root: str = "myotube_batch_output",
@@ -401,35 +158,23 @@ def register_two_stage_datasets(
     # ===== PANOPTIC SEGMENTATION DATASETS =====
     if register_panoptic:
         print(f"\n🎭 Registering Panoptic Segmentation Datasets")
-        
-        panoptic_dir = os.path.join(dataset_root, "panoptic")
-        if not os.path.exists(panoptic_dir):
-            print(f"   ❌ Panoptic directory not found: {panoptic_dir}")
-            print(f"   💡 Run utils/convert_instance_to_panoptic.py to create panoptic annotations")
-        else:
-            registered_datasets.extend(_register_panoptic_datasets(panoptic_dir, images_dir))
+        print(f"   ⚠️ Skipped: Panoptic mode is disabled. Instance-only project.")
     
     # Metadata is now set directly during dataset registration
     
-    print(f"\n✅ Two-stage dataset registration completed!")
+    print(f"\n✅ Two-stage dataset registration completed (Instance Only)!")
     print(f"   Stage 1: Algorithmic annotations for robust feature learning")
     print(f"   Stage 2: Manual annotations for precise fine-tuning")
     if register_instance:
-        print(f"   📊 Instance segmentation: {len([d for d in registered_datasets if 'panoptic' not in d])} datasets")
+        print(f"   📊 Instance datasets registered: {len(registered_datasets)}")
     if register_panoptic:
-        print(f"   🎭 Panoptic segmentation: {len([d for d in registered_datasets if 'panoptic' in d])} datasets")
-    print(f"   Classes: ['myotube'] + ['background'] for panoptic")
+        print(f"   🎭 Panoptic segmentation requested but disabled.")
+    print(f"   Classes: ['myotube']")
 
 
 def register_all_myotube(_root="myotube_batch_output"):
-    """
-    Main registration function to be called from other scripts.
-    """
-    register_two_stage_datasets(
-        dataset_root=_root, 
-        register_instance=True,
-        register_panoptic=True
-    )
+    """Main registration function to be called from other scripts (instance only)."""
+    register_two_stage_datasets(dataset_root=_root, register_instance=True, register_panoptic=False)
 
 
 def check_dataset_structure(dataset_root):
@@ -490,25 +235,24 @@ def check_dataset_structure(dataset_root):
 if __name__ == "__main__":
     import argparse
     
-    parser = argparse.ArgumentParser(description="Register two-stage myotube datasets")
+    parser = argparse.ArgumentParser(description="Register two-stage myotube datasets (instance only)")
     parser.add_argument("--dataset_root", default="myotube_batch_output", 
                        help="Root directory of unified dataset")
     parser.add_argument("--instance", action="store_true", default=True,
                        help="Register instance segmentation datasets (default: True)")
+    # Keep panoptic flag for compatibility; it will be ignored with a notice
     parser.add_argument("--panoptic", action="store_true", default=False,
-                       help="Register panoptic segmentation datasets (default: False)")
+                       help="(Ignored) Panoptic registration is disabled")
     parser.add_argument("--both", action="store_true", 
-                       help="Register both instance and panoptic datasets")
+                       help="(Ignored) Panoptic registration is disabled")
     
     args = parser.parse_args()
     
     # Handle --both flag
-    if args.both:
-        register_instance = True
-        register_panoptic = True
-    else:
-        register_instance = args.instance
-        register_panoptic = args.panoptic
+    if args.both or args.panoptic:
+        print("⚠️  Panoptic registration flags detected but panoptic is disabled. Proceeding with instance only.")
+    register_instance = True
+    register_panoptic = False
     
     # Check for existing datasets
     found_paths = check_dataset_structure(args.dataset_root)

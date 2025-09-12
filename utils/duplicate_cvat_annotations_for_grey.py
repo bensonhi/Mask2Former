@@ -11,6 +11,13 @@ and creates a new annotation file with both green and grey channel images by:
 4. Saving the extended annotation file with both channels
 
 Usage:
+    # With sensible defaults (run from utils/):
+    # - input:      ./instances_combined_scaled.json
+    # - images_dir: ./myotube_batch_output/images
+    # - output:     ./myotube_batch_output/annotations
+    python duplicate_cvat_annotations_for_grey.py
+
+    # Or specify inputs explicitly
     python duplicate_cvat_annotations_for_grey.py --input instances_combined_scaled.json --images_dir ./myotube_batch_output/images
 """
 
@@ -248,8 +255,8 @@ Examples:
     
     parser.add_argument(
         '--input', '-i',
-        required=True,
-        help='Input CVAT annotation file (COCO format JSON)'
+        default='./instances_combined_scaled.json',
+        help='Input CVAT annotation file (COCO format JSON) (default: ./instances_combined_scaled.json)'
     )
     
     parser.add_argument(

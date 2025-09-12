@@ -1,18 +1,16 @@
 #!/usr/bin/env python3
 """
-Batch Crop Demo Script for Myotube Test Images
+Batch Crop Demo Script for Myotube Test Images (Instance Only)
 
 Automatically crops each test image into 4 regions and runs demo.py on each crop.
 This allows comprehensive analysis of large myotube images by processing different regions.
 
 Usage:
     cd demo
-    python batch_crop_demo.py --stage 2                                  # Test Stage 2 instance on algorithmic test set
-    python batch_crop_demo.py --stage 2 --mode panoptic                  # Test Stage 2 panoptic on algorithmic test set
-    python batch_crop_demo.py --stage 2 --test-manual                    # Test Stage 2 instance on manual test set
-    python batch_crop_demo.py --stage 2 --mode panoptic --test-manual    # Test Stage 2 panoptic on manual test set
-    python batch_crop_demo.py --confidence-threshold 0.3                 # Custom confidence threshold
-    python batch_crop_demo.py --crop-overlap 0.1                         # 10% overlap between crops
+    python batch_crop_demo.py --stage 2                       # Test Stage 2 instance on algorithmic test set
+    python batch_crop_demo.py --stage 2 --test-manual         # Test Stage 2 instance on manual test set
+    python batch_crop_demo.py --confidence-threshold 0.3      # Custom confidence threshold
+    python batch_crop_demo.py --crop-overlap 0.1              # 10% overlap between crops
 """
 
 import argparse
@@ -191,23 +189,16 @@ def process_image_with_crops(image_name, image_id, images_dir, output_dir, confi
     
     return successful_crops, failed_crops
 
-def get_stage_config(stage, test_manual=False, mode="instance"):
-    """Get configuration for specified stage and mode."""
+def get_stage_config(stage, test_manual=False):
+    """Get configuration for specified stage (instance only)."""
     if stage == 1:
         annotations_file = "../myotube_batch_output/annotations/manual_test_annotations.json" if test_manual else "../myotube_batch_output/annotations/algorithmic_test_annotations.json"
         output_suffix = "_manual" if test_manual else "_algorithmic"
         test_type = "Manual Test" if test_manual else "Algorithmic Test"
-        
-        if mode == "panoptic":
-            config_file = "../stage1_panoptic_config.yaml"
-            model_weights = "../output_stage1_panoptic_algorithmic/model_final.pth"
-            output_dir = f"./batch_crop_demo_output_stage1_panoptic{output_suffix}"
-            description = f"Stage 1 Panoptic (Algorithmic Model) on {test_type}"
-        else:  # instance
-            config_file = "../stage1_config.yaml"
-            model_weights = "../output_stage1_algorithmic/model_final.pth"
-            output_dir = f"./batch_crop_demo_output_stage1{output_suffix}"
-            description = f"Stage 1 Instance (Algorithmic Model) on {test_type}"
+        config_file = "../stage1_config.yaml"
+        model_weights = "../output_stage1_algorithmic/model_final.pth"
+        output_dir = f"./batch_crop_demo_output_stage1{output_suffix}"
+        description = f"Stage 1 Instance (Algorithmic Model) on {test_type}"
         
         return {
             "annotations_file": annotations_file,
@@ -220,17 +211,10 @@ def get_stage_config(stage, test_manual=False, mode="instance"):
         annotations_file = "../myotube_batch_output/annotations/manual_test_annotations.json" if test_manual else "../myotube_batch_output/annotations/algorithmic_test_annotations.json"
         output_suffix = "_manual" if test_manual else "_algorithmic"
         test_type = "Manual Test" if test_manual else "Algorithmic Test"
-        
-        if mode == "panoptic":
-            config_file = "../stage2_panoptic_config.yaml"
-            model_weights = "../output_stage2_panoptic_manual/model_final.pth"
-            output_dir = f"./batch_crop_demo_output_stage2_panoptic{output_suffix}"
-            description = f"Stage 2 Panoptic (Manual Fine-tuned Model) on {test_type}"
-        else:  # instance
-            config_file = "../stage2_config.yaml"
-            model_weights = "../output_stage2_manual/model_final.pth"
-            output_dir = f"./batch_crop_demo_output_stage2{output_suffix}"
-            description = f"Stage 2 Instance (Manual Fine-tuned Model) on {test_type}"
+        config_file = "../stage2_config.yaml"
+        model_weights = "../output_stage2_manual/model_final.pth"
+        output_dir = f"./batch_crop_demo_output_stage2{output_suffix}"
+        description = f"Stage 2 Instance (Manual Fine-tuned Model) on {test_type}"
         
         return {
             "annotations_file": annotations_file,
@@ -246,11 +230,9 @@ def main():
     """Main batch crop demo function."""
     
     # Parse command line arguments
-    parser = argparse.ArgumentParser(description="Batch crop demo for myotube segmentation")
+    parser = argparse.ArgumentParser(description="Batch crop demo for myotube segmentation (instance only)")
     parser.add_argument("--stage", type=int, choices=[1, 2], default=2,
                        help="Stage to test (1: algorithmic model, 2: manual fine-tuned model)")
-    parser.add_argument("--mode", choices=["instance", "panoptic"], default="instance",
-                       help="Segmentation mode (instance or panoptic)")
     parser.add_argument("--test-manual", action="store_true",
                        help="Use manual test annotations instead of algorithmic test annotations")
     parser.add_argument("--confidence-threshold", type=float, default=0.5,
@@ -266,7 +248,7 @@ def main():
         return 1
     
     # Get stage-specific configuration
-    stage_config = get_stage_config(args.stage, args.test_manual, args.mode)
+    stage_config = get_stage_config(args.stage, args.test_manual)
     
     annotations_file = stage_config["annotations_file"]
     images_dir = "../myotube_batch_output/images"
@@ -277,7 +259,7 @@ def main():
     print(f"🎭 Batch Crop Demo Processing - {stage_config['description']}")
     print("="*70)
     print(f"Stage:        {args.stage}")
-    print(f"Mode:         {args.mode}")
+    # Instance-only
     print(f"Test Set:     {'Manual' if args.test_manual else 'Algorithmic'}")
     print(f"Crop Strategy: 4 crops per image (2×2 grid)")
     print(f"Crop Overlap: {args.crop_overlap*100:.1f}%")
@@ -350,7 +332,7 @@ def main():
     print(f"")
     print(f"📁 Output:     {output_dir}")
     print(f"🎯 Stage:      {args.stage}")
-    print(f"🎯 Mode:       {args.mode}")
+    # Instance-only
     print(f"📐 Crops:      4 per image (2×2 grid)")
     
     if total_successful_crops > 0:

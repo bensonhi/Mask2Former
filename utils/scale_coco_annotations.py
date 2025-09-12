@@ -9,6 +9,13 @@ This script:
 4. Saves the scaled annotation file
 
 Usage:
+    # With sensible defaults (run from utils/):
+    # - input:  ./instances_combined.json
+    # - images: ./myotube_batch_output/images
+    # - output: ./instances_combined_scaled.json
+    python scale_coco_annotations.py
+
+    # Or specify paths explicitly
     python scale_coco_annotations.py --input annotations.json --image_dir images/ --output scaled_annotations.json
 """
 
@@ -256,9 +263,21 @@ def scale_coco_annotations(input_json, image_dir, output_json):
 
 def main():
     parser = argparse.ArgumentParser(description="Scale COCO annotations to match actual image resolutions")
-    parser.add_argument("--input", "-i", required=True, help="Input COCO annotation JSON file")
-    parser.add_argument("--image_dir", "-d", required=True, help="Directory containing the images")
-    parser.add_argument("--output", "-o", required=True, help="Output path for scaled annotation JSON file")
+    parser.add_argument(
+        "--input", "-i",
+        default="./instances_combined.json",
+        help="Input COCO annotation JSON file (default: ./instances_combined.json)"
+    )
+    parser.add_argument(
+        "--image_dir", "-d",
+        default="./myotube_batch_output/images",
+        help="Directory containing the images (default: ./myotube_batch_output/images)"
+    )
+    parser.add_argument(
+        "--output", "-o",
+        default="./instances_combined_scaled.json",
+        help="Output path for scaled annotation JSON file (default: ./instances_combined_scaled.json)"
+    )
     parser.add_argument("--dry_run", action="store_true", help="Show what would be scaled without saving")
     
     args = parser.parse_args()
@@ -266,10 +285,12 @@ def main():
     # Validate inputs
     if not os.path.exists(args.input):
         print(f"❌ Error: Input annotation file not found: {args.input}")
+        print("   Tip: Place instances_combined.json in the current directory or pass --input")
         return
     
     if not os.path.exists(args.image_dir):
         print(f"❌ Error: Image directory not found: {args.image_dir}")
+        print("   Tip: Ensure ./myotube_batch_output/images exists or pass --image_dir")
         return
     
     # Create output directory if needed

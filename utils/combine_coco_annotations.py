@@ -14,6 +14,13 @@ Features:
 - Validates that categories match
 
 Usage:
+    # With sensible defaults (run from utils/):
+    # - file1: ./instances_default.json
+    # - file2: ./instances_default1.json
+    # - output: ./instances_combined.json
+    python combine_coco_annotations.py
+
+    # Or specify files explicitly
     python combine_coco_annotations.py --file1 algo_train.json --file2 manual_train.json --output combined_train.json
 """
 
@@ -235,9 +242,21 @@ def combine_coco_files(file1_path, file2_path, output_path):
 
 def main():
     parser = argparse.ArgumentParser(description="Combine two COCO instance annotation files")
-    parser.add_argument("--file1", "-f1", required=True, help="First COCO annotation file")
-    parser.add_argument("--file2", "-f2", required=True, help="Second COCO annotation file") 
-    parser.add_argument("--output", "-o", required=True, help="Output path for combined annotation file")
+    parser.add_argument(
+        "--file1", "-f1",
+        default="instances_default.json",
+        help="First COCO annotation file (default: instances_default.json)"
+    )
+    parser.add_argument(
+        "--file2", "-f2",
+        default="instances_default1.json",
+        help="Second COCO annotation file (default: instances_default1.json)"
+    ) 
+    parser.add_argument(
+        "--output", "-o",
+        default="./instances_combined.json",
+        help="Output path for combined annotation file (default: ./instances_combined.json)"
+    )
     parser.add_argument("--dry_run", action="store_true", help="Show what would be combined without saving")
     
     args = parser.parse_args()
@@ -245,10 +264,12 @@ def main():
     # Validate inputs
     if not os.path.exists(args.file1):
         print(f"❌ Error: File 1 not found: {args.file1}")
+        print("   Tip: Place instances_default.json in the current directory or pass --file1")
         return
     
     if not os.path.exists(args.file2):
         print(f"❌ Error: File 2 not found: {args.file2}")
+        print("   Tip: Place instances_default1.json in the current directory or pass --file2")
         return
     
     if args.dry_run:

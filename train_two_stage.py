@@ -1,31 +1,26 @@
 #!/usr/bin/env python3
 
 """
-Two-Stage Myotube Training Script
+Two-Stage Myotube Training Script (Instance Only)
 
-This script implements two-stage training for myotube segmentation with support for both
-instance and panoptic segmentation modes:
+This script implements two-stage training for myotube instance segmentation:
 1. Stage 1: Train on algorithmic annotations (~100 images) for robust feature learning
 2. Stage 2: Fine-tune on manual annotations (~2-5 images) for precise segmentation
 
 Usage:
-    # Instance segmentation (default)
-    python train_two_stage.py --mode instance
-    
-    # Panoptic segmentation
-    python train_two_stage.py --mode panoptic
+    # Full two-stage training
+    python train_two_stage.py
     
     # Run only Stage 1
-    python train_two_stage.py --stage 1 --mode panoptic
+    python train_two_stage.py --stage 1
     
     # Run only Stage 2 (requires Stage 1 checkpoint)
-    python train_two_stage.py --stage 2 --mode instance
+    python train_two_stage.py --stage 2
     
     # Custom dataset paths
-    python train_two_stage.py --dataset /path/to/unified/dataset --mode panoptic
+    python train_two_stage.py --dataset /path/to/unified/dataset
     
     # Custom config files
-    python train_two_stage.py --stage1-config stage1_panoptic_config_fixed.yaml --mode panoptic
     python train_two_stage.py --stage1-config custom_stage1.yaml --stage2-config custom_stage2.yaml
 """
 
@@ -107,56 +102,33 @@ def find_best_checkpoint(output_dir: str) -> str:
     return latest
 
 
-def count_dataset_images(dataset_root, stage, mode="instance"):
-    """Count images in a dataset stage for specified mode."""
+def count_dataset_images(dataset_root, stage):
+    """Count images and annotations for a dataset stage (instance only)."""
     import json
-    
-    if mode == "panoptic":
-        # Panoptic annotations
-        panoptic_dir = os.path.join(dataset_root, "panoptic")
-        if stage == 1:
-            ann_file = os.path.join(panoptic_dir, "algorithmic_train_panoptic.json")
-        else:
-            ann_file = os.path.join(panoptic_dir, "manual_train_panoptic.json")
+    annotations_dir = os.path.join(dataset_root, "annotations")
+    if stage == 1:
+        ann_file = os.path.join(annotations_dir, "algorithmic_train_annotations.json")
     else:
-        # Instance annotations
-        annotations_dir = os.path.join(dataset_root, "annotations")
-        if stage == 1:
-            ann_file = os.path.join(annotations_dir, "algorithmic_train_annotations.json")
-        else:
-            ann_file = os.path.join(annotations_dir, "manual_train_annotations.json")
-    
+        ann_file = os.path.join(annotations_dir, "manual_train_annotations.json")
+
     if os.path.exists(ann_file):
         try:
             with open(ann_file, 'r') as f:
                 data = json.load(f)
-            
-            if mode == "panoptic":
-                # Count segments in panoptic format
-                total_segments = sum(len(ann['segments_info']) for ann in data['annotations'])
-                return len(data['images']), total_segments
-            else:
-                # Count annotations in instance format
-                return len(data['images']), len(data['annotations'])
+            return len(data['images']), len(data['annotations'])
         except Exception:
             return 0, 0
     return 0, 0
 
-def stage1_training(args, dataset_root, mode="instance"):
-    """Execute Stage 1 training on algorithmic annotations."""
-    num_images, num_annotations = count_dataset_images(dataset_root, 1, mode)
+def stage1_training(args, dataset_root):
+    """Execute Stage 1 training on algorithmic annotations (instance only)."""
+    num_images, num_annotations = count_dataset_images(dataset_root, 1)
     
-    # Determine config file and output directory based on mode
-    if mode == "panoptic":
-        config_file = args.stage1_config if args.stage1_config else "stage1_panoptic_config.yaml"
-        output_dir = "./output_stage1_panoptic_algorithmic/"
-    else:
-        config_file = args.stage1_config if args.stage1_config else "stage1_config.yaml"
-        output_dir = "./output_stage1_algorithmic/"
+    config_file = args.stage1_config if args.stage1_config else "stage1_config.yaml"
+    output_dir = "./output_stage1_algorithmic/"
     
-    print("🚀 STAGE 1: Training on Algorithmic Annotations")
+    print("🚀 STAGE 1: Training on Algorithmic Annotations (Instance)")
     print("="*60)
-    print(f"   Mode: {mode.title()} Segmentation")
     print(f"   Dataset: {num_images} images with {num_annotations} algorithmic annotations")
     print(f"   Purpose: Robust feature learning from large dataset")
     print(f"   Config: {config_file}")
@@ -192,23 +164,16 @@ def stage1_training(args, dataset_root, mode="instance"):
         raise
 
 
-def stage2_training(args, dataset_root, stage1_checkpoint: str = "", mode="instance"):
-    """Execute Stage 2 fine-tuning on manual annotations."""
-    num_images, num_annotations = count_dataset_images(dataset_root, 2, mode)
+def stage2_training(args, dataset_root, stage1_checkpoint: str = ""):
+    """Execute Stage 2 fine-tuning on manual annotations (instance only)."""
+    num_images, num_annotations = count_dataset_images(dataset_root, 2)
     
-    # Determine config file and output directory based on mode
-    if mode == "panoptic":
-        config_file = args.stage2_config if args.stage2_config else "stage2_panoptic_config.yaml"
-        output_dir = "./output_stage2_panoptic_manual/"
-        stage1_default_dir = "./output_stage1_panoptic_algorithmic"
-    else:
-        config_file = args.stage2_config if args.stage2_config else "stage2_config.yaml"
-        output_dir = "./output_stage2_manual/"
-        stage1_default_dir = "./output_stage1_algorithmic"
+    config_file = args.stage2_config if args.stage2_config else "stage2_config.yaml"
+    output_dir = "./output_stage2_manual/"
+    stage1_default_dir = "./output_stage1_algorithmic"
     
-    print("\n🎯 STAGE 2: Fine-tuning on Manual Annotations")
+    print("\n🎯 STAGE 2: Fine-tuning on Manual Annotations (Instance)")
     print("="*60)
-    print(f"   Mode: {mode.title()} Segmentation")
     print(f"   Dataset: {num_images} images with {num_annotations} manual annotations")
     print(f"   Purpose: Precise fine-tuning for high-quality segmentation")
     print(f"   Config: {config_file}")
@@ -261,9 +226,9 @@ def stage2_training(args, dataset_root, stage1_checkpoint: str = "", mode="insta
         raise
 
 
-def verify_datasets(dataset_root: str, mode="instance"):
-    """Verify that unified dataset structure exists for specified mode."""
-    print(f"🔍 Verifying unified dataset for {mode} mode...")
+def verify_datasets(dataset_root: str):
+    """Verify that unified dataset structure exists (instance only)."""
+    print(f"🔍 Verifying unified dataset (instance mode)...")
     
     issues = []
     
@@ -275,74 +240,45 @@ def verify_datasets(dataset_root: str, mode="instance"):
     if not os.path.exists(images_dir):
         issues.append(f"Missing images directory: {images_dir}")
     
-    if mode == "panoptic":
-        # Check panoptic structure
-        panoptic_dir = os.path.join(dataset_root, "panoptic")
-        if not os.path.exists(panoptic_dir):
-            issues.append(f"Missing panoptic directory: {panoptic_dir}")
-            issues.append("Run utils/convert_instance_to_panoptic.py to create panoptic annotations")
-        else:
-            # Check required panoptic files
-            required_files = [
-                "algorithmic_train_panoptic.json",
-                "manual_train_panoptic.json"
-            ]
-            
-            for file in required_files:
-                file_path = os.path.join(panoptic_dir, file)
-                if not os.path.exists(file_path):
-                    issues.append(f"Missing panoptic file: {file}")
+    # Instance structure only
+    annotations_dir = os.path.join(dataset_root, "annotations")
+    if not os.path.exists(annotations_dir):
+        issues.append(f"Missing annotations directory: {annotations_dir}")
     else:
-        # Check instance structure
-        annotations_dir = os.path.join(dataset_root, "annotations")
-        if not os.path.exists(annotations_dir):
-            issues.append(f"Missing annotations directory: {annotations_dir}")
-        else:
-            # Check required annotation files
-            required_files = [
-                "algorithmic_train_annotations.json",
-                "manual_train_annotations.json"
-            ]
-            
-            for file in required_files:
-                file_path = os.path.join(annotations_dir, file)
-                if not os.path.exists(file_path):
-                    issues.append(f"Missing annotation file: {file}")
+        required_files = [
+            "algorithmic_train_annotations.json",
+            "manual_train_annotations.json"
+        ]
+        for file in required_files:
+            file_path = os.path.join(annotations_dir, file)
+            if not os.path.exists(file_path):
+                issues.append(f"Missing annotation file: {file}")
     
     if issues:
         print("❌ Dataset verification failed:")
         for issue in issues:
             print(f"   • {issue}")
-        print(f"\n💡 Expected unified structure for {mode} mode:")
+        print(f"\n💡 Expected unified structure (instance mode):")
         print(f"   {dataset_root}/")
         print(f"   ├── images/")
-        if mode == "panoptic":
-            print(f"   └── panoptic/")
-            print(f"       ├── algorithmic_train_panoptic.json")
-            print(f"       ├── algorithmic_test_panoptic.json")
-            print(f"       ├── manual_train_panoptic.json")
-            print(f"       └── manual_test_panoptic.json")
-        else:
-            print(f"   └── annotations/")
-            print(f"       ├── algorithmic_train_annotations.json")
-            print(f"       ├── algorithmic_test_annotations.json")
-            print(f"       ├── manual_train_annotations.json")
-            print(f"       └── manual_test_annotations.json")
+        print(f"   └── annotations/")
+        print(f"       ├── algorithmic_train_annotations.json")
+        print(f"       ├── algorithmic_test_annotations.json")
+        print(f"       ├── manual_train_annotations.json")
+        print(f"       └── manual_test_annotations.json")
         return False
     
-    print(f"✅ Unified dataset verified for {mode} mode!")
+    print(f"✅ Unified dataset verified (instance)!")
     return True
 
 
 def main():
     """Main function for two-stage training."""
-    parser = argparse.ArgumentParser(description="Two-stage myotube training with instance and panoptic support")
+    parser = argparse.ArgumentParser(description="Two-stage myotube training (instance only)")
     
     # Training control
     parser.add_argument("--stage", type=int, choices=[1, 2], 
                        help="Run specific stage only (default: run both)")
-    parser.add_argument("--mode", choices=["instance", "panoptic"], default="instance",
-                       help="Segmentation mode: instance or panoptic (default: instance)")
     parser.add_argument("--num-gpus", type=int, default=1,
                        help="Number of GPUs")
     parser.add_argument("--resume", action="store_true",
@@ -363,13 +299,12 @@ def main():
     args = parser.parse_args()
     
     # Count datasets for display
-    stage1_images, stage1_annotations = count_dataset_images(args.dataset, 1, args.mode)
-    stage2_images, stage2_annotations = count_dataset_images(args.dataset, 2, args.mode)
+    stage1_images, stage1_annotations = count_dataset_images(args.dataset, 1)
+    stage2_images, stage2_annotations = count_dataset_images(args.dataset, 2)
     
-    print("🎭 Mask2Former Two-Stage Myotube Training")
+    print("🎭 Mask2Former Two-Stage Myotube Training (Instance)")
     print("="*60)
     print(f"   Unified dataset: {args.dataset}")
-    print(f"   Segmentation mode: {args.mode.title()}")
     print(f"   Stage 1: {stage1_images} images, {stage1_annotations} algorithmic annotations")
     print(f"   Stage 2: {stage2_images} images, {stage2_annotations} manual annotations")
     print(f"   GPUs: {args.num_gpus}")
@@ -384,15 +319,12 @@ def main():
     print("="*60)
     
     # Register datasets based on mode
-    print(f"\n🔄 Registering {args.mode} datasets...")
-    if args.mode == "panoptic":
-        register_two_stage_datasets(args.dataset, register_instance=False, register_panoptic=True)
-    else:
-        register_two_stage_datasets(args.dataset, register_instance=True, register_panoptic=False)
+    print(f"\n🔄 Registering instance datasets...")
+    register_two_stage_datasets(args.dataset, register_instance=True, register_panoptic=False)
     
     # Verify datasets exist
     if not args.eval_only:
-        if not verify_datasets(args.dataset, args.mode):
+        if not verify_datasets(args.dataset):
             return 1
     
     try:
@@ -400,39 +332,27 @@ def main():
         
         # Execute training stages
         if args.eval_only:
-            print("\n📊 Evaluation mode - please run specific evaluation commands")
-            if args.mode == "panoptic":
-                stage1_config = args.stage1_config if args.stage1_config else "stage1_panoptic_config.yaml"
-                stage2_config = args.stage2_config if args.stage2_config else "stage2_panoptic_config.yaml"
-                print(f"   Stage 1: python train_net.py --config-file {stage1_config} --eval-only")
-                print(f"   Stage 2: python train_net.py --config-file {stage2_config} --eval-only")
-            else:
-                stage1_config = args.stage1_config if args.stage1_config else "stage1_config.yaml"
-                stage2_config = args.stage2_config if args.stage2_config else "stage2_config.yaml"
-                print(f"   Stage 1: python train_net.py --config-file {stage1_config} --eval-only")
-                print(f"   Stage 2: python train_net.py --config-file {stage2_config} --eval-only")
+            print("\n📊 Evaluation mode - run:")
+            stage1_config = args.stage1_config if args.stage1_config else "stage1_config.yaml"
+            stage2_config = args.stage2_config if args.stage2_config else "stage2_config.yaml"
+            print(f"   Stage 1: python train_net.py --config-file {stage1_config} --eval-only")
+            print(f"   Stage 2: python train_net.py --config-file {stage2_config} --eval-only")
             return 0
         
         if args.stage is None or args.stage == 1:
             # Run Stage 1
-            stage1_checkpoint = stage1_training(args, args.dataset, args.mode)
+            stage1_checkpoint = stage1_training(args, args.dataset)
         
         if args.stage is None or args.stage == 2:
             # Run Stage 2
-            stage2_checkpoint = stage2_training(args, args.dataset, stage1_checkpoint, args.mode)
+            stage2_checkpoint = stage2_training(args, args.dataset, stage1_checkpoint)
         
         # Training summary
         print("\n" + "="*60)
-        print(f"🎉 TWO-STAGE {args.mode.upper()} TRAINING COMPLETED!")
+        print(f"🎉 TWO-STAGE INSTANCE TRAINING COMPLETED!")
         print("="*60)
-        
-        # Determine output directories based on mode
-        if args.mode == "panoptic":
-            stage1_output = './output_stage1_panoptic_algorithmic'
-            stage2_output = './output_stage2_panoptic_manual'
-        else:
-            stage1_output = './output_stage1_algorithmic'
-            stage2_output = './output_stage2_manual'
+        stage1_output = './output_stage1_algorithmic'
+        stage2_output = './output_stage2_manual'
         
         if args.stage is None:
             print("✅ Both stages completed successfully")
@@ -449,16 +369,10 @@ def main():
             print(f"   Final model: {find_latest_checkpoint(stage2_output)}")
         
         print("\n📋 Evaluation commands:")
-        if args.mode == "panoptic":
-            stage1_config = args.stage1_config if args.stage1_config else "stage1_panoptic_config.yaml"
-            stage2_config = args.stage2_config if args.stage2_config else "stage2_panoptic_config.yaml"
-            print(f"   Stage 1: python train_net.py --config-file {stage1_config} --eval-only")
-            print(f"   Stage 2: python train_net.py --config-file {stage2_config} --eval-only")
-        else:
-            stage1_config = args.stage1_config if args.stage1_config else "stage1_config.yaml"
-            stage2_config = args.stage2_config if args.stage2_config else "stage2_config.yaml"
-            print(f"   Stage 1: python train_net.py --config-file {stage1_config} --eval-only")
-            print(f"   Stage 2: python train_net.py --config-file {stage2_config} --eval-only")
+        stage1_config = args.stage1_config if args.stage1_config else "stage1_config.yaml"
+        stage2_config = args.stage2_config if args.stage2_config else "stage2_config.yaml"
+        print(f"   Stage 1: python train_net.py --config-file {stage1_config} --eval-only")
+        print(f"   Stage 2: python train_net.py --config-file {stage2_config} --eval-only")
         
         return 0
         
