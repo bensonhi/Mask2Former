@@ -26,27 +26,39 @@ import json
 from detectron2.data.datasets import register_coco_instances, load_coco_json
 from detectron2.data import MetadataCatalog, DatasetCatalog
 from detectron2.utils.file_io import PathManager
+import detectron2.utils.comm as comm
 
-def load_myotube_panoptic_json(json_file, image_dir, gt_dir, meta):
+def load_myotube_panoptic_json(json_file, image_dir, gt_dir, name):
     """
     Load myotube panoptic JSON and convert to Detectron2 format.
     """
+    # Now meta is fetched from the catalog
+    meta = MetadataCatalog.get(name)
+
     def _convert_category_id(segment_info, meta):
+        """
+        Converts original category IDs to contiguous training IDs.
+        - Myotube (original ID 1) is mapped to training ID 0.
+        - Background (original ID 0) is mapped to training ID 1.
+        """
+        if "category_id" not in segment_info:
+            return None
+
         original_category_id = segment_info["category_id"]
-        
-        if original_category_id in meta["thing_dataset_id_to_contiguous_id"]:
-            # Map myotube (category_id=1) to contiguous class 0
-            segment_info["category_id"] = meta["thing_dataset_id_to_contiguous_id"][original_category_id]
-            segment_info["isthing"] = True
-        elif original_category_id in meta["stuff_dataset_id_to_contiguous_id"]:
-            # Map background (category_id=0) to contiguous class 1
-            segment_info["category_id"] = meta["stuff_dataset_id_to_contiguous_id"][original_category_id]
+
+        if original_category_id in meta.thing_dataset_id_to_contiguous_id:
+            segment_info["category_id"] = meta.thing_dataset_id_to_contiguous_id[
+                original_category_id
+            ]
+            segment_info["isthing"] = True  # CRITICAL FIX: Myotubes are "things"
+        elif original_category_id in meta.stuff_dataset_id_to_contiguous_id:
+            segment_info["category_id"] = meta.stuff_dataset_id_to_contiguous_id[
+                original_category_id
+            ]
             segment_info["isthing"] = False
         else:
-            # Unknown category - this should not happen
-            print(f"WARNING: Unknown category_id {original_category_id} in segment {segment_info['id']}")
-            segment_info["isthing"] = False
-        
+            return None
+
         return segment_info
 
     with PathManager.open(json_file) as f:
@@ -68,6 +80,8 @@ def load_myotube_panoptic_json(json_file, image_dir, gt_dir, meta):
         image_file = os.path.join(image_dir, image_info["file_name"])
         label_file = os.path.join(gt_dir, ann["file_name"])
         segments_info = [_convert_category_id(x, meta) for x in ann["segments_info"]]
+        # Filter out None values from segments_info
+        segments_info = [s for s in segments_info if s is not None]
         ret.append(
             {
                 "file_name": image_file,
@@ -150,8 +164,8 @@ def _register_panoptic_datasets(panoptic_dir, images_dir):
     panoptic_metadata = {
         "thing_classes": ["myotube"],
         "stuff_classes": ["background"],
-        "thing_dataset_id_to_contiguous_id": {1: 0},  # CRITICAL FIX: Map myotube category 1 -> class 0
-        "stuff_dataset_id_to_contiguous_id": {0: 1},  # Map background category 0 -> class 1 (filtered out)
+        "thing_dataset_id_to_contiguous_id": {1: 0},  # Map myotube (thing) category 1 -> class 0
+        "stuff_dataset_id_to_contiguous_id": {0: 1},  # Map background (stuff) category 0 -> class 1
     }
     
     # Note: We pass the corresponding instance JSON files as the 6th parameter
@@ -171,7 +185,7 @@ def _register_panoptic_datasets(panoptic_dir, images_dir):
         # Register dataset manually
         DatasetCatalog.register(
             "myotube_stage1_panoptic_train",
-            lambda: load_myotube_panoptic_json(stage1_train_json, images_dir, stage1_train_masks, panoptic_metadata)
+            lambda: load_myotube_panoptic_json(stage1_train_json, images_dir, stage1_train_masks, "myotube_stage1_panoptic_train")
         )
         MetadataCatalog.get("myotube_stage1_panoptic_train").set(
             panoptic_root=stage1_train_masks,
@@ -201,7 +215,7 @@ def _register_panoptic_datasets(panoptic_dir, images_dir):
         # Register validation dataset manually
         DatasetCatalog.register(
             "myotube_stage1_panoptic_val",
-            lambda: load_myotube_panoptic_json(stage1_val_json, images_dir, stage1_val_masks, panoptic_metadata)
+            lambda: load_myotube_panoptic_json(stage1_val_json, images_dir, stage1_val_masks, "myotube_stage1_panoptic_val")
         )
         MetadataCatalog.get("myotube_stage1_panoptic_val").set(
             panoptic_root=stage1_val_masks,
@@ -224,7 +238,7 @@ def _register_panoptic_datasets(panoptic_dir, images_dir):
             # Register validation dataset manually (using train data)
             DatasetCatalog.register(
                 "myotube_stage1_panoptic_val",
-                lambda: load_myotube_panoptic_json(stage1_train_json, images_dir, stage1_train_masks, panoptic_metadata)
+                lambda: load_myotube_panoptic_json(stage1_train_json, images_dir, stage1_train_masks, "myotube_stage1_panoptic_val")
             )
             MetadataCatalog.get("myotube_stage1_panoptic_val").set(
                 panoptic_root=stage1_train_masks,
@@ -252,7 +266,7 @@ def _register_panoptic_datasets(panoptic_dir, images_dir):
         # Register stage 2 train dataset manually
         DatasetCatalog.register(
             "myotube_stage2_panoptic_train",
-            lambda: load_myotube_panoptic_json(stage2_train_json, images_dir, stage2_train_masks, panoptic_metadata)
+            lambda: load_myotube_panoptic_json(stage2_train_json, images_dir, stage2_train_masks, "myotube_stage2_panoptic_train")
         )
         MetadataCatalog.get("myotube_stage2_panoptic_train").set(
             panoptic_root=stage2_train_masks,
@@ -282,7 +296,7 @@ def _register_panoptic_datasets(panoptic_dir, images_dir):
         # Register stage 2 val dataset manually
         DatasetCatalog.register(
             "myotube_stage2_panoptic_val",
-            lambda: load_myotube_panoptic_json(stage2_val_json, images_dir, stage2_val_masks, panoptic_metadata)
+            lambda: load_myotube_panoptic_json(stage2_val_json, images_dir, stage2_val_masks, "myotube_stage2_panoptic_val")
         )
         MetadataCatalog.get("myotube_stage2_panoptic_val").set(
             panoptic_root=stage2_val_masks,
@@ -305,7 +319,7 @@ def _register_panoptic_datasets(panoptic_dir, images_dir):
             # Register stage 2 val dataset manually (using train data)
             DatasetCatalog.register(
                 "myotube_stage2_panoptic_val",
-                lambda: load_myotube_panoptic_json(stage2_train_json, images_dir, stage2_train_masks, panoptic_metadata)
+                lambda: load_myotube_panoptic_json(stage2_train_json, images_dir, stage2_train_masks, "myotube_stage2_panoptic_val")
             )
             MetadataCatalog.get("myotube_stage2_panoptic_val").set(
                 panoptic_root=stage2_train_masks,
@@ -405,6 +419,18 @@ def register_two_stage_datasets(
     if register_panoptic:
         print(f"   🎭 Panoptic segmentation: {len([d for d in registered_datasets if 'panoptic' in d])} datasets")
     print(f"   Classes: ['myotube'] + ['background'] for panoptic")
+
+
+def register_all_myotube(_root="myotube_batch_output"):
+    """
+    Main registration function to be called from other scripts.
+    """
+    register_two_stage_datasets(
+        dataset_root=_root, 
+        register_instance=True,
+        register_panoptic=True
+    )
+
 
 def check_dataset_structure(dataset_root):
     """Check unified dataset structure and files."""

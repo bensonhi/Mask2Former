@@ -341,8 +341,8 @@ def main():
     # Training control
     parser.add_argument("--stage", type=int, choices=[1, 2], 
                        help="Run specific stage only (default: run both)")
-    parser.add_argument("--mode", choices=["instance", "panoptic"], default="panoptic",
-                       help="Segmentation mode: instance or panoptic (default: panoptic)")
+    parser.add_argument("--mode", choices=["instance", "panoptic"], default="instance",
+                       help="Segmentation mode: instance or panoptic (default: instance)")
     parser.add_argument("--num-gpus", type=int, default=1,
                        help="Number of GPUs")
     parser.add_argument("--resume", action="store_true",

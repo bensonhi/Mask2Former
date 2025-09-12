@@ -117,15 +117,22 @@ def apply_id_mappings(data, image_id_mapping, annotation_id_mapping):
         old_id = img['id']
         img['id'] = image_id_mapping[old_id]
     
-    # Update annotation IDs and image_id references
+    # Update annotation IDs and image_id references, skip annotations without matching images
+    valid_annotations = []
     for ann in data['annotations']:
         # Update annotation ID
         old_ann_id = ann['id']
         ann['id'] = annotation_id_mapping[old_ann_id]
         
-        # Update image_id reference
+        # Update image_id reference - skip if no matching image
         old_img_id = ann['image_id']
-        ann['image_id'] = image_id_mapping[old_img_id]
+        if old_img_id in image_id_mapping:
+            ann['image_id'] = image_id_mapping[old_img_id]
+            valid_annotations.append(ann)
+        else:
+            print(f"   ⚠️  Skipping annotation {old_ann_id} - no matching image ID {old_img_id}")
+    
+    data['annotations'] = valid_annotations
     
     return data
 

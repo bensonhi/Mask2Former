@@ -104,25 +104,58 @@ class BatchMyotubeProcessor:
         self.next_image_id = 1
         self.next_annotation_id = 1
     
-    def find_image_files(self) -> List[str]:
+    def find_green_and_grey_image_pairs(self) -> Tuple[List[str], Dict[str, str]]:
         """
-        Find all supported image files in the input directory and its subdirectories.
+        Find green channel images and their corresponding grey images.
+        Only green images will be processed with the algorithm.
         
         Returns:
-            List of image file paths
+            Tuple of (green_image_files, grey_image_mapping)
+            - green_image_files: List of green channel image file paths
+            - grey_image_mapping: Dict mapping green image paths to corresponding grey image paths
         """
-        image_files = []
+        all_image_files = []
         
         for ext in self.supported_formats:
             # Recursive search pattern to include subdirectories
             pattern = os.path.join(self.input_dir, f"**/*{ext}")
-            image_files.extend(glob.glob(pattern, recursive=True))
+            all_image_files.extend(glob.glob(pattern, recursive=True))
             pattern = os.path.join(self.input_dir, f"**/*{ext.upper()}")
-            image_files.extend(glob.glob(pattern, recursive=True))
+            all_image_files.extend(glob.glob(pattern, recursive=True))
         
-        image_files = sorted(list(set(image_files)))  # Remove duplicates and sort
-        print(f"Found {len(image_files)} image files (including subdirectories)")
-        return image_files
+        all_image_files = sorted(list(set(all_image_files)))
+        
+        # Separate green and grey images
+        green_images = []
+        grey_images = []
+        
+        for img_path in all_image_files:
+            filename = os.path.basename(img_path).lower()
+            if '_green' in filename:
+                green_images.append(img_path)
+            elif '_grey' in filename:
+                grey_images.append(img_path)
+        
+        # Create mapping from green images to corresponding grey images
+        grey_mapping = {}
+        for green_path in green_images:
+            # Generate expected grey filename
+            green_filename = os.path.basename(green_path)
+            grey_filename = green_filename.replace('_green', '_grey')
+            grey_dir = os.path.dirname(green_path)
+            expected_grey_path = os.path.join(grey_dir, grey_filename)
+            
+            # Check if corresponding grey image exists
+            if expected_grey_path in grey_images:
+                grey_mapping[green_path] = expected_grey_path
+                print(f"Found pair: {os.path.basename(green_path)} ↔ {os.path.basename(expected_grey_path)}")
+            else:
+                print(f"Green only: {os.path.basename(green_path)} (no corresponding grey)")
+        
+        print(f"Found {len(green_images)} green images, {len(grey_images)} grey images")
+        print(f"Found {len(grey_mapping)} green-grey pairs")
+        
+        return green_images, grey_mapping
     
     def mask_to_polygons(self, mask: np.ndarray) -> List[List[float]]:
         """
@@ -189,17 +222,17 @@ class BatchMyotubeProcessor:
         else:
             return image
     
-    def process_single_image(self, image_path: str) -> Optional[Dict]:
+    def process_green_image(self, image_path: str) -> Optional[Dict]:
         """
-        Process a single image and return segmentation results.
+        Process a green channel image with the segmentation algorithm.
         
         Args:
-            image_path: Path to the input image
+            image_path: Path to the green channel input image
             
         Returns:
-            Dictionary containing processed image info and segmentation results
+            Dictionary containing processed image info, segmentation results, and masks for grey pairing
         """
-        print(f"Processing: {os.path.basename(image_path)}")
+        print(f"Processing green: {os.path.basename(image_path)}")
         
         try:
             # Initialize segmenter and run segmentation at optimal resolution (2000px)
@@ -243,11 +276,11 @@ class BatchMyotubeProcessor:
                 return None
             
             seg_height, seg_width = segmenter.original_image.shape[:2]
-            scale_x = processed_width / seg_width
-            scale_y = processed_height / seg_height
             
             # Process masks and create annotations
             annotations = []
+            scaled_masks = []  # Store scaled masks for grey image pairing
+            
             for mask_id, mask in enumerate(segmenter.instance_masks):
                 # Scale mask from segmentation resolution to target output resolution
                 scaled_mask = cv2.resize(
@@ -255,6 +288,8 @@ class BatchMyotubeProcessor:
                     (processed_width, processed_height), 
                     interpolation=cv2.INTER_NEAREST
                 ).astype(bool)
+                
+                scaled_masks.append(scaled_mask)
                 
                 # Convert mask to polygons (always using all_contours mode)
                 polygons = self.mask_to_polygons(scaled_mask)
@@ -297,9 +332,11 @@ class BatchMyotubeProcessor:
                     "license": 1,
                     "date_captured": datetime.datetime.now().isoformat(),
                     "original_file": os.path.basename(image_path),
-                    "myotube_count": len(segmenter.instance_masks)
+                    "myotube_count": len(segmenter.instance_masks),
+                    "channel_type": "green"
                 },
                 "annotations": annotations,
+                "scaled_masks": scaled_masks,  # For grey image pairing
                 "stats": {
                     "total_myotubes": len(segmenter.instance_masks),
                     "valid_annotations": len(annotations),
@@ -310,58 +347,193 @@ class BatchMyotubeProcessor:
             }
             
         except Exception as e:
-            print(f"Error processing {image_path}: {str(e)}")
+            print(f"Error processing green image {image_path}: {str(e)}")
+            return None
+    
+    def process_grey_image_with_masks(self, grey_image_path: str, scaled_masks: List[np.ndarray]) -> Optional[Dict]:
+        """
+        Process a grey channel image using masks from the corresponding green image.
+        
+        Args:
+            grey_image_path: Path to the grey channel input image
+            scaled_masks: List of scaled masks from the corresponding green image
+            
+        Returns:
+            Dictionary containing processed grey image info and annotations
+        """
+        print(f"Processing grey: {os.path.basename(grey_image_path)}")
+        
+        try:
+            # Load the grey image for output
+            original_image = cv2.imread(grey_image_path)
+            if original_image is None:
+                print(f"Warning: Could not load grey image {grey_image_path}")
+                return None
+            
+            # Scale grey image to target output resolution
+            processed_image = self.resize_image_to_target(original_image, self.target_resolution)
+            
+            # Generate unique output filename for grey image
+            relative_path = os.path.relpath(grey_image_path, self.input_dir)
+            relative_dir = os.path.dirname(relative_path)
+            base_name = os.path.splitext(os.path.basename(grey_image_path))[0]
+            
+            # Create unique filename that includes subdirectory info
+            if relative_dir and relative_dir != '.':
+                # Replace path separators with underscores to create flat filename
+                safe_dir = relative_dir.replace(os.sep, '_').replace(' ', '_')
+                output_filename = f"{safe_dir}_{base_name}_processed.png"
+            else:
+                output_filename = f"{base_name}_processed.png"
+            
+            output_path = os.path.join(self.images_dir, output_filename)
+            
+            # Save processed grey image
+            cv2.imwrite(output_path, processed_image)
+            
+            # Get processed image dimensions
+            processed_height, processed_width = processed_image.shape[:2]
+            
+            # Create annotations using the same masks from green image
+            annotations = []
+            
+            for mask_id, scaled_mask in enumerate(scaled_masks):
+                # Convert mask to polygons (same as green image processing)
+                polygons = self.mask_to_polygons(scaled_mask)
+                
+                if not polygons:
+                    print(f"Warning: No polygons found for mask {mask_id + 1} in grey {output_filename}")
+                    continue
+                
+                # Calculate area and bounding box
+                area = float(np.sum(scaled_mask))
+                y_indices, x_indices = np.where(scaled_mask)
+                
+                if len(x_indices) == 0 or len(y_indices) == 0:
+                    continue
+                
+                x_min, x_max = int(np.min(x_indices)), int(np.max(x_indices))
+                y_min, y_max = int(np.min(y_indices)), int(np.max(y_indices))
+                bbox = [x_min, y_min, x_max - x_min + 1, y_max - y_min + 1]
+                
+                # Create annotation (same segmentation as green image)
+                annotation = {
+                    "id": self.next_annotation_id,
+                    "image_id": self.next_image_id,
+                    "category_id": 1,
+                    "segmentation": polygons,
+                    "area": area,
+                    "bbox": bbox,
+                    "iscrowd": 0
+                }
+                
+                annotations.append(annotation)
+                self.next_annotation_id += 1
+            
+            return {
+                "image_info": {
+                    "id": self.next_image_id,
+                    "width": processed_width,
+                    "height": processed_height,
+                    "file_name": output_filename,
+                    "license": 1,
+                    "date_captured": datetime.datetime.now().isoformat(),
+                    "original_file": os.path.basename(grey_image_path),
+                    "myotube_count": len(scaled_masks),
+                    "channel_type": "grey"
+                },
+                "annotations": annotations,
+                "stats": {
+                    "total_myotubes": len(scaled_masks),
+                    "valid_annotations": len(annotations),
+                    "total_polygon_parts": sum(len(ann["segmentation"]) for ann in annotations),
+                    "output_resolution": f"{processed_width}x{processed_height}",
+                    "paired_with_green": True
+                }
+            }
+            
+        except Exception as e:
+            print(f"Error processing grey image {grey_image_path}: {str(e)}")
             return None
     
     def process_batch(self) -> None:
         """
-        Process all images in the input directory and create COCO dataset.
-        Always uses all_contours mode for complete structural preservation.
+        Process green channel images with algorithm and pair with grey channels.
+        Green images are processed with segmentation algorithm, grey images get same labels.
         """
         print("Starting batch processing...")
         print(f"Input directory: {self.input_dir} (including subdirectories)")
         print(f"Output directory: {self.output_dir} (flat structure)")
         print(f"Segmentation resolution: {self.segmentation_resolution}px (optimal tuned parameters)")
         print(f"Output resolution: {self.target_resolution}px (training/inference resolution)")
-        print(f"Polygon mode: all_contours (preserves complete myotube structure)")
+        print(f"Processing mode: Green algorithm + Grey pairing")
         print("="*60)
         
-        # Find all image files
-        image_files = self.find_image_files()
+        # Find green images and their grey pairs
+        green_images, grey_mapping = self.find_green_and_grey_image_pairs()
         
-        if not image_files:
-            print("No image files found in the input directory!")
+        if not green_images:
+            print("No green channel images found in the input directory!")
             return
         
-        # Process each image
+        # Process each green image and its corresponding grey image
         total_myotubes = 0
         total_annotations = 0
         total_polygon_parts = 0
         successful_images = 0
+        green_processed = 0
+        grey_processed = 0
         
-        for image_path in tqdm(image_files, desc="Processing images"):
-            result = self.process_single_image(image_path)
+        for green_path in tqdm(green_images, desc="Processing green-grey pairs"):
+            # Process green image with algorithm
+            green_result = self.process_green_image(green_path)
             
-            if result is not None:
-                # Add image info to COCO data
-                self.coco_data["images"].append(result["image_info"])
-                
-                # Add annotations to COCO data
-                self.coco_data["annotations"].extend(result["annotations"])
+            if green_result is not None:
+                # Add green image info to COCO data
+                self.coco_data["images"].append(green_result["image_info"])
+                self.coco_data["annotations"].extend(green_result["annotations"])
                 
                 # Update statistics
-                total_myotubes += result["stats"]["total_myotubes"]
-                total_annotations += result["stats"]["valid_annotations"]
-                total_polygon_parts += result["stats"]["total_polygon_parts"]
+                total_myotubes += green_result["stats"]["total_myotubes"]
+                total_annotations += green_result["stats"]["valid_annotations"]
+                total_polygon_parts += green_result["stats"]["total_polygon_parts"]
                 successful_images += 1
+                green_processed += 1
+                
+                print(f"  ✓ GREEN: {green_result['stats']['total_myotubes']} myotubes, "
+                      f"{green_result['stats']['valid_annotations']} annotations")
                 
                 # Move to next image ID
                 self.next_image_id += 1
                 
-                print(f"  ✓ {result['stats']['total_myotubes']} myotubes, "
-                      f"{result['stats']['valid_annotations']} annotations, "
-                      f"{result['stats']['total_polygon_parts']} polygon parts, "
-                      f"seg: {result['stats']['segmentation_resolution']} → out: {result['stats']['output_resolution']}")
+                # Process corresponding grey image if it exists
+                if green_path in grey_mapping:
+                    grey_path = grey_mapping[green_path]
+                    grey_result = self.process_grey_image_with_masks(grey_path, green_result["scaled_masks"])
+                    
+                    if grey_result is not None:
+                        # Add grey image info to COCO data
+                        self.coco_data["images"].append(grey_result["image_info"])
+                        self.coco_data["annotations"].extend(grey_result["annotations"])
+                        
+                        # Update statistics
+                        total_myotubes += grey_result["stats"]["total_myotubes"]
+                        total_annotations += grey_result["stats"]["valid_annotations"]
+                        total_polygon_parts += grey_result["stats"]["total_polygon_parts"]
+                        successful_images += 1
+                        grey_processed += 1
+                        
+                        print(f"  ✓ GREY:  {grey_result['stats']['total_myotubes']} myotubes, "
+                              f"{grey_result['stats']['valid_annotations']} annotations (same masks)")
+                        
+                        # Move to next image ID
+                        self.next_image_id += 1
+                    else:
+                        print(f"  ✗ Failed to process grey image: {os.path.basename(grey_path)}")
+                else:
+                    print(f"  • No corresponding grey image found")
+            else:
+                print(f"  ✗ Failed to process green image: {os.path.basename(green_path)}")
         
         # Save COCO format file
         print(f"\nSaving COCO dataset to: {self.coco_file_path}")
@@ -376,21 +548,24 @@ class BatchMyotubeProcessor:
         print("\n" + "="*60)
         print("BATCH PROCESSING COMPLETE")
         print("="*60)
-        print(f"Processed images: {successful_images}/{len(image_files)}")
+        print(f"Green images processed: {green_processed}/{len(green_images)}")
+        print(f"Grey images processed: {grey_processed}/{len(grey_mapping)}")
+        print(f"Total processed images: {successful_images}")
         print(f"Total myotubes detected: {total_myotubes}")
         print(f"Total annotations created: {total_annotations}")
         print(f"Total polygon parts: {total_polygon_parts}")
-        print(f"Average polygon parts per myotube: {total_polygon_parts/total_myotubes:.1f}")
+        if total_myotubes > 0:
+            print(f"Average polygon parts per myotube: {total_polygon_parts/total_myotubes:.1f}")
         print(f"Images saved to: {self.images_dir}")
         print(f"COCO annotations saved to: {self.coco_file_path}")
         print(f"Segmentation resolution: {self.segmentation_resolution}px (processing)")
         print(f"Output resolution: {self.target_resolution}px (images & annotations)")
         
-        print("\n✅ Complete structural preservation mode")
-        print("   • All contour parts included for each myotube")
-        print("   • Preserves complex shapes, holes, and branching")
-        print("   • Optimal for training deep learning models")
-        print("   • May create multiple polygon parts per myotube")
+        print("\n✅ Green-Grey Pairing Mode")
+        print("   • Green images processed with segmentation algorithm")
+        print("   • Grey images get identical labels from paired green images")
+        print("   • Both channels available for training multi-channel models")
+        print("   • Same segmentation masks applied to both channels")
 
 
     def create_train_test_split(self, train_ratio: float = 0.9, random_seed: int = 42) -> None:

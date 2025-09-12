@@ -1501,7 +1501,7 @@ def main():
         pass
     
     parser = argparse.ArgumentParser(description="Myotube Instance Segmentation for Fiji")
-    parser.add_argument("input_image", help="Path to input image")
+    parser.add_argument("input_path", help="Path to input image or directory containing images")
     parser.add_argument("output_dir", help="Output directory for results")
     parser.add_argument("--config", help="Path to model config file")
     parser.add_argument("--weights", help="Path to model weights")
@@ -1546,51 +1546,89 @@ def main():
     else:
         print("📏 Using training resolution (1500px) for best accuracy")
     
-    # Process image
+    # Process image(s)
     try:
-        output_files = integration.segment_image(
-            args.input_image, 
-            args.output_dir, 
-            custom_config
-        )
+        # Check if input is a directory or single image
+        if os.path.isdir(args.input_path):
+            # Batch processing mode
+            print(f"📁 Batch processing mode: {args.input_path}")
+            
+            # Find all image files in directory
+            image_extensions = ['.png', '.jpg', '.jpeg', '.tiff', '.tif', '.bmp']
+            image_files = []
+            for ext in image_extensions:
+                image_files.extend(Path(args.input_path).glob(f"*{ext}"))
+                image_files.extend(Path(args.input_path).glob(f"*{ext.upper()}"))
+            
+            if not image_files:
+                print(f"❌ No image files found in directory: {args.input_path}")
+                print(f"   Supported formats: {', '.join(image_extensions)}")
+                sys.exit(1)
+            
+            print(f"📊 Found {len(image_files)} image files to process")
+            
+            # Process each image
+            total_myotubes = 0
+            successful_images = 0
+            failed_images = 0
+            
+            for i, image_path in enumerate(sorted(image_files), 1):
+                print(f"\n{'='*60}")
+                print(f"🖼️  Processing image {i}/{len(image_files)}: {image_path.name}")
+                print(f"{'='*60}")
+                
+                try:
+                    # Create subdirectory for each image's output
+                    image_output_dir = os.path.join(args.output_dir, image_path.stem)
+                    
+                    output_files = integration.segment_image(
+                        str(image_path),
+                        image_output_dir,
+                        custom_config
+                    )
+                    
+                    myotube_count = output_files['count']
+                    total_myotubes += myotube_count
+                    successful_images += 1
+                    
+                    print(f"✅ {image_path.name}: {myotube_count} myotubes detected")
+                    
+                except Exception as e:
+                    print(f"❌ Failed to process {image_path.name}: {e}")
+                    failed_images += 1
+                    continue
+            
+            # Create batch summary
+            print(f"\n{'='*60}")
+            print(f"🎉 BATCH PROCESSING COMPLETED!")
+            print(f"{'='*60}")
+            print(f"📊 Total images processed: {successful_images}/{len(image_files)}")
+            print(f"📊 Failed images: {failed_images}")
+            print(f"📊 Total myotubes detected: {total_myotubes}")
+            print(f"📁 Output directory: {args.output_dir}")
+            print(f"{'='*60}")
+            
+            # Write batch summary file
+            summary_file = os.path.join(args.output_dir, "BATCH_SUCCESS")
+            with open(summary_file, 'w', encoding='utf-8') as f:
+                f.write(f"{successful_images}/{len(image_files)} images processed\n")
+                f.write(f"{total_myotubes} total myotubes detected\n")
+                f.write(f"{failed_images} failed images\n")
+            
+            output_files = {
+                'count': total_myotubes,
+                'processed_images': successful_images,
+                'failed_images': failed_images,
+                'total_images': len(image_files)
+            }
+            
+        else:
+            print(f"❌ Input path must be a directory containing images: {args.input_path}")
+            sys.exit(1)
         
-        print("\n" + "="*60)
-        print("🎉 MYOTUBE SEGMENTATION COMPLETED!")
-        print("="*60)
-        print(f"📊 Results: {output_files['count']} myotubes detected")
-        print(f"📁 Output files:")
-        for key, path in output_files.items():
-            if key not in ['count', 'raw_count', 'processed_count']:
-                print(f"   {key}: {os.path.basename(path)}")
-        print("="*60)
-        
-        # Signal success to ImageJ macro (format expected by Fiji macro)
-        success_file = os.path.join(args.output_dir, "SUCCESS")
-        
-        # Use ultra-short format for ImageJ line length limits (5-char chunks!)
-        base_dir = output_files['masks_dir']
-        
-        # Debug: Print what we're about to write
-        print(f"📝 Writing SUCCESS file: {success_file}")
-        print(f"   DIR:{base_dir}")
-        print(f"   COUNT:{output_files['count']}")
-        print(f"   Using SIMPLE format: just the number!")
-        
-        # BYPASS broken File.openAsString() - just write the count!
-        # Fiji will search for ROI files in the known output directory
-        with open(success_file, 'w', encoding='utf-8') as f:
-            f.write(str(output_files['count']))  # Just the number, nothing else!
-        
-        # Debug: Verify what was written
-        try:
-            with open(success_file, 'r', encoding='utf-8') as f:
-                content = f.read()
-                print(f"📄 SUCCESS file content ({len(content)} chars):")
-                lines = content.split('\n')
-                for i, line in enumerate(lines):
-                    print(f"     Line {i}: '{line}'")
-        except Exception as e:
-            print(f"❌ Error reading SUCCESS file: {e}")
+        # Signal success to ImageJ macro
+        success_file = os.path.join(args.output_dir, "BATCH_SUCCESS")
+        print(f"📝 Batch processing completed. Summary written to: {success_file}")
         
     except Exception as e:
         print(f"\n❌ ERROR: {e}")

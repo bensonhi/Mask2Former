@@ -18,10 +18,10 @@
  * 3. This macro file in Fiji plugins or macros folder
  * 
  * Usage:
- * 1. Open an image in Fiji
- * 2. Run "Segment Myotubes" macro (or press 'M' shortcut)
- * 3. Wait for processing (progress shown in status bar)
- * 4. View results as individual mask overlays
+ * 1. Run "Segment Myotubes" macro (or press 'M' shortcut)
+ * 2. Select folder containing images to process
+ * 3. Wait for batch processing (progress shown in status bar)
+ * 4. Browse results in automatically opened output directory
  */
 
 // Configuration - Update these paths for your system
@@ -35,7 +35,7 @@ var MODEL_WEIGHTS = "";  // Auto-detected
 // Processing parameters (can be adjusted by users)
 var CONFIDENCE_THRESHOLD = 0.25;
 var MIN_AREA = 100;
-var MAX_AREA = float("inf");
+var MAX_AREA = 999999;  // Large number representing infinity
 var USE_CPU = false;  // Set to true to force CPU inference (slower but less memory)
 var MAX_IMAGE_SIZE = 2048;  // Maximum image dimension (larger images will be resized)
 var FORCE_SMALL_INPUT = false;  // Set to true to force 1024px input (memory optimization, may reduce accuracy)
@@ -104,56 +104,31 @@ function segmentMyotubes() {
         return;
     }
     
-    // Check if image is open
-    if (nImages == 0) {
-        showMessage("No Image", "Please open an image first.");
+    // Ask user to select input directory
+    input_dir = getDirectory("Select folder containing images to process");
+    if (input_dir == "") {
+        print("❌ No input directory selected");
         return;
     }
     
-    // Get current image info
-    original_title = getTitle();
-    original_id = getImageID();
-    
     print("\\Clear");  // Clear log
-    print("=== Myotube Segmentation Started ===");
-    print("Image: " + original_title);
+    print("=== Batch Myotube Segmentation Started ===");
+    print("Input directory: " + input_dir);
     print("Time: " + getTime());
     
     // Setup directories
     setupDirectories();
     
-    // Save current image to temporary location with safe filename
-    // Create safe filename (remove spaces and special characters)
-    safe_name = replace(original_title, " ", "_");
-    safe_name = replace(safe_name, "-", "_");
-    safe_name = replace(safe_name, "(", "_");
-    safe_name = replace(safe_name, ")", "_");
-    safe_name = replace(safe_name, "[", "_");
-    safe_name = replace(safe_name, "]", "_");
-    
-    // Remove any existing "input_" prefix to prevent accumulation
-    while (startsWith(safe_name, "input_")) {
-        safe_name = substring(safe_name, 6);
-    }
-    
-    temp_input = TEMP_DIR + File.separator + "input_" + safe_name;
-    if (endsWith(temp_input, ".tif") == false) {
-        temp_input = temp_input + ".tif";
-    }
-    
-    print("Saving input image: " + temp_input);
-    saveAs("Tiff", temp_input);
-    
     // Show progress
     showProgress(0.1);
-    showStatus("Running myotube segmentation...");
+    showStatus("Running batch myotube segmentation...");
     
-    // Construct Python command
-    python_cmd = buildPythonCommand(temp_input);
+    // Construct Python command for batch processing
+    python_cmd = buildBatchPythonCommand(input_dir);
     print("Command: " + python_cmd);
     
     // Execute segmentation
-    print("Executing segmentation...");
+    print("Executing batch segmentation...");
     start_time = getTime();
     
     // Use eval to execute the command (platform independent)
@@ -175,42 +150,37 @@ function segmentMyotubes() {
     }
     
     showProgress(0.8);
-    showStatus("Loading results...");
+    showStatus("Loading batch results...");
     
     // Check for success/error
-    success_file = OUTPUT_DIR + File.separator + "SUCCESS";
+    success_file = OUTPUT_DIR + File.separator + "BATCH_SUCCESS";
     error_file = OUTPUT_DIR + File.separator + "ERROR";
     
     if (File.exists(success_file)) {
-        // Success - load results
-        loadResults(success_file);
-        print("✅ Segmentation completed successfully in " + processing_time + " seconds");
-        showStatus("Myotube segmentation completed successfully!");
+        // Success - load batch results
+        loadBatchResults(success_file);
+        print("✅ Batch segmentation completed successfully in " + processing_time + " seconds");
+        showStatus("Batch myotube segmentation completed successfully!");
     } else if (File.exists(error_file)) {
         // Error occurred
         error_message = File.openAsString(error_file);
-        print("❌ Segmentation failed:");
+        print("❌ Batch segmentation failed:");
         print(error_message);
-        showMessage("Segmentation Failed", 
-                   "An error occurred during segmentation:\\n\\n" + error_message);
-        showStatus("Segmentation failed - check log for details");
+        showMessage("Batch Segmentation Failed", 
+                   "An error occurred during batch segmentation:\\n\\n" + error_message);
+        showStatus("Batch segmentation failed - check log for details");
     } else {
         // Unknown state
         print("⚠️  No success or error file found - unknown status");
         showMessage("Unknown Status", 
-                   "Segmentation completed but status is unclear.\\n" +
+                   "Batch segmentation completed but status is unclear.\\n" +
                    "Check the output directory: " + OUTPUT_DIR);
-        showStatus("Segmentation status unknown");
+        showStatus("Batch segmentation status unknown");
     }
     
     showProgress(1.0);
     
-    // Cleanup temporary files
-    if (File.exists(temp_input)) {
-        File.delete(temp_input);
-    }
-    
-    print("=== Segmentation Complete ===\\n");
+    print("=== Batch Segmentation Complete ===\\n");
 }
 
 /*
@@ -375,6 +345,91 @@ function buildPythonCommand(input_image) {
     }
     
     return full_cmd;
+}
+
+/*
+ * Build Python command for batch processing
+ */
+function buildBatchPythonCommand(input_dir) {
+    // Build the Python script command for batch processing
+    python_script_cmd = PYTHON_COMMAND + " \"" + SCRIPT_PATH + "\"";
+    python_script_cmd = python_script_cmd + " \"" + input_dir + "\"";
+    python_script_cmd = python_script_cmd + " \"" + OUTPUT_DIR + "\"";
+    python_script_cmd = python_script_cmd + " --confidence " + CONFIDENCE_THRESHOLD;
+    python_script_cmd = python_script_cmd + " --min-area " + MIN_AREA;
+    python_script_cmd = python_script_cmd + " --max-area " + MAX_AREA;
+    
+    if (FORCE_SMALL_INPUT) {
+        python_script_cmd = python_script_cmd + " --force-1024";
+    } else {
+        python_script_cmd = python_script_cmd + " --max-image-size " + MAX_IMAGE_SIZE;
+    }
+    
+    if (USE_CPU) {
+        python_script_cmd = python_script_cmd + " --cpu";
+    }
+    
+    if (CONFIG_FILE != "") {
+        python_script_cmd = python_script_cmd + " --config \"" + CONFIG_FILE + "\"";
+    }
+    if (MODEL_WEIGHTS != "") {
+        python_script_cmd = python_script_cmd + " --weights \"" + MODEL_WEIGHTS + "\"";
+    }
+    
+    // Wrap with conda activation and environment variable
+    env_var = "MASK2FORMER_PATH=" + MASK2FORMER_PATH;
+    
+    if (startsWith(getInfo("os.name"), "Windows")) {
+        // Windows conda activation
+        full_cmd = "conda activate " + CONDA_ENV + " && set " + env_var + " && " + python_script_cmd;
+    } else {
+        // Unix/Mac conda activation
+        full_cmd = "source $(conda info --base)/etc/profile.d/conda.sh && conda activate " + CONDA_ENV + " && export " + env_var + " && " + python_script_cmd;
+    }
+    
+    return full_cmd;
+}
+
+/*
+ * Load batch segmentation results
+ */
+function loadBatchResults(success_file) {
+    // Read batch summary
+    success_content = File.openAsString(success_file);
+    lines = split(success_content, "\\n");
+    
+    processed_info = lines[0];  // e.g., "5/10 images processed"
+    total_myotubes = lines[1];  // e.g., "150 total myotubes detected"
+    failed_info = lines[2];     // e.g., "2 failed images"
+    
+    print("📊 Batch Results:");
+    print("   " + processed_info);
+    print("   " + total_myotubes); 
+    print("   " + failed_info);
+    
+    // Parse numbers for dialog
+    processed_parts = split(processed_info, "/");
+    successful_count = parseInt(processed_parts[0]);
+    total_count = parseInt(split(processed_parts[1], " ")[0]);
+    
+    myotube_parts = split(total_myotubes, " ");
+    myotube_count = parseInt(myotube_parts[0]);
+    
+    // Show batch summary dialog
+    showBatchSummaryDialog(successful_count, total_count, myotube_count);
+    
+    // Open output directory for user to browse results
+    if (File.exists(OUTPUT_DIR)) {
+        print("📁 Opening output directory: " + OUTPUT_DIR);
+        if (startsWith(getInfo("os.name"), "Windows")) {
+            exec("cmd", "/c", "explorer \"" + OUTPUT_DIR + "\"");
+        } else if (startsWith(getInfo("os.name"), "Mac")) {
+            exec("open", OUTPUT_DIR);
+        } else {
+            // Linux - try xdg-open
+            exec("xdg-open", OUTPUT_DIR);
+        }
+    }
 }
 
 /*
@@ -601,6 +656,32 @@ function showSummaryDialog(num_instances) {
     }
     
     showMessage("Segmentation Complete", message);
+}
+
+/*
+ * Show batch processing summary dialog
+ */
+function showBatchSummaryDialog(successful_count, total_count, myotube_count) {
+    message = "Batch Processing Results:\\n\\n";
+    message = message + "📁 Images processed: " + successful_count + "/" + total_count + "\\n";
+    if (total_count - successful_count > 0) {
+        message = message + "❌ Failed images: " + (total_count - successful_count) + "\\n";
+    }
+    message = message + "🔬 Total myotubes detected: " + myotube_count + "\\n\\n";
+    
+    if (myotube_count > 0) {
+        message = message + "Results are saved in separate folders for each image.\\n\\n";
+        message = message + "Next steps:\\n";
+        message = message + "• Browse output directory (opened automatically)\\n";
+        message = message + "• Review individual image results\\n";
+        message = message + "• Check mask images and overlays\\n";
+        message = message + "• Analyze CSV measurements\\n";
+    } else {
+        message = message + "No myotubes detected in any images.\\n";
+        message = message + "Try adjusting parameters or check image quality.";
+    }
+    
+    showMessage("Batch Processing Complete", message);
 }
 
 /*
