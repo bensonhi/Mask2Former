@@ -33,9 +33,9 @@ var CONFIG_FILE = "";  // Auto-detected
 var MODEL_WEIGHTS = "";  // Auto-detected
 
 // Processing parameters (can be adjusted by users)
-var CONFIDENCE_THRESHOLD = 0.5;
+var CONFIDENCE_THRESHOLD = 0.25;
 var MIN_AREA = 100;
-var MAX_AREA = 50000;
+var MAX_AREA = float("inf");
 var USE_CPU = false;  // Set to true to force CPU inference (slower but less memory)
 var MAX_IMAGE_SIZE = 2048;  // Maximum image dimension (larger images will be resized)
 var FORCE_SMALL_INPUT = false;  // Set to true to force 1024px input (memory optimization, may reduce accuracy)
@@ -393,7 +393,8 @@ function loadResults(success_file) {
     print("🔍 Looking for files in: " + base_dir);
     
     roi_file = "";
-    overlay_file = "";
+    raw_overlay_file = "";
+    processed_overlay_file = "";
     
     // Find masks directory and overlay files in the output directory
     masks_dir = "";
@@ -407,16 +408,20 @@ function loadResults(success_file) {
             if (endsWith(filename, "_masks") && File.isDirectory(base_dir + File.separator + filename)) {
                 masks_dir = base_dir + File.separator + filename;
                 print("🔍 Found masks directory: '" + masks_dir + "'");
-            } else if (endsWith(filename, "_overlay.tif")) {
-                overlay_file = base_dir + File.separator + filename;
-                print("🔍 Found overlay file: '" + overlay_file + "'");
+            } else if (endsWith(filename, "_raw_overlay.tif")) {
+                raw_overlay_file = base_dir + File.separator + filename;
+                print("🔍 Found raw overlay file: '" + raw_overlay_file + "'");
+            } else if (endsWith(filename, "_processed_overlay.tif")) {
+                processed_overlay_file = base_dir + File.separator + filename;
+                print("🔍 Found processed overlay file: '" + processed_overlay_file + "'");
             }
         }
     }
     
     print("Loading results:");
     print("  Masks directory: " + masks_dir);
-    print("  Overlay file: " + overlay_file);
+    print("  Raw overlay file: " + raw_overlay_file);
+    print("  Processed overlay file: " + processed_overlay_file);
     print("  Instances: " + num_instances);
     
     // Load individual mask images
@@ -427,10 +432,15 @@ function loadResults(success_file) {
         mask_files = getFileList(masks_dir);
         print("🔍 Found " + mask_files.length + " files in masks directory");
         
-        // Open overlay image first
-        if (File.exists(overlay_file)) {
-            open(overlay_file);
-            print("✅ Opened overlay image: " + overlay_file);
+        // Open both overlay images
+        if (File.exists(raw_overlay_file)) {
+            open(raw_overlay_file);
+            print("✅ Opened raw overlay image: " + raw_overlay_file);
+        }
+        
+        if (File.exists(processed_overlay_file)) {
+            open(processed_overlay_file);
+            print("✅ Opened processed overlay image: " + processed_overlay_file);
         }
         
         // Load new ROIs
@@ -455,12 +465,8 @@ function loadResults(success_file) {
         print("   Instances: " + num_instances);
     }
     
-    // Additional overlay image processing
-    if (File.exists(overlay_file) && nImages > 0) {
-        overlay_title = getTitle();
-        print("✅ Opened overlay image: " + overlay_title);
-        
-        // Arrange windows nicely
+    // Arrange windows nicely if we have overlay images
+    if (nImages > 0) {
         arrangeWindows();
     }
     
@@ -476,18 +482,35 @@ function arrangeWindows() {
     screen_width = screenWidth;
     screen_height = screenHeight;
     
-    // If we have multiple images, arrange them side by side
-    if (nImages >= 2) {
+    // Arrange windows based on number of open images
+    if (nImages == 1) {
+        // Single image - center it
+        window_width = screen_width - 100;
+        window_height = screen_height - 200;
+        selectWindow(1);
+        setLocation(50, 50, window_width, window_height);
+    } else if (nImages == 2) {
+        // Two images (raw + processed overlays) - side by side
         window_width = screen_width / 2 - 50;
         window_height = screen_height - 200;
         
-        // Select and position original image
         selectWindow(1);
+        rename("Raw Overlay (All Detections)");
         setLocation(10, 10, window_width, window_height);
         
-        // Select and position overlay
         selectWindow(2);
+        rename("Processed Overlay (Filtered Results)");
         setLocation(window_width + 30, 10, window_width, window_height);
+    } else if (nImages >= 3) {
+        // Three or more images - arrange in grid
+        window_width = screen_width / 3 - 30;
+        window_height = screen_height - 200;
+        
+        for (i = 1; i <= nImages && i <= 3; i++) {
+            selectWindow(i);
+            x_pos = (i - 1) * (window_width + 20) + 10;
+            setLocation(x_pos, 10, window_width, window_height);
+        }
     }
     
     // Show ROI Manager if it has ROIs

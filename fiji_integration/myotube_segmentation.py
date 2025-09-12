@@ -121,16 +121,19 @@ class PostProcessingPipeline:
         }
     
     def _setup_default_pipeline(self):
-        """Setup default post-processing steps - ALL DISABLED FOR DEBUGGING."""
-        print("⚠️ ALL POST-PROCESSING DISABLED - Using raw model output")
-        # All steps commented out to see raw model predictions:
-        # self.add_step('filter_by_confidence', self._filter_by_confidence)
-        # self.add_step('filter_by_area', self._filter_by_area)
-        # self.add_step('filter_by_aspect_ratio', self._filter_by_aspect_ratio)
+        """Setup default post-processing steps."""
+        print("🔧 Setting up post-processing pipeline with essential filters")
+        # Enable core filtering steps to respect user parameters
+        self.add_step('filter_by_confidence', self._filter_by_confidence)
+        self.add_step('filter_by_area', self._filter_by_area)
+        self.add_step('merge_overlapping', self._merge_overlapping_instances)
+        self.add_step('eliminate_contained_components', self._eliminate_contained_components)
+        self.add_step('resolve_overlaps', self._resolve_overlapping_pixels)
+
+        # Keep advanced processing disabled to avoid web artifacts
         # self.add_step('fill_holes', self._fill_holes)
         # self.add_step('smooth_boundaries', self._smooth_boundaries)
         # self.add_step('remove_edge_instances', self._remove_edge_instances)
-        # self.add_step('merge_overlapping', self._merge_overlapping_instances)
     
     def add_step(self, name: str, function: callable, position: int = -1):
         """
@@ -238,8 +241,20 @@ class PostProcessingPipeline:
         if not self.config.get('confidence_threshold'):
             return instances
             
+        if len(instances['masks']) == 0:
+            return instances
+            
         threshold = self.config['confidence_threshold']
         keep = instances['scores'] >= threshold
+        
+        if not keep.any():
+            # Return empty instances with proper shapes
+            return {
+                'masks': np.array([]).reshape(0, *instances['image_shape']),
+                'scores': np.array([]),
+                'boxes': np.array([]).reshape(0, 4),
+                'image_shape': instances['image_shape']
+            }
         
         return {
             'masks': instances['masks'][keep],
@@ -253,46 +268,18 @@ class PostProcessingPipeline:
         min_area = self.config.get('min_area', 0)
         max_area = self.config.get('max_area', float('inf'))
         
+        if len(instances['masks']) == 0:
+            return instances
+        
         areas = np.array([mask.sum() for mask in instances['masks']])
         keep = (areas >= min_area) & (areas <= max_area)
         
-        return {
-            'masks': instances['masks'][keep],
-            'scores': instances['scores'][keep],
-            'boxes': instances['boxes'][keep],
-            'image_shape': instances['image_shape']
-        }
-    
-    def _filter_by_aspect_ratio(self, instances: Dict[str, Any], image: np.ndarray) -> Dict[str, Any]:
-        """Filter instances by aspect ratio (length/width)."""
-        min_ratio = self.config.get('min_aspect_ratio', 0)
-        if min_ratio <= 0:
-            return instances
-        
-        keep_indices = []
-        for i, mask in enumerate(instances['masks']):
-            # Calculate bounding box aspect ratio
-            box = instances['boxes'][i]
-            width = box[2] - box[0]
-            height = box[3] - box[1]
-            
-            # Skip invalid boxes (zero width or height)
-            if width <= 0 or height <= 0:
-                print(f"      ⚠️  Skipping instance {i} with invalid box: width={width}, height={height}")
-                continue
-                
-            aspect_ratio = max(width, height) / min(width, height)
-            
-            if aspect_ratio >= min_ratio:
-                keep_indices.append(i)
-        
-        keep = np.array(keep_indices)
-        if len(keep) == 0:
-            # Return empty instances
+        if not keep.any():
+            # Return empty instances with proper shapes
             return {
-                'masks': np.array([]),
+                'masks': np.array([]).reshape(0, *instances['image_shape']),
                 'scores': np.array([]),
-                'boxes': np.array([]),
+                'boxes': np.array([]).reshape(0, 4),
                 'image_shape': instances['image_shape']
             }
         
@@ -404,14 +391,12 @@ class PostProcessingPipeline:
         }
     
     def _merge_overlapping_instances(self, instances: Dict[str, Any], image: np.ndarray) -> Dict[str, Any]:
-        """Merge overlapping instances - DISABLED to prevent over-merging myotubes."""
-        print(f"      ⚠️ Skipping instance merging to preserve individual myotubes")
-        return instances
+        """Merge overlapping instances based on IoU threshold."""
+        merge_threshold = self.config.get('merge_threshold', 0.8)
+        if merge_threshold >= 1.0 or len(instances['masks']) <= 1:
+            return instances
         
-        # Original merging code disabled to prevent combining separate myotubes:
-        # merge_threshold = self.config.get('merge_threshold', 0.8)
-        # if merge_threshold >= 1.0 or len(instances['masks']) <= 1:
-        #     return instances
+        print(f"      🔗 Merging instances with IoU >= {merge_threshold}")
         
         # Calculate IoU matrix
         masks = instances['masks']
@@ -449,6 +434,7 @@ class PostProcessingPipeline:
         merged_scores = []
         merged_boxes = []
         
+        merges_performed = 0
         for group in merged_groups:
             if len(group) == 1:
                 # Single instance, keep as is
@@ -473,6 +459,9 @@ class PostProcessingPipeline:
                 merged_masks.append(combined_mask)
                 merged_scores.append(max_score)
                 merged_boxes.append(merged_box)
+                merges_performed += 1
+        
+        print(f"         Merged {merges_performed} groups: {n} → {len(merged_masks)} instances")
         
         return {
             'masks': np.array(merged_masks),
@@ -480,6 +469,281 @@ class PostProcessingPipeline:
             'boxes': np.array(merged_boxes),
             'image_shape': instances['image_shape']
         }
+    
+    def _eliminate_contained_components(self, instances: Dict[str, Any], image: np.ndarray) -> Dict[str, Any]:
+        """
+        Iteratively eliminate connected components that are completely contained within components of other instances.
+        Works at the connected component level, not whole instance level.
+        Continues until no more reassignments are possible.
+        """
+        if len(instances['masks']) <= 1:
+            return instances
+        
+        from scipy import ndimage
+        
+        print(f"      🔍 Iteratively analyzing connected components across {len(instances['masks'])} instances")
+        
+        current_instances = {
+            'masks': instances['masks'].copy(),
+            'scores': instances['scores'].copy(),
+            'boxes': instances['boxes'].copy(),
+            'image_shape': instances['image_shape']
+        }
+        
+        iteration = 0
+        total_reassignments = 0
+        total_eliminations = 0
+        
+        while iteration < 10:  # Safety limit to prevent infinite loops
+            iteration += 1
+            print(f"         Iteration {iteration}: analyzing {len(current_instances['masks'])} instances")
+            
+            masks = current_instances['masks']
+            scores = current_instances['scores']
+            boxes = current_instances['boxes']
+            n = len(masks)
+            
+            # Extract ALL connected components from each instance (no early exit optimization)
+            all_components = []  # List of (instance_idx, component_idx, component_mask)
+            
+            for i, mask in enumerate(masks):
+                mask_area = mask.sum()
+                if mask_area == 0:
+                    continue
+                    
+                # OPTIMIZATION: Quick check for very small masks
+                if mask_area < 50:
+                    all_components.append((i, 0, mask.astype(bool)))
+                    continue
+                
+                # Find connected components in this instance
+                labeled_mask, num_components = ndimage.label(mask.astype(bool))
+                
+                for comp_idx in range(1, num_components + 1):
+                    component_mask = (labeled_mask == comp_idx)
+                    all_components.append((i, comp_idx - 1, component_mask))
+            
+            if len(all_components) <= 1:
+                print(f"         No components to process - stopping")
+                break
+                
+            print(f"         Found {len(all_components)} components across {n} instances")
+            
+            # Track component reassignments for this iteration
+            reassignments = {}
+            
+            # OPTIMIZATION: Pre-filter using bounding box overlap
+            component_info = []  # [(instance, component_idx, mask, area, bbox)]
+            for src_inst, src_comp_idx, src_mask in all_components:
+                src_area = src_mask.sum()
+                if src_area == 0:
+                    continue
+                
+                # Calculate bounding box for quick filtering
+                coords = np.where(src_mask)
+                if len(coords[0]) > 0:
+                    bbox = (coords[0].min(), coords[0].max(), coords[1].min(), coords[1].max())
+                    component_info.append((src_inst, src_comp_idx, src_mask, src_area, bbox))
+            
+            # Check each component against others with bounding box pre-filtering
+            for i, (src_inst, src_comp_idx, src_mask, src_area, src_bbox) in enumerate(component_info):
+                for j, (tgt_inst, tgt_comp_idx, tgt_mask, tgt_area, tgt_bbox) in enumerate(component_info):
+                    if src_inst == tgt_inst or i == j:  # Same instance or same component, skip
+                        continue
+                    
+                    # OPTIMIZATION: Quick bounding box containment check
+                    src_y1, src_y2, src_x1, src_x2 = src_bbox
+                    tgt_y1, tgt_y2, tgt_x1, tgt_x2 = tgt_bbox
+                    
+                    # If source bbox is not contained in target bbox, skip expensive computation
+                    if not (tgt_y1 <= src_y1 and src_y2 <= tgt_y2 and tgt_x1 <= src_x1 and src_x2 <= tgt_x2):
+                        continue
+                    
+                    # OPTIMIZATION: Only do expensive pixel-wise intersection for bbox-contained cases
+                    intersection = np.logical_and(src_mask, tgt_mask).sum()
+                    containment_ratio = intersection / src_area
+                    
+                    if containment_ratio > 0.8:
+                        print(f"         Component {src_comp_idx} of instance {src_inst} → instance {tgt_inst} ({containment_ratio:.1%} contained)")
+                        reassignments[(src_inst, src_comp_idx)] = tgt_inst
+                        break  # Move to first containing instance found
+            
+            # If no reassignments found, we're done
+            if not reassignments:
+                print(f"         No more reassignments possible - stopping after {iteration} iterations")
+                break
+            
+            # Apply reassignments to create new instance set
+            changed_instances = set()
+            for (src_inst, _), tgt_inst in reassignments.items():
+                changed_instances.add(src_inst)  # Source instance loses components
+                changed_instances.add(tgt_inst)  # Target instance gains components
+            
+            # Start with original masks for unchanged instances
+            new_instance_masks = [masks[i].copy() for i in range(n)]
+            
+            # Only rebuild changed instances
+            for inst in changed_instances:
+                new_instance_masks[inst] = np.zeros_like(masks[0], dtype=bool)
+            
+            # Process components with reassignments
+            for src_inst, src_comp_idx, src_mask in all_components:
+                if (src_inst, src_comp_idx) in reassignments:
+                    # Reassigned component
+                    target_instance = reassignments[(src_inst, src_comp_idx)]
+                    new_instance_masks[target_instance] = np.logical_or(new_instance_masks[target_instance], src_mask)
+                elif src_inst in changed_instances:
+                    # Component stays but instance was affected by other changes
+                    new_instance_masks[src_inst] = np.logical_or(new_instance_masks[src_inst], src_mask)
+            
+            # Create new instance set, eliminating empty ones
+            new_masks = []
+            new_scores = []
+            new_boxes = []
+            eliminated_this_iteration = 0
+            
+            for i in range(n):
+                if new_instance_masks[i].sum() == 0:
+                    print(f"         Instance {i}: eliminated (no components remaining)")
+                    eliminated_this_iteration += 1
+                    continue
+                    
+                # Recalculate bounding box
+                coords = np.where(new_instance_masks[i])
+                if len(coords[0]) > 0:
+                    y_min, y_max = coords[0].min(), coords[0].max()
+                    x_min, x_max = coords[1].min(), coords[1].max()
+                    new_box = np.array([x_min, y_min, x_max, y_max])
+                else:
+                    new_box = boxes[i]
+                
+                new_masks.append(new_instance_masks[i])
+                new_scores.append(scores[i])
+                new_boxes.append(new_box)
+            
+            # Update for next iteration
+            current_instances = {
+                'masks': np.array(new_masks) if new_masks else np.array([]).reshape(0, *instances['image_shape']),
+                'scores': np.array(new_scores),
+                'boxes': np.array(new_boxes).reshape(-1, 4) if new_boxes else np.array([]).reshape(0, 4),
+                'image_shape': instances['image_shape']
+            }
+            
+            total_reassignments += len(reassignments)
+            total_eliminations += eliminated_this_iteration
+            
+            print(f"         Iteration {iteration}: {len(reassignments)} reassignments, {eliminated_this_iteration} eliminations → {len(current_instances['masks'])} instances")
+        
+        if total_reassignments > 0:
+            print(f"         Final: {total_reassignments} total reassignments, {total_eliminations} total eliminations after {iteration} iterations")
+            print(f"         Result: {len(instances['masks'])} → {len(current_instances['masks'])} instances")
+        
+        return current_instances
+    
+    def _resolve_overlapping_pixels(self, instances: Dict[str, Any], image: np.ndarray) -> Dict[str, Any]:
+        """
+        Resolve pixel overlaps by assigning each overlapping pixel to the instance with highest confidence.
+        Ensures no pixel belongs to multiple instances.
+        """
+        if len(instances['masks']) <= 1:
+            return instances
+        
+        print(f"      🎯 Resolving pixel overlaps across {len(instances['masks'])} instances")
+        
+        masks = instances['masks']
+        scores = instances['scores']
+        boxes = instances['boxes']
+        n = len(masks)
+        
+        # Create a comprehensive overlap map
+        # overlap_map[y, x] = set of instance indices that claim this pixel
+        h, w = instances['image_shape']
+        overlap_map = {}
+        total_overlapping_pixels = 0
+        
+        # Find all overlapping pixels
+        for i, mask in enumerate(masks):
+            coords = np.where(mask > 0)
+            for y, x in zip(coords[0], coords[1]):
+                if (y, x) not in overlap_map:
+                    overlap_map[(y, x)] = set()
+                overlap_map[(y, x)].add(i)
+        
+        # Count overlapping pixels
+        overlapping_pixels = {coord: instances for coord, instances in overlap_map.items() if len(instances) > 1}
+        total_overlapping_pixels = len(overlapping_pixels)
+        
+        if total_overlapping_pixels == 0:
+            print(f"         No pixel overlaps found - all instances are disjoint")
+            return instances
+        
+        print(f"         Found {total_overlapping_pixels} overlapping pixels")
+        
+        # Create new masks with overlaps resolved
+        new_masks = [mask.copy() for mask in masks]
+        pixel_reassignments = 0
+        
+        # For each overlapping pixel, assign to highest confidence instance
+        for (y, x), competing_instances in overlapping_pixels.items():
+            if len(competing_instances) > 1:
+                # Find the instance with highest confidence
+                best_instance = max(competing_instances, key=lambda i: scores[i])
+                best_score = scores[best_instance]
+                
+                # Remove pixel from all other instances
+                for instance_idx in competing_instances:
+                    if instance_idx != best_instance:
+                        new_masks[instance_idx][y, x] = 0
+                        pixel_reassignments += 1
+                
+                # Ensure pixel is assigned to best instance (should already be, but be explicit)
+                new_masks[best_instance][y, x] = 1
+        
+        print(f"         Reassigned {pixel_reassignments} pixels to highest confidence instances")
+        
+        # Verify no overlaps remain (sanity check)
+        verification_sum = sum(mask.astype(int) for mask in new_masks)
+        overlapping_pixels_after = (verification_sum > 1).sum()
+        
+        if overlapping_pixels_after > 0:
+            print(f"         ⚠️ Warning: {overlapping_pixels_after} pixels still overlap after resolution")
+        else:
+            print(f"         ✅ All pixel overlaps resolved successfully")
+        
+        # Check if any instances became empty after overlap resolution
+        empty_instances = []
+        for i, mask in enumerate(new_masks):
+            if mask.sum() == 0:
+                empty_instances.append(i)
+        
+        if empty_instances:
+            print(f"         Removing {len(empty_instances)} instances that became empty after overlap resolution")
+            
+            # Filter out empty instances
+            final_masks = []
+            final_scores = []
+            final_boxes = []
+            
+            for i in range(n):
+                if i not in empty_instances:
+                    final_masks.append(new_masks[i])
+                    final_scores.append(scores[i])
+                    final_boxes.append(boxes[i])
+            
+            return {
+                'masks': np.array(final_masks) if final_masks else np.array([]).reshape(0, *instances['image_shape']),
+                'scores': np.array(final_scores),
+                'boxes': np.array(final_boxes).reshape(-1, 4) if final_boxes else np.array([]).reshape(0, 4),
+                'image_shape': instances['image_shape']
+            }
+        else:
+            # No empty instances, just update with resolved masks
+            return {
+                'masks': np.array(new_masks),
+                'scores': instances['scores'],
+                'boxes': instances['boxes'],
+                'image_shape': instances['image_shape']
+            }
 
 
 
@@ -839,9 +1103,9 @@ class MyotubeFijiIntegration:
         # Apply post-processing
         processed_instances = self.post_processor.process(instances, original_image)
         
-        # Generate outputs
+        # Generate outputs with both raw and processed overlays
         output_files = self._generate_fiji_outputs(
-            processed_instances, original_image, image_path, output_dir
+            instances, processed_instances, original_image, image_path, output_dir
         )
         
         return output_files
@@ -872,36 +1136,46 @@ class MyotubeFijiIntegration:
             'count': 0
         }
     
-    def _generate_fiji_outputs(self, instances: Dict[str, Any], original_image: np.ndarray,
+    def _generate_fiji_outputs(self, raw_instances, processed_instances: Dict[str, Any], original_image: np.ndarray,
                               image_path: str, output_dir: str) -> Dict[str, str]:
         """Generate all Fiji-compatible output files."""
         os.makedirs(output_dir, exist_ok=True)
         base_name = Path(image_path).stem
         
-        # Generate individual mask images (pixel-perfect accuracy!)
+        # Generate individual mask images (pixel-perfect accuracy!) - using processed instances
         masks_dir = os.path.join(output_dir, f"{base_name}_masks")
-        self._save_individual_mask_images(instances, original_image, masks_dir)
+        self._save_individual_mask_images(processed_instances, original_image, masks_dir)
         
-        # Generate colored overlay
-        overlay_path = os.path.join(output_dir, f"{base_name}_overlay.tif")
-        self._save_colored_overlay(instances, original_image, overlay_path)
+        # Generate RAW Detectron2 overlay (before post-processing)
+        raw_overlay_path = os.path.join(output_dir, f"{base_name}_raw_overlay.tif")
+        self._save_colored_overlay(raw_instances, original_image, raw_overlay_path, overlay_type="raw")
         
-        # Generate measurements CSV
+        # Generate PROCESSED overlay (after post-processing)
+        processed_overlay_path = os.path.join(output_dir, f"{base_name}_processed_overlay.tif")
+        self._save_colored_overlay(processed_instances, original_image, processed_overlay_path, overlay_type="processed")
+        
+        # Generate measurements CSV - using processed instances
         measurements_path = os.path.join(output_dir, f"{base_name}_measurements.csv")
-        self._save_measurements(instances, measurements_path)
+        self._save_measurements(processed_instances, measurements_path)
         
-        # Generate summary info
+        # Generate summary info - using processed instances
         info_path = os.path.join(output_dir, f"{base_name}_info.json")
-        self._save_info(instances, image_path, info_path)
+        self._save_info(processed_instances, image_path, info_path)
         
-        print(f"✅ Generated outputs for {len(instances['masks'])} myotubes")
+        # Print comparison
+        raw_count = len(raw_instances) if hasattr(raw_instances, '__len__') else len(raw_instances.pred_masks) if hasattr(raw_instances, 'pred_masks') else 0
+        processed_count = len(processed_instances['masks'])
+        print(f"✅ Generated outputs: {raw_count} raw → {processed_count} after filtering")
         
         return {
             'masks_dir': masks_dir,
-            'overlay': overlay_path,
+            'raw_overlay': raw_overlay_path,
+            'processed_overlay': processed_overlay_path,
             'measurements': measurements_path,
             'info': info_path,
-            'count': len(instances['masks'])
+            'raw_count': raw_count,
+            'processed_count': processed_count,
+            'count': processed_count  # Keep for backwards compatibility
         }
     
     def _save_individual_mask_images(self, instances: Dict[str, Any], original_image: np.ndarray, output_dir: str):
@@ -986,15 +1260,15 @@ class MyotubeFijiIntegration:
     
 
     
-    def _save_colored_overlay(self, instances: Dict[str, Any], original_image: np.ndarray, 
-                             output_path: str):
+    def _save_colored_overlay(self, instances, original_image: np.ndarray, 
+                             output_path: str, overlay_type: str = "processed"):
         """Save colored overlay using Detectron2's built-in visualizer like demo.py."""
         from detectron2.utils.visualizer import Visualizer, ColorMode
         from detectron2.data import MetadataCatalog
         from detectron2.structures import Instances
         import torch
         
-        print(f"   🎨 Generating overlay using Detectron2's Visualizer (like demo.py)")
+        print(f"   🎨 Generating {overlay_type} overlay using Detectron2's Visualizer")
         
         # Get metadata (try to use the same as our dataset, fallback to COCO)
         try:
@@ -1005,68 +1279,135 @@ class MyotubeFijiIntegration:
             except:
                 metadata = None
         
-        # Convert our processed instances back to Detectron2 Instances format
-        # This is the same format that demo.py uses
-        torch_instances = Instances(original_image.shape[:2])
-        
-        if len(instances['masks']) > 0:
-            # Ensure masks are at original image resolution for visualization
-            final_masks = []
+        # Handle both raw Detectron2 instances and our processed format
+        if hasattr(instances, 'pred_masks'):
+            # Raw Detectron2 Instances - need to resize masks to original image size
+            torch_instances = Instances(original_image.shape[:2])
             
-            for i, mask in enumerate(instances['masks']):
-                # Resize mask to original image size if needed
-                if hasattr(self, '_scale_factor') and self._scale_factor != 1.0:
-                    original_h, original_w = self._original_size
-                    # Use the same scaling we perfected for ROIs
-                    mask_uint8 = (mask * 255).astype(np.uint8)
-                    resized_mask = cv2.resize(
-                        mask_uint8, 
-                        (original_w, original_h), 
-                        interpolation=cv2.INTER_NEAREST
-                    )
-                    resized_mask = (resized_mask > 128)  # Keep as boolean numpy array for now
-                else:
-                    resized_mask = mask > 0  # Ensure boolean
+            if len(instances) > 0:
+                # Resize masks to original image size 
+                raw_masks = instances.pred_masks.cpu().numpy()
+                final_masks = []
                 
-                final_masks.append(resized_mask)
+                for i, mask in enumerate(raw_masks):
+                    # Resize mask to original image size if needed
+                    if hasattr(self, '_scale_factor') and self._scale_factor != 1.0:
+                        original_h, original_w = self._original_size
+                        # Convert boolean mask to uint8 for resizing
+                        mask_uint8 = (mask * 255).astype(np.uint8)
+                        resized_mask = cv2.resize(
+                            mask_uint8, 
+                            (original_w, original_h), 
+                            interpolation=cv2.INTER_NEAREST
+                        )
+                        resized_mask = (resized_mask > 128)  # Back to boolean
+                    else:
+                        resized_mask = mask > 0  # Ensure boolean
+                    
+                    final_masks.append(resized_mask)
+                
+                # Convert to torch tensors
+                torch_instances.pred_masks = torch.tensor(np.array(final_masks)).cpu()
+                torch_instances.scores = instances.scores.cpu()
+                
+                # Use empty bounding boxes
+                from detectron2.structures import Boxes
+                torch_instances.pred_boxes = Boxes(torch.zeros(len(instances), 4).cpu())
+                torch_instances.pred_classes = torch.zeros(len(instances), dtype=torch.long).cpu()
+                
+                num_instances = len(instances)
+            else:
+                num_instances = 0
+        else:
+            # Our processed format - convert back to Detectron2 Instances
+            torch_instances = Instances(original_image.shape[:2])
             
-            # Convert to torch tensors (demo.py moves to CPU, so we do the same)
-            torch_instances.pred_masks = torch.tensor(np.array(final_masks)).cpu()
-            torch_instances.scores = torch.tensor(instances['scores']).cpu()
-            
-            # Use empty bounding boxes like the original Mask2Former model does
-            # This prevents bounding boxes from being drawn, showing only masks
-            from detectron2.structures import Boxes
-            torch_instances.pred_boxes = Boxes(torch.zeros(len(instances['masks']), 4).cpu())
-            
-            # Add dummy classes (all myotubes are the same class)
-            torch_instances.pred_classes = torch.zeros(len(instances['masks']), dtype=torch.long).cpu()
+            if len(instances['masks']) > 0:
+                # Ensure masks are at original image resolution for visualization
+                final_masks = []
+                
+                for i, mask in enumerate(instances['masks']):
+                    # Ensure mask is a numpy array first
+                    if torch.is_tensor(mask):
+                        mask = mask.cpu().numpy()
+                    
+                    # Ensure mask is boolean
+                    mask = mask.astype(bool)
+                    
+                    # Resize mask to original image size if needed
+                    if hasattr(self, '_scale_factor') and self._scale_factor != 1.0:
+                        original_h, original_w = self._original_size
+                        # Convert to uint8 for resizing
+                        mask_uint8 = mask.astype(np.uint8) * 255
+                        resized_mask = cv2.resize(
+                            mask_uint8, 
+                            (original_w, original_h), 
+                            interpolation=cv2.INTER_NEAREST
+                        )
+                        resized_mask = (resized_mask > 128)  # Back to boolean
+                    else:
+                        resized_mask = mask
+                    
+                    # Final validation: ensure boolean numpy array
+                    resized_mask = np.array(resized_mask, dtype=bool)
+                    final_masks.append(resized_mask)
+                
+                # Convert to torch tensors with proper data types (demo.py moves to CPU, so we do the same)
+                # Ensure masks are boolean and properly shaped
+                mask_array = np.array(final_masks, dtype=bool)
+                torch_instances.pred_masks = torch.tensor(mask_array).cpu()
+                
+                # Ensure scores are float32
+                scores_array = np.array(instances['scores'], dtype=np.float32)
+                torch_instances.scores = torch.tensor(scores_array).cpu()
+                
+                # Use empty bounding boxes like the original Mask2Former model does
+                # This prevents bounding boxes from being drawn, showing only masks
+                from detectron2.structures import Boxes
+                torch_instances.pred_boxes = Boxes(torch.zeros(len(instances['masks']), 4).cpu())
+                
+                # Add dummy classes (all myotubes are the same class)
+                torch_instances.pred_classes = torch.zeros(len(instances['masks']), dtype=torch.long).cpu()
+                
+                num_instances = len(instances['masks'])
+            else:
+                num_instances = 0
         
-        print(f"   📊 Created Detectron2 Instances with {len(instances['masks'])} instances")
+        print(f"   📊 Created Detectron2 Instances with {num_instances} instances")
         
         # Use Detectron2's visualizer exactly like demo.py does
         # Convert BGR to RGB for visualization (demo.py does this: image[:, :, ::-1])
         rgb_image = original_image[:, :, ::-1]
         visualizer = Visualizer(rgb_image, metadata, instance_mode=ColorMode.IMAGE)
         
-        # This is the exact same call that demo.py uses!
-        vis_output = visualizer.draw_instance_predictions(predictions=torch_instances)
+        # Add validation before visualization
+        if num_instances > 0:
+            print(f"   🔍 Mask validation: shape={torch_instances.pred_masks.shape}, dtype={torch_instances.pred_masks.dtype}")
+            print(f"   🔍 Score validation: shape={torch_instances.scores.shape}, dtype={torch_instances.scores.dtype}")
         
-        # Get the visualization as an image and convert back to BGR for saving
-        vis_image = vis_output.get_image()[:, :, ::-1]  # RGB back to BGR
+        try:
+            # This is the exact same call that demo.py uses!
+            vis_output = visualizer.draw_instance_predictions(predictions=torch_instances)
+            
+            # Get the visualization as an image and convert back to BGR for saving
+            vis_image = vis_output.get_image()[:, :, ::-1]  # RGB back to BGR
+            
+        except Exception as e:
+            print(f"   ❌ Visualization failed: {e}")
+            print(f"   💡 Creating fallback overlay with original image")
+            # Fallback: save original image as overlay
+            vis_image = original_image.copy()
         
         print(f"   💾 Saving overlay to: {output_path}")
         
         # Save the visualization
         success = cv2.imwrite(output_path, vis_image)
         if success:
-            print(f"   ✅ Overlay saved successfully using Detectron2's Visualizer")
+            print(f"   ✅ {overlay_type.title()} overlay saved: {os.path.basename(output_path)}")
         else:
-            print(f"   ❌ Failed to save overlay")
+            print(f"   ❌ Failed to save {overlay_type} overlay")
             
-        # Debug info
-        instance_count = len(instances['masks'])
-        print(f"   🔍 Detectron2 visualizer processed {instance_count} instances")
+        print(f"   🔍 {overlay_type.title()} overlay: {num_instances} instances visualized")
     
     def _save_measurements(self, instances: Dict[str, Any], output_path: str):
         """Save measurements CSV for analysis."""
@@ -1219,7 +1560,7 @@ def main():
         print(f"📊 Results: {output_files['count']} myotubes detected")
         print(f"📁 Output files:")
         for key, path in output_files.items():
-            if key != 'count':
+            if key not in ['count', 'raw_count', 'processed_count']:
                 print(f"   {key}: {os.path.basename(path)}")
         print("="*60)
         
