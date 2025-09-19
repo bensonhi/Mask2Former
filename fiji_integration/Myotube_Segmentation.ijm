@@ -140,6 +140,8 @@ function segmentMyotubes() {
     
     end_time = getTime();
     processing_time = (end_time - start_time) / 1000;
+
+    // (Cleaned) No extra log tailing. Errors will be reported via ERROR file.
     
     // Debug: Check what files were created
     print("Debug: Checking output directory...");
@@ -189,6 +191,14 @@ function segmentMyotubes() {
 function validateSetup() {
     // Auto-detect paths if not set
     if (SCRIPT_PATH == "") {
+        // Prefer repo script if MASK2FORMER_PATH is set
+        if (MASK2FORMER_PATH != "") {
+            repo_script = MASK2FORMER_PATH + File.separator + "fiji_integration" + File.separator + "myotube_segmentation.py";
+            if (File.exists(repo_script)) {
+                SCRIPT_PATH = repo_script;
+            }
+        }
+
         macro_dir = getDirectory("macros");
         plugin_dir = getDirectory("plugins");
         
@@ -196,13 +206,16 @@ function validateSetup() {
         script_locations = newArray(
             macro_dir + "myotube_segmentation.py",
             plugin_dir + "myotube_segmentation.py",
-            getDirectory("startup") + "myotube_segmentation.py"
+            getDirectory("startup") + "myotube_segmentation.py",
+            repo_script
         );
         
-        for (i = 0; i < script_locations.length; i++) {
-            if (File.exists(script_locations[i])) {
-                SCRIPT_PATH = script_locations[i];
-                break;
+        if (SCRIPT_PATH == "") {
+            for (i = 0; i < script_locations.length; i++) {
+                if (File.exists(script_locations[i])) {
+                    SCRIPT_PATH = script_locations[i];
+                    break;
+                }
             }
         }
         

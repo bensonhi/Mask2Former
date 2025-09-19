@@ -17,7 +17,6 @@ import json
 import os
 import subprocess
 import sys
-from pathlib import Path
 
 def load_test_images(annotations_file):
     """Load image filenames from COCO annotations file."""
@@ -194,7 +193,6 @@ def main():
     print(f"❌ Failed:     {failed}")
     print(f"📁 Output:     {output_dir}")
     print(f"🎯 Stage:      {args.stage}")
-    print(f"🎯 Mode:       {args.mode}")
     
     if successful > 0:
         print(f"\n🎯 Results saved to: {output_dir}")

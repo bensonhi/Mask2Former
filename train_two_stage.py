@@ -28,7 +28,6 @@ import os
 import sys
 import argparse
 import glob
-from pathlib import Path
 
 # Import dataset registration
 from register_two_stage_datasets import register_two_stage_datasets
@@ -363,7 +362,7 @@ def main():
         elif args.stage == 1:
             print("✅ Stage 1 completed - ready for Stage 2")
             print(f"   Checkpoint: {find_latest_checkpoint(stage1_output)}")
-            print(f"\n➡️  Next: python train_two_stage.py --stage 2 --mode {args.mode}")
+            print(f"\n➡️  Next: python train_two_stage.py --stage 2")
         elif args.stage == 2:
             print("✅ Stage 2 completed - model ready for inference")
             print(f"   Final model: {find_latest_checkpoint(stage2_output)}")

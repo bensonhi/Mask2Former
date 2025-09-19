@@ -19,14 +19,10 @@ import os
 import sys
 import argparse
 import json
-import zipfile
-import tempfile
-import multiprocessing as mp
 from pathlib import Path
 from typing import List, Dict, Any, Tuple, Optional
 import numpy as np
 import cv2
-from PIL import Image
 import torch
 
 # Find Mask2Former project directory
@@ -82,12 +78,25 @@ def find_mask2former_project():
 project_dir = find_mask2former_project()
 sys.path.insert(0, project_dir)
 
-from detectron2.engine.defaults import DefaultPredictor
-from detectron2.config import get_cfg
-from detectron2.data.detection_utils import read_image
-from detectron2.projects.deeplab import add_deeplab_config
-from detectron2.utils.logger import setup_logger
-from mask2former import add_maskformer2_config
+try:
+    from detectron2.engine.defaults import DefaultPredictor
+    from detectron2.config import get_cfg
+    from detectron2.projects.deeplab import add_deeplab_config
+    from detectron2.data.detection_utils import read_image
+    from mask2former import add_maskformer2_config
+except Exception as _import_exc:
+    # Write an ERROR status file early if imports fail (common in Fiji env)
+    try:
+        if len(sys.argv) >= 3:
+            _out_dir = sys.argv[2]
+            os.makedirs(_out_dir, exist_ok=True)
+            with open(os.path.join(_out_dir, "ERROR"), 'w') as _f:
+                _f.write(f"IMPORT_ERROR: {type(_import_exc).__name__}: {_import_exc}\n")
+    except Exception:
+        pass
+    # Also print to stderr for batch_run.log
+    print(f"IMPORT_ERROR: {_import_exc}")
+    sys.exit(1)
 
 
 class PostProcessingPipeline:
@@ -1483,18 +1492,13 @@ class MyotubeFijiIntegration:
 def main():
     """Main function for command-line usage."""
     
-    # Setup environment like demo.py does
-    mp.set_start_method("spawn", force=True)
-    setup_logger(name="fvcore")
-    setup_logger()
-    
     # Register datasets like demo.py does (if register_two_stage_datasets exists)
     try:
         from register_two_stage_datasets import register_two_stage_datasets
         register_two_stage_datasets(
             dataset_root="./myotube_batch_output", 
             register_instance=True, 
-            register_panoptic=True
+            register_panoptic=False
         )
     except ImportError:
         # Dataset registration not available, continue without it
@@ -1546,6 +1550,9 @@ def main():
     else:
         print("📏 Using training resolution (1500px) for best accuracy")
     
+    # Ensure output directory exists for status files
+    os.makedirs(args.output_dir, exist_ok=True)
+
     # Process image(s)
     try:
         # Check if input is a directory or single image
@@ -1553,17 +1560,36 @@ def main():
             # Batch processing mode
             print(f"📁 Batch processing mode: {args.input_path}")
             
-            # Find all image files in directory
+            # Find all image files in directory (robust: check images/ subdir and recurse)
             image_extensions = ['.png', '.jpg', '.jpeg', '.tiff', '.tif', '.bmp']
+            search_dirs = []
+            base_dir = Path(args.input_path)
+            images_subdir = base_dir / 'images'
+            if images_subdir.exists():
+                search_dirs.append(images_subdir)
+            search_dirs.append(base_dir)
+
             image_files = []
-            for ext in image_extensions:
-                image_files.extend(Path(args.input_path).glob(f"*{ext}"))
-                image_files.extend(Path(args.input_path).glob(f"*{ext.upper()}"))
+            for sd in search_dirs:
+                for ext in image_extensions:
+                    image_files.extend(sd.glob(f"*{ext}"))
+                    image_files.extend(sd.glob(f"*{ext.upper()}"))
+                    # also recursive
+                    image_files.extend(sd.rglob(f"*{ext}"))
+                    image_files.extend(sd.rglob(f"*{ext.upper()}"))
+            
+            # De-duplicate
+            image_files = sorted({str(p) for p in image_files})
             
             if not image_files:
-                print(f"❌ No image files found in directory: {args.input_path}")
-                print(f"   Supported formats: {', '.join(image_extensions)}")
-                sys.exit(1)
+                msg = (f"No image files found in directory: {args.input_path}\n"
+                       f"Searched: {', '.join(str(d) for d in search_dirs)}\n"
+                       f"Supported: {', '.join(image_extensions)}")
+                print(f"❌ {msg}")
+                # Write error status for Fiji macro
+                with open(os.path.join(args.output_dir, "ERROR"), 'w') as f:
+                    f.write(msg + "\n")
+                return 1
             
             print(f"📊 Found {len(image_files)} image files to process")
             
@@ -1572,14 +1598,14 @@ def main():
             successful_images = 0
             failed_images = 0
             
-            for i, image_path in enumerate(sorted(image_files), 1):
+            for i, image_path in enumerate(image_files, 1):
                 print(f"\n{'='*60}")
-                print(f"🖼️  Processing image {i}/{len(image_files)}: {image_path.name}")
+                print(f"🖼️  Processing image {i}/{len(image_files)}: {Path(image_path).name}")
                 print(f"{'='*60}")
                 
                 try:
                     # Create subdirectory for each image's output
-                    image_output_dir = os.path.join(args.output_dir, image_path.stem)
+                    image_output_dir = os.path.join(args.output_dir, Path(image_path).stem)
                     
                     output_files = integration.segment_image(
                         str(image_path),
@@ -1591,10 +1617,10 @@ def main():
                     total_myotubes += myotube_count
                     successful_images += 1
                     
-                    print(f"✅ {image_path.name}: {myotube_count} myotubes detected")
-                    
+                    print(f"✅ {Path(image_path).name}: {myotube_count} myotubes detected")
+                
                 except Exception as e:
-                    print(f"❌ Failed to process {image_path.name}: {e}")
+                    print(f"❌ Failed to process {Path(image_path).name}: {e}")
                     failed_images += 1
                     continue
             
@@ -1623,14 +1649,18 @@ def main():
             }
             
         else:
-            print(f"❌ Input path must be a directory containing images: {args.input_path}")
-            sys.exit(1)
+            msg = f"Input path must be a directory containing images: {args.input_path}"
+            print(f"❌ {msg}")
+            # Write error status for Fiji macro
+            with open(os.path.join(args.output_dir, "ERROR"), 'w') as f:
+                f.write(msg + "\n")
+            return 1
         
         # Signal success to ImageJ macro
         success_file = os.path.join(args.output_dir, "BATCH_SUCCESS")
         print(f"📝 Batch processing completed. Summary written to: {success_file}")
         
-    except Exception as e:
+    except BaseException as e:
         print(f"\n❌ ERROR: {e}")
         import traceback
         traceback.print_exc()
@@ -1640,7 +1670,7 @@ def main():
         with open(error_file, 'w') as f:
             f.write(f"ERROR: {str(e)}\n")
         
-        sys.exit(1)
+        return 1
 
 
 if __name__ == "__main__":

@@ -21,10 +21,7 @@ dataset_root/
 
 import os
 import json
-from detectron2.data.datasets import register_coco_instances, load_coco_json
-from detectron2.data import MetadataCatalog, DatasetCatalog
-from detectron2.utils.file_io import PathManager  # unused now; kept for compatibility
-import detectron2.utils.comm as comm  # unused in this module; kept for compatibility
+from detectron2.data.datasets import register_coco_instances
 
 def _register_instance_datasets(annotations_dir, images_dir):
     """Register instance segmentation datasets."""
@@ -109,16 +106,6 @@ def register_two_stage_datasets(
     │   ├── algorithmic_test_annotations.json
     │   ├── manual_train_annotations.json
     │   └── manual_test_annotations.json
-    └── panoptic/    (panoptic annotations, if register_panoptic=True)
-        ├── algorithmic_train_panoptic.json
-        ├── algorithmic_test_panoptic.json  
-        ├── manual_train_panoptic.json
-        ├── manual_test_panoptic.json
-        ├── algorithmic_train_panoptic_masks/
-        ├── algorithmic_test_panoptic_masks/
-        ├── manual_train_panoptic_masks/
-        └── manual_test_panoptic_masks/
-    
     Args:
         dataset_root: Path to unified dataset directory
         register_instance: Whether to register instance segmentation datasets (default: True)
