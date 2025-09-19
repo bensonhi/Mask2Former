@@ -127,6 +127,7 @@ class PostProcessingPipeline:
             'fill_holes': True,        # Fill holes in segmentation masks
             'smooth_boundaries': True,  # Smooth mask boundaries
             'remove_edge_instances': False, # Remove instances touching image edges
+            'final_min_area': 1000,     # Final minimum area filter (from IJM parameter)
         }
     
     def _setup_default_pipeline(self):
@@ -138,6 +139,9 @@ class PostProcessingPipeline:
         self.add_step('merge_overlapping', self._merge_overlapping_instances)
         self.add_step('eliminate_contained_components', self._eliminate_contained_components)
         self.add_step('resolve_overlaps', self._resolve_overlapping_pixels)
+
+        # Final area filtering with IJM parameter
+        self.add_step('final_area_filter', self._final_area_filter)
 
         # Keep advanced processing disabled to avoid web artifacts
         # self.add_step('fill_holes', self._fill_holes)
@@ -298,7 +302,35 @@ class PostProcessingPipeline:
             'boxes': instances['boxes'][keep],
             'image_shape': instances['image_shape']
         }
-    
+
+    def _final_area_filter(self, instances: Dict[str, Any], image: np.ndarray) -> Dict[str, Any]:
+        """Final area filtering step using IJM parameter."""
+        final_min_area = self.config.get('final_min_area', 0)
+
+        if len(instances['masks']) == 0 or final_min_area == 0:
+            return instances
+
+        areas = np.array([mask.sum() for mask in instances['masks']])
+        keep = areas >= final_min_area
+
+        if not keep.any():
+            # Return empty instances with proper shapes
+            return {
+                'masks': np.array([]).reshape(0, *instances['image_shape']),
+                'scores': np.array([]),
+                'boxes': np.array([]).reshape(0, 4),
+                'image_shape': instances['image_shape']
+            }
+
+        print(f"   🔍 Final area filter: kept {keep.sum()}/{len(instances['masks'])} instances (min_area: {final_min_area})")
+
+        return {
+            'masks': instances['masks'][keep],
+            'scores': instances['scores'][keep],
+            'boxes': instances['boxes'][keep],
+            'image_shape': instances['image_shape']
+        }
+
     def _fill_holes(self, instances: Dict[str, Any], image: np.ndarray) -> Dict[str, Any]:
         """Fill holes in segmentation masks - CONSERVATIVE approach to avoid web artifacts."""
         if not self.config.get('fill_holes', True):
@@ -520,10 +552,7 @@ class PostProcessingPipeline:
                 if mask_area == 0:
                     continue
                     
-                # OPTIMIZATION: Quick check for very small masks
-                if mask_area < 50:
-                    all_components.append((i, 0, mask.astype(bool)))
-                    continue
+                # Process all masks regardless of size
                 
                 # Find connected components in this instance
                 labeled_mask, num_components = ndimage.label(mask.astype(bool))
@@ -1419,12 +1448,12 @@ class MyotubeFijiIntegration:
         print(f"   🔍 {overlay_type.title()} overlay: {num_instances} instances visualized")
     
     def _save_measurements(self, instances: Dict[str, Any], output_path: str):
-        """Save measurements CSV for analysis."""
+        """Save comprehensive measurements CSV for myotube analysis."""
         import pandas as pd
-        from skimage import measure
-        
+        from skimage import measure, morphology
+
         measurements = []
-        
+
         for i, (mask, score, box) in enumerate(zip(instances['masks'], instances['scores'], instances['boxes'])):
             # Resize mask to original size for accurate measurements
             if hasattr(self, '_scale_factor') and self._scale_factor != 1.0:
@@ -1432,46 +1461,158 @@ class MyotubeFijiIntegration:
                 # Use proper mask scaling like in ROI generation
                 mask_uint8 = (mask * 255).astype(np.uint8)
                 resized_mask = cv2.resize(
-                    mask_uint8, 
-                    (original_w, original_h), 
+                    mask_uint8,
+                    (original_w, original_h),
                     interpolation=cv2.INTER_NEAREST
                 )
                 resized_mask = (resized_mask > 128).astype(bool)
-                
+
                 # Scale bounding box back to original coordinates
                 scale_factor = 1.0 / self._scale_factor
                 scaled_box = box * scale_factor
             else:
                 resized_mask = mask.astype(bool)
                 scaled_box = box
-            
-            # Calculate basic measurements (using resized mask for accuracy)
+
+            # Calculate existing measurements
             area = resized_mask.sum()
-            
-            # Calculate perimeter
             contours = measure.find_contours(resized_mask, 0.5)
             perimeter = sum(len(contour) for contour in contours)
-            
-            # Calculate aspect ratio from scaled bounding box
-            width = scaled_box[2] - scaled_box[0]
-            height = scaled_box[3] - scaled_box[1]
-            aspect_ratio = max(width, height) / min(width, height) if min(width, height) > 0 else 0
-            
+
+            # Calculate new myotube-specific measurements
+            visible_length, estimated_total_length, num_components = self._calculate_myotube_length(resized_mask)
+            width_pixels = area / visible_length if visible_length > 0 else 0
+            myotube_aspect_ratio = estimated_total_length / width_pixels if width_pixels > 0 else 0
+
+            # Calculate bounding box measurements (keep existing logic)
+            bbox_width = scaled_box[2] - scaled_box[0]
+            bbox_height = scaled_box[3] - scaled_box[1]
+            bbox_aspect_ratio = max(bbox_width, bbox_height) / min(bbox_width, bbox_height) if min(bbox_width, bbox_height) > 0 else 0
+
             measurements.append({
                 'Instance': f'Myotube_{i+1}',
-                'Area': area,
-                'Perimeter': perimeter,
-                'AspectRatio': aspect_ratio,
-                'Confidence': score,
-                'BoundingBox_X': box[0],
-                'BoundingBox_Y': box[1],
-                'BoundingBox_Width': width,
-                'BoundingBox_Height': height
+                'Area': int(area),
+                'Visible_Length_pixels': round(visible_length, 2),
+                'Estimated_Total_Length_pixels': round(estimated_total_length, 2),
+                'Width_pixels': round(width_pixels, 2),
+                'Aspect_Ratio': round(myotube_aspect_ratio, 2),
+                'Connected_Components': num_components,
+                'Perimeter': round(perimeter, 2),
+                'BBox_AspectRatio': round(bbox_aspect_ratio, 2),
+                'Confidence': round(score, 4),
+                'BoundingBox_X': round(box[0], 1),
+                'BoundingBox_Y': round(box[1], 1),
+                'BoundingBox_Width': round(bbox_width, 1),
+                'BoundingBox_Height': round(bbox_height, 1)
             })
-        
+
         # Save to CSV
         df = pd.DataFrame(measurements)
         df.to_csv(output_path, index=False)
+        print(f"💾 Saved myotube measurements for {len(measurements)} instances to {output_path}")
+
+    def _calculate_myotube_length(self, mask: np.ndarray) -> Tuple[float, float, int]:
+        """
+        Calculate visible and estimated total myotube length.
+
+        Returns:
+            visible_length: Length of visible skeleton parts
+            estimated_total_length: Visible length + interpolated gaps
+            num_components: Number of connected components
+        """
+        from skimage import morphology, measure
+
+        # Find connected components
+        labeled_mask = measure.label(mask)
+        num_components = labeled_mask.max()
+
+        if num_components == 0:
+            return 0.0, 0.0, 0
+
+        # Calculate skeleton for each component
+        component_skeletons = []
+        total_visible_length = 0
+
+        for component_id in range(1, num_components + 1):
+            component_mask = (labeled_mask == component_id)
+
+            # Process all components (no size filtering)
+
+            # Create skeleton
+            skeleton = morphology.skeletonize(component_mask)
+            skeleton_points = np.argwhere(skeleton)
+
+            if len(skeleton_points) > 0:
+                component_skeletons.append(skeleton_points)
+                # Approximate skeleton length as number of skeleton pixels
+                total_visible_length += len(skeleton_points)
+
+        # Estimate total length including gaps between components
+        estimated_total_length = total_visible_length
+
+        if len(component_skeletons) > 1:
+            # Add estimated lengths of gaps between components
+            gap_length = self._estimate_gap_lengths(component_skeletons)
+            estimated_total_length += gap_length
+
+        return total_visible_length, estimated_total_length, num_components
+
+    def _estimate_gap_lengths(self, component_skeletons: List[np.ndarray]) -> float:
+        """
+        Estimate total length of gaps between skeleton components using linear interpolation.
+
+        Args:
+            component_skeletons: List of skeleton point arrays for each component
+
+        Returns:
+            total_gap_length: Sum of estimated gap lengths
+        """
+        if len(component_skeletons) < 2:
+            return 0.0
+
+        total_gap_length = 0.0
+
+        # Find endpoints of each component skeleton
+        component_endpoints = []
+        for skeleton_points in component_skeletons:
+            if len(skeleton_points) == 0:
+                continue
+
+            # For each component, find the two points that are farthest apart
+            if len(skeleton_points) == 1:
+                endpoints = [skeleton_points[0], skeleton_points[0]]
+            elif len(skeleton_points) == 2:
+                endpoints = [skeleton_points[0], skeleton_points[1]]
+            else:
+                # Find the two points with maximum distance
+                from scipy.spatial.distance import pdist, squareform
+                distances = squareform(pdist(skeleton_points))
+                i, j = np.unravel_index(distances.argmax(), distances.shape)
+                endpoints = [skeleton_points[i], skeleton_points[j]]
+
+            component_endpoints.append(endpoints)
+
+        # Connect nearest endpoints between different components
+        connected_pairs = set()
+
+        for i in range(len(component_endpoints)):
+            for j in range(i + 1, len(component_endpoints)):
+                # Find minimum distance between any endpoint of component i and component j
+                min_distance = float('inf')
+
+                for endpoint_i in component_endpoints[i]:
+                    for endpoint_j in component_endpoints[j]:
+                        distance = np.linalg.norm(endpoint_i - endpoint_j)
+                        if distance < min_distance:
+                            min_distance = distance
+
+                # Add this gap (connect all components within the same myotube)
+                pair_key = tuple(sorted([i, j]))
+                if pair_key not in connected_pairs:
+                    total_gap_length += min_distance
+                    connected_pairs.add(pair_key)
+
+        return total_gap_length
     
     def _save_info(self, instances: Dict[str, Any], image_path: str, output_path: str):
         """Save processing information."""
@@ -1515,6 +1656,8 @@ def main():
                        help="Minimum myotube area in pixels")
     parser.add_argument("--max-area", type=int, default=50000,
                        help="Maximum myotube area in pixels")
+    parser.add_argument("--final-min-area", type=int, default=1000,
+                       help="Final minimum area filter (applied after post-processing)")
     parser.add_argument("--cpu", action="store_true",
                        help="Force CPU inference (slower but uses less memory)")
     parser.add_argument("--max-image-size", type=int, default=None,
@@ -1530,6 +1673,7 @@ def main():
         'confidence_threshold': args.confidence,
         'min_area': args.min_area,
         'max_area': args.max_area,
+        'final_min_area': args.final_min_area,
         'max_image_size': max_image_size,
         'force_cpu': args.cpu
     }

@@ -36,12 +36,13 @@ var MODEL_WEIGHTS = "";  // Auto-detected
 var CONFIDENCE_THRESHOLD = 0.25;
 var MIN_AREA = 100;
 var MAX_AREA = 999999;  // Large number representing infinity
+var FINAL_MIN_AREA = 1000;  // Final minimum area filter (applied after post-processing)
 var USE_CPU = false;  // Set to true to force CPU inference (slower but less memory)
 var MAX_IMAGE_SIZE = 2048;  // Maximum image dimension (larger images will be resized)
 var FORCE_SMALL_INPUT = false;  // Set to true to force 1024px input (memory optimization, may reduce accuracy)
 
 // UI and workflow state
-var TEMP_DIR = "";
+var TEMP_DIR = "";use
 var OUTPUT_DIR = "";
 
 /*
@@ -328,6 +329,7 @@ function buildPythonCommand(input_image) {
     python_script_cmd = python_script_cmd + " --confidence " + CONFIDENCE_THRESHOLD;
     python_script_cmd = python_script_cmd + " --min-area " + MIN_AREA;
     python_script_cmd = python_script_cmd + " --max-area " + MAX_AREA;
+    python_script_cmd = python_script_cmd + " --final-min-area " + FINAL_MIN_AREA;
     
     if (FORCE_SMALL_INPUT) {
         python_script_cmd = python_script_cmd + " --force-1024";
@@ -371,6 +373,7 @@ function buildBatchPythonCommand(input_dir) {
     python_script_cmd = python_script_cmd + " --confidence " + CONFIDENCE_THRESHOLD;
     python_script_cmd = python_script_cmd + " --min-area " + MIN_AREA;
     python_script_cmd = python_script_cmd + " --max-area " + MAX_AREA;
+    python_script_cmd = python_script_cmd + " --final-min-area " + FINAL_MIN_AREA;
     
     if (FORCE_SMALL_INPUT) {
         python_script_cmd = python_script_cmd + " --force-1024";
@@ -596,6 +599,7 @@ function showParameterDialog() {
     Dialog.addNumber("Confidence Threshold (0-1):", CONFIDENCE_THRESHOLD);
     Dialog.addNumber("Minimum Area (pixels):", MIN_AREA);
     Dialog.addNumber("Maximum Area (pixels):", MAX_AREA);
+    Dialog.addNumber("Final Min Area (pixels):", FINAL_MIN_AREA);
     Dialog.addMessage("\\nMemory & Performance Options:");
     Dialog.addCheckbox("Use CPU (slower but less memory)", USE_CPU);
     Dialog.addCheckbox("Force 1024px input (memory optimization, may reduce accuracy)", FORCE_SMALL_INPUT);
@@ -612,6 +616,7 @@ function showParameterDialog() {
     CONFIDENCE_THRESHOLD = Dialog.getNumber();
     MIN_AREA = Dialog.getNumber();
     MAX_AREA = Dialog.getNumber();
+    FINAL_MIN_AREA = Dialog.getNumber();
     USE_CPU = Dialog.getCheckbox();
     FORCE_SMALL_INPUT = Dialog.getCheckbox();
     MAX_IMAGE_SIZE = Dialog.getNumber();
@@ -627,6 +632,11 @@ function showParameterDialog() {
     
     if (MIN_AREA <= 0 || MAX_AREA <= MIN_AREA) {
         showMessage("Invalid Parameter", "Area values must be positive and max > min");
+        return false;
+    }
+
+    if (FINAL_MIN_AREA < 0) {
+        showMessage("Invalid Parameter", "Final minimum area must be positive");
         return false;
     }
     
