@@ -141,12 +141,20 @@ function segmentMyotubesWithGUI() {
 
     if (startsWith(getInfo("os.name"), "Windows")) {
         // Create a batch file with the command
-        batch_content = "@echo off\n" + full_cmd + " > \"" + cmd_output_file + "\" 2>&1\n";
+        batch_content = "@echo off\r\n";
+        batch_content = batch_content + "echo Starting segmentation... > \"" + cmd_output_file + "\"\r\n";
+        batch_content = batch_content + full_cmd + " >> \"" + cmd_output_file + "\" 2>&1\r\n";
+        batch_content = batch_content + "echo Batch file completed >> \"" + cmd_output_file + "\"\r\n";
         File.saveString(batch_content, batch_file);
         print("Created batch file: " + batch_file);
 
+        // Also print the batch file contents for debugging
+        saved_batch = File.openAsString(batch_file);
+        print("Batch file contents:");
+        print(saved_batch);
+
         // Execute the batch file
-        exec("cmd", "/c", "\"" + batch_file + "\"");
+        exec("cmd", "/c", batch_file);
     } else {
         full_cmd_with_redirect = full_cmd + " > \"" + cmd_output_file + "\" 2>&1";
         exec("sh", "-c", full_cmd_with_redirect);
