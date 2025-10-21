@@ -92,29 +92,38 @@ def ensure_mask2former_loaded():
             sys.path.insert(0, project_dir)
     return project_dir
 
-# Detectron2 imports - these will be attempted but may fail if GUI mode
-try:
-    # Only load if not in GUI mode (checked via command line args)
-    if '--gui' not in sys.argv:
-        ensure_mask2former_loaded()
-    from detectron2.engine.defaults import DefaultPredictor
-    from detectron2.config import get_cfg
-    from detectron2.projects.deeplab import add_deeplab_config
-    from detectron2.data.detection_utils import read_image
-    from mask2former import add_maskformer2_config
-except Exception as _import_exc:
-    # Write an ERROR status file early if imports fail (common in Fiji env)
+# Check if we're in GUI mode - GUI doesn't need detectron2/mask2former imports
+GUI_MODE = '--gui' in sys.argv
+
+# Detectron2 imports - only load if NOT in GUI mode
+if not GUI_MODE:
     try:
-        if len(sys.argv) >= 3:
-            _out_dir = sys.argv[2]
-            os.makedirs(_out_dir, exist_ok=True)
-            with open(os.path.join(_out_dir, "ERROR"), 'w') as _f:
-                _f.write(f"IMPORT_ERROR: {type(_import_exc).__name__}: {_import_exc}\n")
-    except Exception:
-        pass
-    # Also print to stderr for batch_run.log
-    print(f"IMPORT_ERROR: {_import_exc}")
-    sys.exit(1)
+        ensure_mask2former_loaded()
+        from detectron2.engine.defaults import DefaultPredictor
+        from detectron2.config import get_cfg
+        from detectron2.projects.deeplab import add_deeplab_config
+        from detectron2.data.detection_utils import read_image
+        from mask2former import add_maskformer2_config
+    except Exception as _import_exc:
+        # Write an ERROR status file early if imports fail (common in Fiji env)
+        try:
+            if len(sys.argv) >= 3:
+                _out_dir = sys.argv[2]
+                os.makedirs(_out_dir, exist_ok=True)
+                with open(os.path.join(_out_dir, "ERROR"), 'w') as _f:
+                    _f.write(f"IMPORT_ERROR: {type(_import_exc).__name__}: {_import_exc}\n")
+        except Exception:
+            pass
+        # Also print to stderr for batch_run.log
+        print(f"IMPORT_ERROR: {_import_exc}")
+        sys.exit(1)
+else:
+    # GUI mode - set placeholders that will be imported later when actually running segmentation
+    DefaultPredictor = None
+    get_cfg = None
+    add_deeplab_config = None
+    read_image = None
+    add_maskformer2_config = None
 
 
 class PostProcessingPipeline:
@@ -947,26 +956,27 @@ class TiledMyotubeSegmentation:
     then merges detections across tiles using IoU-based matching.
     """
 
-    def __init__(self, fiji_integration, target_overlap=0.20):
+    def __init__(self, fiji_integration, target_overlap=0.20, grid_size=2):
         """
         Initialize tiled segmentation wrapper.
 
         Args:
             fiji_integration: MyotubeFijiIntegration instance
             target_overlap: Overlap ratio between tiles (default: 0.20 = 20%)
+            grid_size: Grid size for tiling (1=no split, 2=2×2, 3=3×3, etc.)
         """
         self.integration = fiji_integration
         self.target_overlap = target_overlap
-        # Always use resolution optimization for tiled inference (automatic ~9× speedup)
-        self.model_resolution = 3000  # Target resolution after merging 2×2 tiles
+        self.grid_size = max(1, int(grid_size))  # Ensure grid_size >= 1
 
     def calculate_tiling_params(self, image_size):
         """
-        Calculate tile size for 2×2 grid with specified overlap.
+        Calculate tile size for N×N grid with specified overlap.
 
-        For overlap ratio r and image size I:
-        - tile_size = I / (2 - r)
-        - For 20% overlap on 9000px: tile_size = 9000 / 1.8 = 5000
+        For overlap ratio r, grid size N, and image size I:
+        - tile_size = I / (N - r * (N - 1))
+        - For 2×2 grid with 20% overlap on 9000px: tile_size = 9000 / (2 - 0.2) = 5000
+        - For 3×3 grid with 20% overlap on 9000px: tile_size = 9000 / (3 - 0.4) = 3461
 
         Args:
             image_size: Width or height of square image (uses minimum for non-square)
@@ -974,14 +984,17 @@ class TiledMyotubeSegmentation:
         Returns:
             tuple: (tile_size, overlap_pixels)
         """
-        tile_size = int(image_size / (2 - self.target_overlap))
+        # Formula: tile_size = I / (N - r * (N - 1))
+        # This ensures N tiles cover the image with overlap r
+        denominator = self.grid_size - self.target_overlap * (self.grid_size - 1)
+        tile_size = int(image_size / denominator)
         overlap = int(tile_size * self.target_overlap)
 
         return tile_size, overlap
 
     def create_tiles(self, image, tile_size):
         """
-        Create 2×2 overlapping tiles from image.
+        Create N×N overlapping tiles from image.
 
         Args:
             image: Input image array (H, W, C)
@@ -991,10 +1004,22 @@ class TiledMyotubeSegmentation:
             list: List of (tile_image, (y_start, x_start, y_end, x_end)) tuples
         """
         h, w = image.shape[:2]
+        min_dim = min(h, w)
 
-        # Positions for 2×2 grid
-        # First tile starts at 0, second tile starts at (image_size - tile_size)
-        positions = [0, min(h, w) - tile_size]
+        # Calculate positions for N×N grid
+        # With overlap, the step size between tiles is: tile_size * (1 - overlap_ratio)
+        step_size = int(tile_size * (1 - self.target_overlap))
+
+        # Generate positions: 0, step, 2*step, ..., but last position is (image_size - tile_size)
+        positions = []
+        for i in range(self.grid_size):
+            if i == 0:
+                positions.append(0)
+            elif i == self.grid_size - 1:
+                positions.append(min_dim - tile_size)
+            else:
+                pos = i * step_size
+                positions.append(pos)
 
         tiles = []
         for y_pos in positions:
@@ -1263,17 +1288,21 @@ class TiledMyotubeSegmentation:
         Returns:
             dict: Output files dictionary (same format as segment_image)
         """
-        print(f"🔲 Using TILED inference mode (overlap: {self.target_overlap*100:.0f}%)")
+        print(f"🔲 Using TILED inference mode (grid: {self.grid_size}×{self.grid_size}, overlap: {self.target_overlap*100:.0f}%)")
 
         # Load image
         image = cv2.imread(image_path)
         original_image = image.copy()
         original_h, original_w = image.shape[:2]
 
-        # Resolution optimization: ALWAYS process at model resolution for ~9× speedup
-        if max(original_h, original_w) > self.model_resolution:
+        # Calculate optimal model resolution: 1500 × grid_size, capped at original image size
+        # Model processes optimally at 1500px, so N×N grid should be 1500×N
+        model_resolution = min(1500 * self.grid_size, max(original_h, original_w))
+
+        # Resolution optimization: Process at model resolution for speedup
+        if max(original_h, original_w) > model_resolution:
             # Calculate scale factor to resize to model resolution
-            scale_factor = self.model_resolution / max(original_h, original_w)
+            scale_factor = model_resolution / max(original_h, original_w)
             processing_w = int(original_w * scale_factor)
             processing_h = int(original_h * scale_factor)
 
@@ -1304,8 +1333,9 @@ class TiledMyotubeSegmentation:
         min_dim = min(h, w)
         tile_size, overlap = self.calculate_tiling_params(min_dim)
 
+        total_tiles = self.grid_size * self.grid_size
         print(f"   Image: {w}×{h}")
-        print(f"   Tiles: 2×2 grid = 4 tiles")
+        print(f"   Tiles: {self.grid_size}×{self.grid_size} grid = {total_tiles} tiles")
         print(f"   Tile size: {tile_size}×{tile_size}")
         print(f"   Overlap: {overlap}px ({self.target_overlap*100:.0f}%)")
 
@@ -1465,9 +1495,16 @@ class MyotubeFijiIntegration:
         
     def setup_paths(self):
         """Setup default paths if not provided."""
-        # Use the detected project directory instead of script location
+        # If both paths are provided, no need to auto-detect
+        if self.config_file and self.model_weights:
+            print(f"📁 Config file: {self.config_file}")
+            print(f"🔮 Model weights: {self.model_weights}")
+            return
+
+        # Load project directory for auto-detection
+        ensure_mask2former_loaded()
         base_dir = Path(project_dir)
-        
+
         if not self.config_file:
             # Try to find the best available config
             config_options = [
@@ -2885,8 +2922,13 @@ class MyotubeFijiIntegration:
 class ParameterGUI:
     """User-friendly GUI for parameter configuration."""
 
-    def __init__(self, config_file=None):
-        """Initialize the GUI with saved or default parameters."""
+    def __init__(self, config_file=None, locked_output_dir=None):
+        """Initialize the GUI with saved or default parameters.
+
+        Args:
+            config_file: Path to config file (default: auto-detect)
+            locked_output_dir: If provided, locks the output directory (used by Fiji integration)
+        """
         import tkinter as tk
         from tkinter import ttk, filedialog, messagebox
 
@@ -2894,6 +2936,7 @@ class ParameterGUI:
         self.ttk = ttk
         self.filedialog = filedialog
         self.messagebox = messagebox
+        self.locked_output_dir = locked_output_dir
 
         # Default parameters
         self.defaults = {
@@ -2909,6 +2952,7 @@ class ParameterGUI:
             'max_image_size': '',
             'force_1024': False,
             'use_tiling': True,
+            'grid_size': 2,
             'tile_overlap': 0.20,
             'skip_merged_masks': True,
         }
@@ -2921,6 +2965,11 @@ class ParameterGUI:
 
         # Load saved parameters
         self.params = self.load_config()
+
+        # Override output directory if locked (from Fiji integration)
+        if self.locked_output_dir:
+            self.params['output_dir'] = self.locked_output_dir
+            print(f"🔒 Output directory locked by Fiji: {self.locked_output_dir}")
 
         # GUI state
         self.result = None
@@ -2996,6 +3045,7 @@ class ParameterGUI:
 
         # Optional parameters
         self.max_image_size_var.set(str(self.params['max_image_size']) if self.params['max_image_size'] else '')
+        self.grid_size_var.set(self.params['grid_size'])
         self.tile_overlap_var.set(self.params['tile_overlap'] * 100)  # Display as percentage
 
         # Update formatted labels if they exist
@@ -3025,7 +3075,8 @@ class ParameterGUI:
         max_size_str = self.max_image_size_var.get().strip()
         self.params['max_image_size'] = int(max_size_str) if max_size_str else ''
 
-        # Tile overlap (convert from percentage)
+        # Grid size and tile overlap
+        self.params['grid_size'] = int(self.grid_size_var.get())
         self.params['tile_overlap'] = float(self.tile_overlap_var.get()) / 100.0
 
     def browse_input(self):
@@ -3087,6 +3138,8 @@ class ParameterGUI:
                 raise ValueError("Maximum area must be greater than minimum area")
             if self.params['final_min_area'] < 0:
                 raise ValueError("Final minimum area must be non-negative")
+            if self.params['grid_size'] < 1:
+                raise ValueError("Grid size must be at least 1")
             if not (0 < self.params['tile_overlap'] < 1):
                 raise ValueError("Tile overlap must be between 0 and 1")
         except ValueError as e:
@@ -3133,6 +3186,7 @@ class ParameterGUI:
         self.max_image_size_var = self.tk.StringVar(value=str(self.params['max_image_size']) if self.params['max_image_size'] else '')
         self.force_1024_var = self.tk.BooleanVar(value=self.params['force_1024'])
         self.use_tiling_var = self.tk.BooleanVar(value=self.params['use_tiling'])
+        self.grid_size_var = self.tk.IntVar(value=self.params['grid_size'])
         self.tile_overlap_var = self.tk.DoubleVar(value=self.params['tile_overlap'] * 100)
         self.skip_merged_var = self.tk.BooleanVar(value=self.params['skip_merged_masks'])
 
@@ -3148,8 +3202,14 @@ class ParameterGUI:
         row += 1
 
         self.ttk.Label(main_frame, text="Output Directory:").grid(row=row, column=0, sticky=self.tk.W)
-        self.ttk.Entry(main_frame, textvariable=self.output_var, width=50).grid(row=row, column=1, sticky=(self.tk.W, self.tk.E), padx=5)
-        self.ttk.Button(main_frame, text="Browse...", command=self.browse_output).grid(row=row, column=2)
+        output_entry = self.ttk.Entry(main_frame, textvariable=self.output_var, width=50)
+        output_entry.grid(row=row, column=1, sticky=(self.tk.W, self.tk.E), padx=5)
+        output_browse_btn = self.ttk.Button(main_frame, text="Browse...", command=self.browse_output)
+        output_browse_btn.grid(row=row, column=2)
+        # Disable output directory selection if locked by Fiji
+        if self.locked_output_dir:
+            output_entry.config(state='readonly')
+            output_browse_btn.config(state='disabled')
         row += 1
 
         # Separator
@@ -3230,6 +3290,11 @@ class ParameterGUI:
         self.ttk.Checkbutton(main_frame, text="Use tiled inference (for images with many myotubes)", variable=self.use_tiling_var).grid(row=row, column=0, columnspan=2, sticky=self.tk.W, pady=2)
         row += 1
 
+        self.ttk.Label(main_frame, text="Grid Size (1=no split, 2=2×2, etc.):").grid(row=row, column=0, sticky=self.tk.W)
+        grid_size_spinbox = self.ttk.Spinbox(main_frame, from_=1, to=10, textvariable=self.grid_size_var, width=10)
+        grid_size_spinbox.grid(row=row, column=1, sticky=self.tk.W, padx=5)
+        row += 1
+
         self.ttk.Label(main_frame, text="Tile Overlap (%):").grid(row=row, column=0, sticky=self.tk.W)
         tile_overlap_scale = self.ttk.Scale(main_frame, from_=10, to=50, variable=self.tile_overlap_var, orient='horizontal', length=300)
         tile_overlap_scale.grid(row=row, column=1, sticky=(self.tk.W, self.tk.E), padx=5)
@@ -3298,6 +3363,8 @@ def main():
     # GUI mode
     parser.add_argument("--gui", action="store_true",
                        help="Launch graphical user interface for parameter configuration")
+    parser.add_argument("--gui-output", type=str, default=None,
+                       help="Lock output directory when using GUI (used by Fiji integration)")
 
     # Positional arguments (optional when using --gui)
     parser.add_argument("input_path", nargs='?', help="Path to input image or directory containing images")
@@ -3323,9 +3390,11 @@ def main():
 
     # Tiling parameters
     parser.add_argument("--use-tiling", action="store_true", default=True,
-                       help="Enable tiled inference for large images with many myotubes (4 tiles with 20%% overlap, enabled by default)")
+                       help="Enable tiled inference for large images with many myotubes (enabled by default)")
     parser.add_argument("--no-tiling", dest="use_tiling", action="store_false",
                        help="Disable tiled inference and process entire image at once")
+    parser.add_argument("--grid-size", type=int, default=2,
+                       help="Grid size for tiling (1=no split, 2=2×2, 3=3×3, etc.). Default: 2")
     parser.add_argument("--tile-overlap", type=float, default=0.20,
                        help="Overlap ratio between tiles (default: 0.20 = 20%%). Only used with --use-tiling")
 
@@ -3340,7 +3409,8 @@ def main():
     # Check if GUI mode is requested
     if args.gui:
         print("🖥️  Launching GUI...")
-        gui = ParameterGUI()
+        # If gui-output is specified, lock the output directory
+        gui = ParameterGUI(locked_output_dir=args.gui_output)
         params = gui.show()
 
         if params is None:
@@ -3351,7 +3421,8 @@ def main():
 
         # Override args with GUI parameters
         args.input_path = params['input_path']
-        args.output_dir = params['output_dir']
+        # Use locked output if provided, otherwise use GUI selection
+        args.output_dir = args.gui_output if args.gui_output else params['output_dir']
         args.config = params['config'] if params['config'] else None
         args.weights = params['weights'] if params['weights'] else None
         args.confidence = params['confidence']
@@ -3361,9 +3432,22 @@ def main():
         args.cpu = params['cpu']
         args.force_1024 = params['force_1024']
         args.use_tiling = params['use_tiling']
+        args.grid_size = params['grid_size']
         args.tile_overlap = params['tile_overlap']
         args.skip_merged_masks = params['skip_merged_masks']
         args.max_image_size = params['max_image_size'] if params['max_image_size'] else None
+
+        # Now that GUI is done, load the imports we skipped earlier
+        print("🔄 Loading Mask2Former and detectron2 modules...")
+        ensure_mask2former_loaded()
+        # Re-import the modules that were set to None in GUI mode
+        global DefaultPredictor, get_cfg, add_deeplab_config, read_image, add_maskformer2_config
+        from detectron2.engine.defaults import DefaultPredictor
+        from detectron2.config import get_cfg
+        from detectron2.projects.deeplab import add_deeplab_config
+        from detectron2.data.detection_utils import read_image
+        from mask2former import add_maskformer2_config
+        print("✅ Modules loaded successfully")
     else:
         # Command-line mode - validate required arguments
         if not args.input_path or not args.output_dir:
@@ -3409,10 +3493,11 @@ def main():
 
     # Initialize tiled segmentation if requested
     if args.use_tiling:
-        print(f"🔲 Tiled inference mode enabled (overlap: {args.tile_overlap*100:.0f}%)")
+        print(f"🔲 Tiled inference mode enabled (grid: {args.grid_size}×{args.grid_size}, overlap: {args.tile_overlap*100:.0f}%)")
         tiled_segmenter = TiledMyotubeSegmentation(
             fiji_integration=integration,
-            target_overlap=args.tile_overlap
+            target_overlap=args.tile_overlap,
+            grid_size=args.grid_size
         )
     else:
         tiled_segmenter = None
@@ -3429,6 +3514,16 @@ def main():
     
     # Ensure output directory exists for status files
     os.makedirs(args.output_dir, exist_ok=True)
+
+    # Clean up old status files to avoid confusion from previous runs
+    old_success_file = os.path.join(args.output_dir, "BATCH_SUCCESS")
+    old_error_file = os.path.join(args.output_dir, "ERROR")
+    if os.path.exists(old_success_file):
+        os.remove(old_success_file)
+        print("🗑️  Deleted old BATCH_SUCCESS file")
+    if os.path.exists(old_error_file):
+        os.remove(old_error_file)
+        print("🗑️  Deleted old ERROR file")
 
     # Process image(s)
     try:

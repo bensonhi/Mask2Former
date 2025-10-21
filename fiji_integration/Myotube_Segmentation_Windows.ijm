@@ -102,8 +102,9 @@ function segmentMyotubesWithGUI() {
     showProgress(0.1);
     showStatus("Launching parameter GUI...");
 
-    // Build Python command with --gui flag
-    python_script_cmd = PYTHON_COMMAND + " \"" + SCRIPT_PATH + "\" --gui";
+    // Build Python command with --gui flag and output directory
+    // IMPORTANT: Pass OUTPUT_DIR so results go to the temp directory where Fiji expects them
+    python_script_cmd = PYTHON_COMMAND + " \"" + SCRIPT_PATH + "\" --gui --gui-output \"" + OUTPUT_DIR + "\"";
 
     if (startsWith(getInfo("os.name"), "Windows")) {
         // Windows: Try multiple conda initialization methods
@@ -323,7 +324,21 @@ function setupDirectories() {
 function loadBatchResults(success_file) {
     // Read batch summary
     success_content = File.openAsString(success_file);
-    lines = split(success_content, "\\n");
+
+    // Handle both Unix (\n) and Windows (\r\n) line endings
+    success_content = replace(success_content, "\r\n", "\n");
+    success_content = replace(success_content, "\r", "\n");
+    lines = split(success_content, "\n");
+
+    // Debug: print number of lines
+    print("Debug: Found " + lines.length + " lines in BATCH_SUCCESS");
+
+    // Ensure we have at least 3 lines
+    if (lines.length < 3) {
+        print("Warning: BATCH_SUCCESS file has only " + lines.length + " lines, expected 3");
+        print("Content: " + success_content);
+        return;
+    }
 
     processed_info = lines[0];  // e.g., "5/10 images processed"
     total_myotubes = lines[1];  // e.g., "150 total myotubes detected"
@@ -336,10 +351,27 @@ function loadBatchResults(success_file) {
 
     // Parse numbers for dialog
     processed_parts = split(processed_info, "/");
-    successful_count = parseInt(processed_parts[0]);
-    total_count = parseInt(split(processed_parts[1], " ")[0]);
+    if (processed_parts.length < 2) {
+        print("Error: Could not parse processed_info: " + processed_info);
+        return;
+    }
 
+    successful_count = parseInt(processed_parts[0]);
+
+    // Extract total count from "24 images processed"
+    total_parts = split(processed_parts[1], " ");
+    if (total_parts.length < 1) {
+        print("Error: Could not parse total count from: " + processed_parts[1]);
+        return;
+    }
+    total_count = parseInt(total_parts[0]);
+
+    // Extract myotube count from "150 total myotubes detected"
     myotube_parts = split(total_myotubes, " ");
+    if (myotube_parts.length < 1) {
+        print("Error: Could not parse myotube count from: " + total_myotubes);
+        return;
+    }
     myotube_count = parseInt(myotube_parts[0]);
 
     // Show batch summary dialog
