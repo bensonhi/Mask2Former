@@ -454,7 +454,9 @@ function checkAndCreateCondaEnvironment() {
 
     if (env_exists) {
         print("✅ Conda environment '" + CONDA_ENV + "' found");
-        return true;
+        // Still need to install/verify dependencies
+        print("Installing/updating Python dependencies...");
+        return installDependenciesQuiet();
     }
 
     // Environment doesn't exist - create it
