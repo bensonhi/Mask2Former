@@ -100,11 +100,29 @@ function segmentMyotubesWithGUI() {
 
     if (startsWith(getInfo("os.name"), "Windows")) {
         // Windows: Try multiple conda initialization methods
-        // Method 1: Use conda hook initialization
-        conda_init = "%USERPROFILE%\\miniconda3\\Scripts\\activate.bat";
-        if (!File.exists(replace(conda_init, "%USERPROFILE%", getInfo("user.home")))) {
-            conda_init = "%USERPROFILE%\\anaconda3\\Scripts\\activate.bat";
+        // Check common conda installation locations
+        conda_locations = newArray(
+            "%USERPROFILE%\\AppData\\Local\\miniconda3\\Scripts\\activate.bat",
+            "%USERPROFILE%\\miniconda3\\Scripts\\activate.bat",
+            "%USERPROFILE%\\AppData\\Local\\anaconda3\\Scripts\\activate.bat",
+            "%USERPROFILE%\\anaconda3\\Scripts\\activate.bat"
+        );
+
+        conda_init = "";
+        home_dir = getInfo("user.home");
+        for (i = 0; i < conda_locations.length; i++) {
+            test_path = replace(conda_locations[i], "%USERPROFILE%", home_dir);
+            if (File.exists(test_path)) {
+                conda_init = conda_locations[i];
+                break;
+            }
         }
+
+        if (conda_init == "") {
+            // Fallback to default if not found
+            conda_init = "%USERPROFILE%\\AppData\\Local\\miniconda3\\Scripts\\activate.bat";
+        }
+
         full_cmd = "call " + conda_init + " " + CONDA_ENV + " && set " + env_var + " && " + python_script_cmd;
     } else {
         // Unix/Mac conda activation
@@ -367,10 +385,31 @@ function installDependencies() {
     print("");
     print("Step 1: Checking conda environment...");
 
+    // Find conda activate script
+    conda_init = "";
     if (startsWith(getInfo("os.name"), "Windows")) {
-        // Windows: Initialize conda in cmd.exe first
-        check_env_cmd = "conda env list | findstr " + CONDA_ENV;
-        create_env_cmd = "conda create -n " + CONDA_ENV + " python=3.9 -y";
+        conda_locations = newArray(
+            "%USERPROFILE%\\AppData\\Local\\miniconda3\\Scripts\\activate.bat",
+            "%USERPROFILE%\\miniconda3\\Scripts\\activate.bat",
+            "%USERPROFILE%\\AppData\\Local\\anaconda3\\Scripts\\activate.bat",
+            "%USERPROFILE%\\anaconda3\\Scripts\\activate.bat"
+        );
+
+        home_dir = getInfo("user.home");
+        for (i = 0; i < conda_locations.length; i++) {
+            test_path = replace(conda_locations[i], "%USERPROFILE%", home_dir);
+            if (File.exists(test_path)) {
+                conda_init = conda_locations[i];
+                break;
+            }
+        }
+
+        if (conda_init == "") {
+            conda_init = "%USERPROFILE%\\AppData\\Local\\miniconda3\\Scripts\\activate.bat";
+        }
+
+        check_env_cmd = "call " + conda_init + " base && conda env list | findstr " + CONDA_ENV;
+        create_env_cmd = "call " + conda_init + " base && conda create -n " + CONDA_ENV + " python=3.9 -y";
     } else {
         // Unix/Mac: Check and create environment
         check_env_cmd = "source $(conda info --base)/etc/profile.d/conda.sh && conda env list | grep -w " + CONDA_ENV;
@@ -427,10 +466,10 @@ function installDependencies() {
     // Build pip install command
     pip_cmd = PYTHON_COMMAND + " -m pip install -r \"" + requirements_file + "\"";
 
-    // Wrap with conda activation
+    // Wrap with conda activation (reuse conda_init from earlier)
     if (startsWith(getInfo("os.name"), "Windows")) {
         // Windows conda activation
-        full_cmd = "conda activate " + CONDA_ENV + " && " + pip_cmd;
+        full_cmd = "call " + conda_init + " " + CONDA_ENV + " && " + pip_cmd;
     } else {
         // Unix/Mac conda activation
         full_cmd = "source $(conda info --base)/etc/profile.d/conda.sh && conda activate " + CONDA_ENV + " && " + pip_cmd;
