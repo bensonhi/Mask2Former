@@ -133,15 +133,20 @@ function segmentMyotubesWithGUI() {
     print("Launching GUI...");
     print("Command: " + full_cmd);
 
-    // Execute segmentation with GUI - redirect output to file to capture errors
+    // Execute segmentation with GUI - use batch file for better redirection handling
     start_time = getTime();
 
     cmd_output_file = TEMP_DIR + "\\" + "cmd_output.txt";
+    batch_file = TEMP_DIR + "\\" + "run_segmentation.bat";
 
     if (startsWith(getInfo("os.name"), "Windows")) {
-        // Redirect both stdout and stderr to file
-        full_cmd_with_redirect = full_cmd + " > \"" + cmd_output_file + "\" 2>&1";
-        exec("cmd", "/c", full_cmd_with_redirect);
+        // Create a batch file with the command
+        batch_content = "@echo off\n" + full_cmd + " > \"" + cmd_output_file + "\" 2>&1\n";
+        File.saveString(batch_content, batch_file);
+        print("Created batch file: " + batch_file);
+
+        // Execute the batch file
+        exec("cmd", "/c", "\"" + batch_file + "\"");
     } else {
         full_cmd_with_redirect = full_cmd + " > \"" + cmd_output_file + "\" 2>&1";
         exec("sh", "-c", full_cmd_with_redirect);
