@@ -483,6 +483,39 @@ function checkAndCreateCondaEnvironment() {
 
     print("✅ Environment created in " + create_time + " seconds");
 
+    // Wait a moment for conda to register the new environment
+    print("Waiting for conda to register the environment...");
+    wait(2000);
+
+    // Verify the environment was created
+    print("Verifying environment creation...");
+    if (startsWith(getInfo("os.name"), "Windows")) {
+        exec("cmd", "/c", check_env_cmd + " > \"" + env_check_file + "\" 2>&1");
+    } else {
+        exec("sh", "-c", check_env_cmd + " > \"" + env_check_file + "\" 2>&1");
+    }
+
+    wait(1000);
+
+    env_verified = false;
+    if (File.exists(env_check_file)) {
+        env_content = File.openAsString(env_check_file);
+        print("Environment list output:");
+        print(env_content);
+        if (indexOf(env_content, CONDA_ENV) >= 0) {
+            env_verified = true;
+        }
+        File.delete(env_check_file);
+    }
+
+    if (!env_verified) {
+        print("❌ ERROR: Environment creation reported success but environment not found!");
+        print("This may be a conda registration issue. Try running 'conda env list' manually.");
+        return false;
+    }
+
+    print("✅ Environment verified");
+
     // Now install dependencies
     print("Installing Python dependencies...");
     return installDependenciesQuiet();
