@@ -478,8 +478,8 @@ function checkAndCreateCondaEnvironment() {
         batch_content = batch_content + "    echo ERROR: Conda base activation failed >> \"" + create_output_file + "\"\r\n";
         batch_content = batch_content + "    exit /b 1\r\n";
         batch_content = batch_content + ")\r\n";
-        batch_content = batch_content + "echo Creating environment " + CONDA_ENV + " using conda-forge... >> \"" + create_output_file + "\"\r\n";
-        batch_content = batch_content + "conda create -n " + CONDA_ENV + " python=3.9 -c conda-forge -y >> \"" + create_output_file + "\" 2>&1\r\n";
+        batch_content = batch_content + "echo Creating environment " + CONDA_ENV + " using conda-forge only... >> \"" + create_output_file + "\"\r\n";
+        batch_content = batch_content + "conda create -n " + CONDA_ENV + " python=3.9 --override-channels -c conda-forge -y >> \"" + create_output_file + "\" 2>&1\r\n";
         batch_content = batch_content + "if errorlevel 1 (\r\n";
         batch_content = batch_content + "    echo ERROR: Environment creation failed with code %errorlevel% >> \"" + create_output_file + "\"\r\n";
         batch_content = batch_content + "    exit /b 1\r\n";
