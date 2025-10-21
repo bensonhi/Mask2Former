@@ -140,10 +140,20 @@ function segmentMyotubesWithGUI() {
     batch_file = TEMP_DIR + "\\" + "run_segmentation.bat";
 
     if (startsWith(getInfo("os.name"), "Windows")) {
-        // Create a batch file with the command
+        // Create a batch file with the command and detailed debugging
         batch_content = "@echo off\r\n";
         batch_content = batch_content + "echo Starting segmentation... > \"" + cmd_output_file + "\"\r\n";
-        batch_content = batch_content + full_cmd + " >> \"" + cmd_output_file + "\" 2>&1\r\n";
+        batch_content = batch_content + "echo Attempting conda activation... >> \"" + cmd_output_file + "\"\r\n";
+        batch_content = batch_content + "call \"" + conda_init + "\" " + CONDA_ENV + " >> \"" + cmd_output_file + "\" 2>&1\r\n";
+        batch_content = batch_content + "if errorlevel 1 (\r\n";
+        batch_content = batch_content + "    echo ERROR: Conda activation failed with code %errorlevel% >> \"" + cmd_output_file + "\"\r\n";
+        batch_content = batch_content + "    exit /b 1\r\n";
+        batch_content = batch_content + ")\r\n";
+        batch_content = batch_content + "echo Conda activated successfully >> \"" + cmd_output_file + "\"\r\n";
+        batch_content = batch_content + "echo Running Python script... >> \"" + cmd_output_file + "\"\r\n";
+        batch_content = batch_content + "set " + env_var + " >> \"" + cmd_output_file + "\" 2>&1\r\n";
+        batch_content = batch_content + python_script_cmd + " >> \"" + cmd_output_file + "\" 2>&1\r\n";
+        batch_content = batch_content + "echo Python script completed >> \"" + cmd_output_file + "\"\r\n";
         batch_content = batch_content + "echo Batch file completed >> \"" + cmd_output_file + "\"\r\n";
         File.saveString(batch_content, batch_file);
         print("Created batch file: " + batch_file);
