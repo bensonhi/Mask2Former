@@ -478,13 +478,13 @@ function checkAndCreateCondaEnvironment() {
         batch_content = batch_content + "    echo ERROR: Conda base activation failed >> \"" + create_output_file + "\"\r\n";
         batch_content = batch_content + "    exit /b 1\r\n";
         batch_content = batch_content + ")\r\n";
-        batch_content = batch_content + "echo Accepting conda Terms of Service... >> \"" + create_output_file + "\"\r\n";
-        batch_content = batch_content + "conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/main >> \"" + create_output_file + "\" 2>&1\r\n";
-        batch_content = batch_content + "conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r >> \"" + create_output_file + "\" 2>&1\r\n";
-        batch_content = batch_content + "conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/msys2 >> \"" + create_output_file + "\" 2>&1\r\n";
-        batch_content = batch_content + "echo Creating environment " + CONDA_ENV + "... >> \"" + create_output_file + "\"\r\n";
-        batch_content = batch_content + "conda create -n " + CONDA_ENV + " python=3.9 -y >> \"" + create_output_file + "\" 2>&1\r\n";
-        batch_content = batch_content + "echo Environment creation completed >> \"" + create_output_file + "\"\r\n";
+        batch_content = batch_content + "echo Creating environment " + CONDA_ENV + " using conda-forge... >> \"" + create_output_file + "\"\r\n";
+        batch_content = batch_content + "conda create -n " + CONDA_ENV + " python=3.9 -c conda-forge -y >> \"" + create_output_file + "\" 2>&1\r\n";
+        batch_content = batch_content + "if errorlevel 1 (\r\n";
+        batch_content = batch_content + "    echo ERROR: Environment creation failed with code %errorlevel% >> \"" + create_output_file + "\"\r\n";
+        batch_content = batch_content + "    exit /b 1\r\n";
+        batch_content = batch_content + ")\r\n";
+        batch_content = batch_content + "echo Environment creation completed successfully >> \"" + create_output_file + "\"\r\n";
 
         File.saveString(batch_content, create_batch_file);
         exec("cmd", "/c", create_batch_file);
