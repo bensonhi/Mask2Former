@@ -846,14 +846,41 @@ function installDependencies() {
 
     print("Found requirements.txt: " + requirements_file);
 
-    // Step 1: Check if conda environment exists, create if not
+    // Step 1: Test if conda is accessible
     print("");
-    print("Step 1: Checking conda environment...");
+    print("Step 1: Testing conda installation...");
 
-    // Windows: Initialize conda in cmd.exe first, then check environment
-    // This ensures conda is available in the PATH
-    check_env_cmd = "call conda.bat activate base && conda env list | findstr " + CONDA_ENV;
-    create_env_cmd = "call conda.bat activate base && conda create -n " + CONDA_ENV + " python=3.9 -y";
+    conda_test_file = getDirectory("temp") + "conda_test.txt";
+
+    // Try to find conda
+    test_cmd = "where conda > \"" + conda_test_file + "\" 2>&1";
+    exec("cmd", "/c", test_cmd);
+    wait(500);
+
+    if (!File.exists(conda_test_file) || File.length(conda_test_file) == 0) {
+        print("❌ Conda not found in PATH");
+        showMessage("Conda Not Found",
+                   "Conda is not accessible from Fiji.\\n\\n" +
+                   "Please ensure conda is installed and added to PATH.\\n\\n" +
+                   "Common conda locations:\\n" +
+                   "- C:\\\\Users\\\\YourUsername\\\\miniconda3\\\\Scripts\\n" +
+                   "- C:\\\\Users\\\\YourUsername\\\\anaconda3\\\\Scripts\\n\\n" +
+                   "Add these to your User PATH in Environment Variables.");
+        if (File.exists(conda_test_file)) File.delete(conda_test_file);
+        return;
+    }
+
+    conda_path = File.openAsString(conda_test_file);
+    print("✅ Found conda: " + conda_path);
+    File.delete(conda_test_file);
+
+    // Step 2: Check if conda environment exists, create if not
+    print("");
+    print("Step 2: Checking conda environment...");
+
+    // Windows: Check environment list
+    check_env_cmd = "conda env list";
+    create_env_cmd = "conda create -n " + CONDA_ENV + " python=3.9 -y";
 
     // Check if environment exists
     env_check_file = getDirectory("temp") + "env_check.txt";
@@ -890,15 +917,15 @@ function installDependencies() {
         print("✅ Environment created in " + create_time + " seconds");
     }
 
-    // Step 2: Install dependencies
+    // Step 3: Install dependencies
     print("");
-    print("Step 2: Installing Python dependencies...");
+    print("Step 3: Installing Python dependencies...");
 
     // Build pip install command
     pip_cmd = PYTHON_COMMAND + " -m pip install -r \"" + requirements_file + "\"";
 
-    // Windows conda activation - use call conda.bat
-    full_cmd = "call conda activate " + CONDA_ENV + " && " + pip_cmd;
+    // Windows conda activation
+    full_cmd = "conda activate " + CONDA_ENV + " && " + pip_cmd;
 
     print("Installing dependencies...");
     print("Command: " + full_cmd);
