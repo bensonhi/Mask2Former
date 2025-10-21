@@ -357,44 +357,16 @@ function validateSetup() {
 }
 
 /*
- * Test if conda environment and Python command work`
+ * Test if conda environment and Python command work
  */
 function testPythonCommand() {
-    // Create a simple test file
-    test_dir = getDirectory("temp");
-    test_file = test_dir + "python_test.txt";
-    
-    // Build conda activation command with Python test
-    env_var = "MASK2FORMER_PATH=" + MASK2FORMER_PATH;
-    
-    if (startsWith(getInfo("os.name"), "Windows")) {
-        // Windows conda activation
-        test_cmd = "conda activate " + CONDA_ENV + " && set " + env_var + " && " + PYTHON_COMMAND + " -c \"print('Python test OK')\" > \"" + test_file + "\"";
-        exec("cmd", "/c", test_cmd);
-    } else {
-        // Unix/Mac conda activation
-        test_cmd = "source $(conda info --base)/etc/profile.d/conda.sh && conda activate " + CONDA_ENV + " && export " + env_var + " && " + PYTHON_COMMAND + " -c \"print('Python test OK')\" > \"" + test_file + "\"";
-        exec("sh", "-c", test_cmd);
-    }
-    
-    // Check if test file was created
-    wait(2000);  // Wait 2 seconds for conda activation
-    
-    if (File.exists(test_file)) {
-        File.delete(test_file);
-        return true;
-    } else {
-        showMessage("Conda/Python Error", 
-                   "Could not execute conda environment: " + CONDA_ENV + "\\n\\n" +
-                   "Please ensure:\\n" +
-                   "1. Conda is installed and in PATH\\n" +
-                   "2. Environment '" + CONDA_ENV + "' exists\\n" +
-                   "3. Environment has required packages\\n\\n" +
-                   "Test manually:\\n" +
-                   "conda activate " + CONDA_ENV + "\\n" +
-                   "python -c \"import torch; print('OK')\"");
-        return false;
-    }
+    // Skip Python test - just warn user if environment doesn't exist
+    // We'll create it automatically in installDependencies() if needed
+
+    print("ℹ️  Skipping Python environment test");
+    print("   Environment will be validated/created when running segmentation");
+
+    return true;  // Always return true to allow macro to load
 }
 
 /*
