@@ -151,13 +151,20 @@ function segmentMyotubesWithGUI() {
     processing_time = (end_time - start_time) / 1000;
 
     // Read and print command output
+    print("Looking for output file: " + cmd_output_file);
     if (File.exists(cmd_output_file)) {
+        print("Output file found, reading...");
         cmd_output = File.openAsString(cmd_output_file);
+        print("Output file size: " + lengthOf(cmd_output) + " characters");
         if (cmd_output != "") {
             print("=== Command Output ===");
             print(cmd_output);
             print("=== End Command Output ===");
+        } else {
+            print("Output file is empty");
         }
+    } else {
+        print("Output file not found!");
     }
 
     showProgress(0.8);
