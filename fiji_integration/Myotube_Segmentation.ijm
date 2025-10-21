@@ -892,9 +892,10 @@ function installDependencies() {
     print("Step 1: Checking conda environment...");
 
     if (startsWith(getInfo("os.name"), "Windows")) {
-        // Windows: Check and create environment
-        check_env_cmd = "conda env list | findstr " + CONDA_ENV;
-        create_env_cmd = "conda create -n " + CONDA_ENV + " python=3.9 -y";
+        // Windows: Initialize conda in cmd.exe first, then check environment
+        // This ensures conda is available in the PATH
+        check_env_cmd = "call conda.bat activate base && conda env list | findstr " + CONDA_ENV;
+        create_env_cmd = "call conda.bat activate base && conda create -n " + CONDA_ENV + " python=3.9 -y";
     } else {
         // Unix/Mac: Check and create environment
         check_env_cmd = "source $(conda info --base)/etc/profile.d/conda.sh && conda env list | grep -w " + CONDA_ENV;
