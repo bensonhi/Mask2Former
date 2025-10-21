@@ -32,18 +32,35 @@ if sys.platform == 'win32':
     sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
 
 # Find Mask2Former project directory
-# Priority: 1) Environment variable, 2) Config file, 3) Auto-detection, 4) Current directory
+# Priority: 1) Explicit parameter, 2) Environment variable, 3) Config file, 4) Auto-detection
 
-def find_mask2former_project():
-    """Find Mask2Former project directory using multiple methods."""
-    
-    # Method 1: Environment variable (easiest to change)
+def find_mask2former_project(explicit_path=None):
+    """
+    Find Mask2Former project directory using multiple methods.
+
+    Args:
+        explicit_path: Explicitly provided path (highest priority)
+
+    Returns:
+        str: Path to Mask2Former project directory
+    """
+
+    # Method 1: Explicit path parameter (highest priority)
+    if explicit_path:
+        if os.path.exists(os.path.join(explicit_path, 'demo', 'predictor.py')):
+            print(f"📁 Using Mask2Former from parameter: {explicit_path}")
+            return explicit_path
+        else:
+            print(f"⚠️  Warning: Provided path '{explicit_path}' does not contain Mask2Former")
+            print("   Falling back to other detection methods...")
+
+    # Method 2: Environment variable
     project_path = os.environ.get('MASK2FORMER_PATH')
     if project_path and os.path.exists(os.path.join(project_path, 'demo', 'predictor.py')):
         print(f"📁 Using Mask2Former from environment: {project_path}")
         return project_path
-    
-    # Method 2: Config file in same directory as script
+
+    # Method 3: Config file in same directory as script
     script_dir = os.path.dirname(os.path.abspath(__file__))
     config_file = os.path.join(script_dir, 'mask2former_config.txt')
     if os.path.exists(config_file):
@@ -52,8 +69,8 @@ def find_mask2former_project():
         if project_path and os.path.exists(os.path.join(project_path, 'demo', 'predictor.py')):
             print(f"📁 Using Mask2Former from config file: {project_path}")
             return project_path
-    
-    # Method 3: Auto-detection in common locations
+
+    # Method 4: Auto-detection in common locations
     possible_paths = [
         os.path.dirname(script_dir),  # Parent of script directory
         '/fs04/scratch2/tf41/ben/Mask2Former',  # Your current path
@@ -63,31 +80,40 @@ def find_mask2former_project():
         os.path.expanduser('~/CSIRO-UROP/Mask2Former'),
         os.getcwd()  # Current working directory
     ]
-    
+
     for path in possible_paths:
         if os.path.exists(os.path.join(path, 'demo', 'predictor.py')):
             print(f"📁 Auto-detected Mask2Former at: {path}")
             return path
-    
-    # Method 4: Error with helpful instructions
+
+    # Method 5: Error with helpful instructions
     print("❌ Could not find Mask2Former project!")
     print("🔧 To fix this, choose one of these options:")
-    print("   1. Set environment variable: export MASK2FORMER_PATH='/fs04/scratch2/tf41/ben/Mask2Former'")
-    print(f"   2. Create config file: echo '/fs04/scratch2/tf41/ben/Mask2Former' > {config_file}")
-    print("   3. Make sure the project is in one of these locations:")
+    print("   1. Use --mask2former-path argument: --mask2former-path /path/to/Mask2Former")
+    print("   2. Set environment variable: export MASK2FORMER_PATH='/fs04/scratch2/tf41/ben/Mask2Former'")
+    print(f"   3. Create config file: echo '/fs04/scratch2/tf41/ben/Mask2Former' > {config_file}")
+    print("   4. Make sure the project is in one of these locations:")
     for path in possible_paths:
         print(f"      - {path}")
-    
+
     raise ImportError("Mask2Former project not found. See instructions above.")
 
 # Add project to Python path (delayed for GUI mode)
 project_dir = None  # Will be set when needed
 
-def ensure_mask2former_loaded():
-    """Ensure Mask2Former project is loaded into Python path."""
+def ensure_mask2former_loaded(explicit_path=None):
+    """
+    Ensure Mask2Former project is loaded into Python path.
+
+    Args:
+        explicit_path: Explicitly provided path to Mask2Former project (optional)
+
+    Returns:
+        str: Path to Mask2Former project directory
+    """
     global project_dir
     if project_dir is None:
-        project_dir = find_mask2former_project()
+        project_dir = find_mask2former_project(explicit_path=explicit_path)
         if project_dir not in sys.path:
             sys.path.insert(0, project_dir)
     return project_dir
@@ -95,10 +121,20 @@ def ensure_mask2former_loaded():
 # Check if we're in GUI mode - GUI doesn't need detectron2/mask2former imports
 GUI_MODE = '--gui' in sys.argv
 
+# Check for explicit Mask2Former path in command-line arguments (before parsing)
+_explicit_m2f_path = None
+if '--mask2former-path' in sys.argv:
+    try:
+        _idx = sys.argv.index('--mask2former-path')
+        if _idx + 1 < len(sys.argv):
+            _explicit_m2f_path = sys.argv[_idx + 1]
+    except (IndexError, ValueError):
+        pass
+
 # Detectron2 imports - only load if NOT in GUI mode
 if not GUI_MODE:
     try:
-        ensure_mask2former_loaded()
+        ensure_mask2former_loaded(explicit_path=_explicit_m2f_path)
         from detectron2.engine.defaults import DefaultPredictor
         from detectron2.config import get_cfg
         from detectron2.projects.deeplab import add_deeplab_config
@@ -1475,7 +1511,8 @@ class MyotubeFijiIntegration:
     Main class for Fiji integration of myotube instance segmentation.
     """
     
-    def __init__(self, config_file: str = None, model_weights: str = None, skip_merged_masks: bool = False):
+    def __init__(self, config_file: str = None, model_weights: str = None,
+                 skip_merged_masks: bool = False, mask2former_path: str = None):
         """
         Initialize the Fiji integration.
 
@@ -1483,10 +1520,12 @@ class MyotubeFijiIntegration:
             config_file: Path to model config file
             model_weights: Path to model weights
             skip_merged_masks: Skip generation of merged visualization masks (default: False)
+            mask2former_path: Path to Mask2Former project directory (auto-detected if not provided)
         """
         self.config_file = config_file
         self.model_weights = model_weights
         self.skip_merged_masks = skip_merged_masks
+        self.mask2former_path = mask2former_path
         self.predictor = None
         self.post_processor = PostProcessingPipeline()
 
@@ -1502,7 +1541,7 @@ class MyotubeFijiIntegration:
             return
 
         # Load project directory for auto-detection
-        ensure_mask2former_loaded()
+        ensure_mask2former_loaded(explicit_path=self.mask2former_path)
         base_dir = Path(project_dir)
 
         if not self.config_file:
@@ -2944,6 +2983,7 @@ class ParameterGUI:
             'output_dir': '',
             'config': '',
             'weights': '',
+            'mask2former_path': '',
             'confidence': 0.25,
             'min_area': 100,
             'max_area': 50000,
@@ -3030,6 +3070,7 @@ class ParameterGUI:
         self.output_var.set(self.params['output_dir'])
         self.config_var.set(self.params['config'])
         self.weights_var.set(self.params['weights'])
+        self.mask2former_path_var.set(self.params['mask2former_path'])
 
         # Processing parameters
         self.confidence_var.set(self.params['confidence'])
@@ -3060,6 +3101,7 @@ class ParameterGUI:
         self.params['output_dir'] = self.output_var.get()
         self.params['config'] = self.config_var.get()
         self.params['weights'] = self.weights_var.get()
+        self.params['mask2former_path'] = self.mask2former_path_var.get()
 
         self.params['confidence'] = float(self.confidence_var.get())
         self.params['min_area'] = int(self.min_area_var.get())
@@ -3113,6 +3155,14 @@ class ParameterGUI:
         )
         if path:
             self.weights_var.set(path)
+
+    def browse_mask2former_path(self):
+        """Browse for Mask2Former project directory."""
+        path = self.filedialog.askdirectory(
+            title="Select Mask2Former Project Directory"
+        )
+        if path:
+            self.mask2former_path_var.set(path)
 
     def on_run(self):
         """Handle Run button click."""
@@ -3178,6 +3228,7 @@ class ParameterGUI:
         self.output_var = self.tk.StringVar(value=self.params['output_dir'])
         self.config_var = self.tk.StringVar(value=self.params['config'])
         self.weights_var = self.tk.StringVar(value=self.params['weights'])
+        self.mask2former_path_var = self.tk.StringVar(value=self.params['mask2former_path'])
         self.confidence_var = self.tk.DoubleVar(value=self.params['confidence'])
         self.min_area_var = self.tk.IntVar(value=self.params['min_area'])
         self.max_area_var = self.tk.IntVar(value=self.params['max_area'])
@@ -3228,6 +3279,11 @@ class ParameterGUI:
         self.ttk.Label(main_frame, text="Model Weights:").grid(row=row, column=0, sticky=self.tk.W)
         self.ttk.Entry(main_frame, textvariable=self.weights_var, width=50).grid(row=row, column=1, sticky=(self.tk.W, self.tk.E), padx=5)
         self.ttk.Button(main_frame, text="Browse...", command=self.browse_weights).grid(row=row, column=2)
+        row += 1
+
+        self.ttk.Label(main_frame, text="Mask2Former Path:").grid(row=row, column=0, sticky=self.tk.W)
+        self.ttk.Entry(main_frame, textvariable=self.mask2former_path_var, width=50).grid(row=row, column=1, sticky=(self.tk.W, self.tk.E), padx=5)
+        self.ttk.Button(main_frame, text="Browse...", command=self.browse_mask2former_path).grid(row=row, column=2)
         row += 1
 
         self.ttk.Label(main_frame, text="(Leave empty for auto-detection)", font=('Arial', 9, 'italic')).grid(row=row, column=1, sticky=self.tk.W, padx=5)
@@ -3373,6 +3429,8 @@ def main():
     # Optional arguments
     parser.add_argument("--config", help="Path to model config file")
     parser.add_argument("--weights", help="Path to model weights")
+    parser.add_argument("--mask2former-path", type=str, default=None,
+                       help="Path to Mask2Former project directory (auto-detected if not specified)")
     parser.add_argument("--confidence", type=float, default=0.25,
                        help="Confidence threshold for detection (default: 0.25)")
     parser.add_argument("--min-area", type=int, default=100,
@@ -3425,6 +3483,7 @@ def main():
         args.output_dir = args.gui_output if args.gui_output else params['output_dir']
         args.config = params['config'] if params['config'] else None
         args.weights = params['weights'] if params['weights'] else None
+        args.mask2former_path = params['mask2former_path'] if params['mask2former_path'] else None
         args.confidence = params['confidence']
         args.min_area = params['min_area']
         args.max_area = params['max_area']
@@ -3439,7 +3498,7 @@ def main():
 
         # Now that GUI is done, load the imports we skipped earlier
         print("🔄 Loading Mask2Former and detectron2 modules...")
-        ensure_mask2former_loaded()
+        ensure_mask2former_loaded(explicit_path=args.mask2former_path)
         # Re-import the modules that were set to None in GUI mode
         global DefaultPredictor, get_cfg, add_deeplab_config, read_image, add_maskformer2_config
         from detectron2.engine.defaults import DefaultPredictor
@@ -3488,7 +3547,8 @@ def main():
     integration = MyotubeFijiIntegration(
         config_file=args.config,
         model_weights=args.weights,
-        skip_merged_masks=args.skip_merged_masks
+        skip_merged_masks=args.skip_merged_masks,
+        mask2former_path=args.mask2former_path
     )
 
     # Initialize tiled segmentation if requested
