@@ -132,17 +132,32 @@ function segmentMyotubesWithGUI() {
     print("Launching GUI...");
     print("Command: " + full_cmd);
 
-    // Execute segmentation with GUI
+    // Execute segmentation with GUI - redirect output to file to capture errors
     start_time = getTime();
 
+    cmd_output_file = TEMP_DIR + "\\" + "cmd_output.txt";
+
     if (startsWith(getInfo("os.name"), "Windows")) {
-        exec("cmd", "/c", full_cmd);
+        // Redirect both stdout and stderr to file
+        full_cmd_with_redirect = full_cmd + " > \"" + cmd_output_file + "\" 2>&1";
+        exec("cmd", "/c", full_cmd_with_redirect);
     } else {
-        exec("sh", "-c", full_cmd);
+        full_cmd_with_redirect = full_cmd + " > \"" + cmd_output_file + "\" 2>&1";
+        exec("sh", "-c", full_cmd_with_redirect);
     }
 
     end_time = getTime();
     processing_time = (end_time - start_time) / 1000;
+
+    // Read and print command output
+    if (File.exists(cmd_output_file)) {
+        cmd_output = File.openAsString(cmd_output_file);
+        if (cmd_output != "") {
+            print("=== Command Output ===");
+            print(cmd_output);
+            print("=== End Command Output ===");
+        }
+    }
 
     showProgress(0.8);
     showStatus("Checking results...");
