@@ -113,17 +113,18 @@ function segmentMyotubesWithGUI() {
         for (i = 0; i < conda_locations.length; i++) {
             test_path = replace(conda_locations[i], "%USERPROFILE%", home_dir);
             if (File.exists(test_path)) {
-                conda_init = conda_locations[i];
+                conda_init = test_path;  // Store the EXPANDED path, not the template
                 break;
             }
         }
 
         if (conda_init == "") {
-            // Fallback to default if not found
-            conda_init = "%USERPROFILE%\\AppData\\Local\\miniconda3\\Scripts\\activate.bat";
+            // Fallback to default if not found - use expanded path
+            conda_init = home_dir + "\\AppData\\Local\\miniconda3\\Scripts\\activate.bat";
         }
 
-        full_cmd = "call " + conda_init + " " + CONDA_ENV + " && set " + env_var + " && " + python_script_cmd;
+        print("Using conda activation script: " + conda_init);
+        full_cmd = "call \"" + conda_init + "\" " + CONDA_ENV + " && set " + env_var + " && " + python_script_cmd;
     } else {
         // Unix/Mac conda activation
         full_cmd = "source $(conda info --base)/etc/profile.d/conda.sh && conda activate " + CONDA_ENV + " && export " + env_var + " && " + python_script_cmd;
@@ -414,13 +415,14 @@ function installDependencies() {
         for (i = 0; i < conda_locations.length; i++) {
             test_path = replace(conda_locations[i], "%USERPROFILE%", home_dir);
             if (File.exists(test_path)) {
-                conda_init = conda_locations[i];
+                conda_init = test_path;  // Store the EXPANDED path, not the template
                 break;
             }
         }
 
         if (conda_init == "") {
-            conda_init = "%USERPROFILE%\\AppData\\Local\\miniconda3\\Scripts\\activate.bat";
+            // Fallback to default if not found - use expanded path
+            conda_init = home_dir + "\\AppData\\Local\\miniconda3\\Scripts\\activate.bat";
         }
 
         check_env_cmd = "call " + conda_init + " base && conda env list | findstr " + CONDA_ENV;
