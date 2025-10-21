@@ -544,22 +544,40 @@ function installDependenciesQuiet() {
     // Build pip install command
     pip_cmd = PYTHON_COMMAND + " -m pip install -r \"" + requirements_file + "\"";
 
-    // Wrap with conda activation
-    if (startsWith(getInfo("os.name"), "Windows")) {
-        full_cmd = "call \"" + conda_init + "\" " + CONDA_ENV + " && " + pip_cmd;
-    } else {
-        full_cmd = "source $(conda info --base)/etc/profile.d/conda.sh && conda activate " + CONDA_ENV + " && " + pip_cmd;
-    }
-
     print("Installing dependencies (this may take several minutes)...");
-
     showStatus("Installing Python dependencies...");
 
     start_time = getTime();
 
     if (startsWith(getInfo("os.name"), "Windows")) {
-        exec("cmd", "/c", full_cmd);
+        // Use batch file approach for reliable execution
+        install_output_file = getDirectory("temp") + "install_output.txt";
+        install_batch_file = getDirectory("temp") + "install_deps.bat";
+
+        // Create batch file with step-by-step installation
+        batch_content = "@echo off\r\n";
+        batch_content = batch_content + "echo Starting dependency installation... > \"" + install_output_file + "\"\r\n";
+        batch_content = batch_content + "call \"" + conda_init + "\" " + CONDA_ENV + " >> \"" + install_output_file + "\" 2>&1\r\n";
+        batch_content = batch_content + "if errorlevel 1 (\r\n";
+        batch_content = batch_content + "    echo ERROR: Conda activation failed >> \"" + install_output_file + "\"\r\n";
+        batch_content = batch_content + "    exit /b 1\r\n";
+        batch_content = batch_content + ")\r\n";
+        batch_content = batch_content + "echo Conda activated, installing packages... >> \"" + install_output_file + "\"\r\n";
+        batch_content = batch_content + pip_cmd + " >> \"" + install_output_file + "\" 2>&1\r\n";
+        batch_content = batch_content + "echo Installation complete >> \"" + install_output_file + "\"\r\n";
+
+        File.saveString(batch_content, install_batch_file);
+        exec("cmd", "/c", install_batch_file);
+
+        // Read and show output
+        if (File.exists(install_output_file)) {
+            install_output = File.openAsString(install_output_file);
+            print("=== Installation Log ===");
+            print(install_output);
+            print("=== End Installation Log ===");
+        }
     } else {
+        full_cmd = "source $(conda info --base)/etc/profile.d/conda.sh && conda activate " + CONDA_ENV + " && " + pip_cmd;
         exec("sh", "-c", full_cmd);
     }
 
