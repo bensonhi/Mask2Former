@@ -95,15 +95,14 @@ function segmentMyotubesWithGUI() {
     showStatus("Launching parameter GUI...");
 
     // Build Python command with --gui flag
-    env_var = "MASK2FORMER_PATH=" + MASK2FORMER_PATH;
     python_script_cmd = PYTHON_COMMAND + " \"" + SCRIPT_PATH + "\" --gui";
 
     if (startsWith(getInfo("os.name"), "Windows")) {
         // Windows conda activation
-        full_cmd = "conda activate " + CONDA_ENV + " && set " + env_var + " && " + python_script_cmd;
+        full_cmd = "conda activate " + CONDA_ENV + " && " + python_script_cmd;
     } else {
         // Unix/Mac conda activation
-        full_cmd = "source $(conda info --base)/etc/profile.d/conda.sh && conda activate " + CONDA_ENV + " && export " + env_var + " && " + python_script_cmd;
+        full_cmd = "source $(conda info --base)/etc/profile.d/conda.sh && conda activate " + CONDA_ENV + " && " + python_script_cmd;
     }
 
     print("Launching GUI...");

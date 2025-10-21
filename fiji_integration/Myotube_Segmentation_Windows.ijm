@@ -103,7 +103,6 @@ function segmentMyotubesWithGUI() {
     showStatus("Launching parameter GUI...");
 
     // Build Python command with --gui flag
-    env_var = "MASK2FORMER_PATH=" + MASK2FORMER_PATH;
     python_script_cmd = PYTHON_COMMAND + " \"" + SCRIPT_PATH + "\" --gui";
 
     if (startsWith(getInfo("os.name"), "Windows")) {
@@ -132,10 +131,10 @@ function segmentMyotubesWithGUI() {
         }
 
         print("Using conda activation script: " + conda_init);
-        full_cmd = "call \"" + conda_init + "\" " + CONDA_ENV + " && set " + env_var + " && " + python_script_cmd;
+        full_cmd = "call \"" + conda_init + "\" " + CONDA_ENV + " && " + python_script_cmd;
     } else {
         // Unix/Mac conda activation
-        full_cmd = "source $(conda info --base)/etc/profile.d/conda.sh && conda activate " + CONDA_ENV + " && export " + env_var + " && " + python_script_cmd;
+        full_cmd = "source $(conda info --base)/etc/profile.d/conda.sh && conda activate " + CONDA_ENV + " && " + python_script_cmd;
     }
 
     print("Launching GUI...");
@@ -159,7 +158,6 @@ function segmentMyotubesWithGUI() {
         batch_content = batch_content + ")\r\n";
         batch_content = batch_content + "echo Conda activated successfully >> \"" + cmd_output_file + "\"\r\n";
         batch_content = batch_content + "echo Running Python script... >> \"" + cmd_output_file + "\"\r\n";
-        batch_content = batch_content + "set " + env_var + " >> \"" + cmd_output_file + "\" 2>&1\r\n";
         batch_content = batch_content + python_script_cmd + " >> \"" + cmd_output_file + "\" 2>&1\r\n";
         batch_content = batch_content + "echo Python script completed >> \"" + cmd_output_file + "\"\r\n";
         batch_content = batch_content + "echo Batch file completed >> \"" + cmd_output_file + "\"\r\n";
