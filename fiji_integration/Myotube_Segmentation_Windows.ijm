@@ -846,6 +846,53 @@ function installDependencies() {
 
     print("Found requirements.txt: " + requirements_file);
 
+    // Step 1: Check if conda environment exists, create if not
+    print("");
+    print("Step 1: Checking conda environment...");
+
+    // Windows: Check and create environment
+    check_env_cmd = "conda env list | findstr " + CONDA_ENV;
+    create_env_cmd = "conda create -n " + CONDA_ENV + " python=3.9 -y";
+
+    // Check if environment exists
+    env_check_file = getDirectory("temp") + "env_check.txt";
+
+    exec("cmd", "/c", check_env_cmd + " > \"" + env_check_file + "\" 2>&1");
+
+    wait(1000);  // Wait for file to be written
+
+    env_exists = false;
+    if (File.exists(env_check_file)) {
+        env_content = File.openAsString(env_check_file);
+        if (indexOf(env_content, CONDA_ENV) >= 0) {
+            env_exists = true;
+        }
+        File.delete(env_check_file);
+    }
+
+    if (env_exists) {
+        print("✅ Conda environment '" + CONDA_ENV + "' found");
+    } else {
+        print("⚠️  Conda environment '" + CONDA_ENV + "' not found");
+        print("Creating conda environment '" + CONDA_ENV + "'...");
+        print("This may take a few minutes...");
+
+        showStatus("Creating conda environment " + CONDA_ENV + "...");
+
+        create_start = getTime();
+
+        exec("cmd", "/c", create_env_cmd);
+
+        create_end = getTime();
+        create_time = (create_end - create_start) / 1000;
+
+        print("✅ Environment created in " + create_time + " seconds");
+    }
+
+    // Step 2: Install dependencies
+    print("");
+    print("Step 2: Installing Python dependencies...");
+
     // Build pip install command
     pip_cmd = PYTHON_COMMAND + " -m pip install -r \"" + requirements_file + "\"";
 
