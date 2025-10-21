@@ -618,8 +618,10 @@ function installDependenciesQuiet() {
         batch_content = batch_content + "    echo ERROR: Conda activation failed >> \"" + install_output_file + "\"\r\n";
         batch_content = batch_content + "    exit /b 1\r\n";
         batch_content = batch_content + ")\r\n";
-        batch_content = batch_content + "echo Conda activated, installing packages... >> \"" + install_output_file + "\"\r\n";
+        batch_content = batch_content + "echo Conda activated, installing base packages... >> \"" + install_output_file + "\"\r\n";
         batch_content = batch_content + pip_cmd + " >> \"" + install_output_file + "\" 2>&1\r\n";
+        batch_content = batch_content + "echo Base packages installed, now installing detectron2... >> \"" + install_output_file + "\"\r\n";
+        batch_content = batch_content + PYTHON_COMMAND + " -m pip install git+https://github.com/facebookresearch/detectron2.git >> \"" + install_output_file + "\" 2>&1\r\n";
         batch_content = batch_content + "echo Installation complete >> \"" + install_output_file + "\"\r\n";
 
         File.saveString(batch_content, install_batch_file);
