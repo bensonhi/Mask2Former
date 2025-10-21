@@ -90,6 +90,14 @@ function segmentMyotubesWithGUI() {
     // Setup directories
     setupDirectories();
 
+    // Check and create conda environment if it doesn't exist
+    print("Checking for conda environment '" + CONDA_ENV + "'...");
+    if (!checkAndCreateCondaEnvironment()) {
+        showMessage("Environment Setup Failed",
+                   "Failed to create conda environment.\\n\\nPlease check the log for details.");
+        return;
+    }
+
     // Show progress
     showProgress(0.1);
     showStatus("Launching parameter GUI...");
@@ -388,6 +396,178 @@ function showMessage(title, message) {
     Dialog.create(title);
     Dialog.addMessage(formatted_message);
     Dialog.show();
+}
+
+/*
+ * Check if conda environment exists and create it if not
+ * Returns true if environment exists or was created successfully
+ */
+function checkAndCreateCondaEnvironment() {
+    // Find conda activate script
+    if (startsWith(getInfo("os.name"), "Windows")) {
+        conda_locations = newArray(
+            "%USERPROFILE%\\AppData\\Local\\miniconda3\\Scripts\\activate.bat",
+            "%USERPROFILE%\\miniconda3\\Scripts\\activate.bat",
+            "%USERPROFILE%\\AppData\\Local\\anaconda3\\Scripts\\activate.bat",
+            "%USERPROFILE%\\anaconda3\\Scripts\\activate.bat"
+        );
+
+        conda_init = "";
+        home_dir = getInfo("user.home");
+        for (i = 0; i < conda_locations.length; i++) {
+            test_path = replace(conda_locations[i], "%USERPROFILE%", home_dir);
+            if (File.exists(test_path)) {
+                conda_init = test_path;
+                break;
+            }
+        }
+
+        if (conda_init == "") {
+            conda_init = home_dir + "\\AppData\\Local\\miniconda3\\Scripts\\activate.bat";
+        }
+
+        // Check if environment exists
+        check_env_cmd = "call \"" + conda_init + "\" base && conda env list | findstr " + CONDA_ENV;
+    } else {
+        check_env_cmd = "source $(conda info --base)/etc/profile.d/conda.sh && conda env list | grep -w " + CONDA_ENV;
+    }
+
+    // Check if environment exists
+    env_check_file = getDirectory("temp") + "env_check.txt";
+
+    if (startsWith(getInfo("os.name"), "Windows")) {
+        exec("cmd", "/c", check_env_cmd + " > \"" + env_check_file + "\" 2>&1");
+    } else {
+        exec("sh", "-c", check_env_cmd + " > \"" + env_check_file + "\" 2>&1");
+    }
+
+    wait(1000);  // Wait for file to be written
+
+    env_exists = false;
+    if (File.exists(env_check_file)) {
+        env_content = File.openAsString(env_check_file);
+        if (indexOf(env_content, CONDA_ENV) >= 0) {
+            env_exists = true;
+        }
+        File.delete(env_check_file);
+    }
+
+    if (env_exists) {
+        print("✅ Conda environment '" + CONDA_ENV + "' found");
+        return true;
+    }
+
+    // Environment doesn't exist - create it
+    print("⚠️  Conda environment '" + CONDA_ENV + "' not found");
+    print("Creating conda environment '" + CONDA_ENV + "'...");
+    print("This may take a few minutes...");
+
+    showStatus("Creating conda environment " + CONDA_ENV + "...");
+
+    if (startsWith(getInfo("os.name"), "Windows")) {
+        create_env_cmd = "call \"" + conda_init + "\" base && conda create -n " + CONDA_ENV + " python=3.9 -y";
+    } else {
+        create_env_cmd = "conda create -n " + CONDA_ENV + " python=3.9 -y";
+    }
+
+    create_start = getTime();
+
+    if (startsWith(getInfo("os.name"), "Windows")) {
+        exec("cmd", "/c", create_env_cmd);
+    } else {
+        exec("sh", "-c", create_env_cmd);
+    }
+
+    create_end = getTime();
+    create_time = (create_end - create_start) / 1000;
+
+    print("✅ Environment created in " + create_time + " seconds");
+
+    // Now install dependencies
+    print("Installing Python dependencies...");
+    return installDependenciesQuiet();
+}
+
+/*
+ * Install dependencies without user interaction (called automatically)
+ */
+function installDependenciesQuiet() {
+    // Find requirements.txt file
+    macro_dir = getDirectory("macros");
+    plugin_dir = getDirectory("plugins");
+
+    requirements_locations = newArray(
+        macro_dir + "requirements.txt",
+        plugin_dir + "requirements.txt",
+        MASK2FORMER_PATH + "\\" + "fiji_integration" + "\\" + "requirements.txt"
+    );
+
+    requirements_file = "";
+    for (i = 0; i < requirements_locations.length; i++) {
+        if (File.exists(requirements_locations[i])) {
+            requirements_file = requirements_locations[i];
+            break;
+        }
+    }
+
+    if (requirements_file == "") {
+        print("❌ Could not find requirements.txt");
+        return false;
+    }
+
+    print("Found requirements.txt: " + requirements_file);
+
+    // Find conda activate script (reuse from earlier)
+    if (startsWith(getInfo("os.name"), "Windows")) {
+        conda_locations = newArray(
+            "%USERPROFILE%\\AppData\\Local\\miniconda3\\Scripts\\activate.bat",
+            "%USERPROFILE%\\miniconda3\\Scripts\\activate.bat",
+            "%USERPROFILE%\\AppData\\Local\\anaconda3\\Scripts\\activate.bat",
+            "%USERPROFILE%\\anaconda3\\Scripts\\activate.bat"
+        );
+
+        conda_init = "";
+        home_dir = getInfo("user.home");
+        for (i = 0; i < conda_locations.length; i++) {
+            test_path = replace(conda_locations[i], "%USERPROFILE%", home_dir);
+            if (File.exists(test_path)) {
+                conda_init = test_path;
+                break;
+            }
+        }
+
+        if (conda_init == "") {
+            conda_init = home_dir + "\\AppData\\Local\\miniconda3\\Scripts\\activate.bat";
+        }
+    }
+
+    // Build pip install command
+    pip_cmd = PYTHON_COMMAND + " -m pip install -r \"" + requirements_file + "\"";
+
+    // Wrap with conda activation
+    if (startsWith(getInfo("os.name"), "Windows")) {
+        full_cmd = "call \"" + conda_init + "\" " + CONDA_ENV + " && " + pip_cmd;
+    } else {
+        full_cmd = "source $(conda info --base)/etc/profile.d/conda.sh && conda activate " + CONDA_ENV + " && " + pip_cmd;
+    }
+
+    print("Installing dependencies (this may take several minutes)...");
+
+    showStatus("Installing Python dependencies...");
+
+    start_time = getTime();
+
+    if (startsWith(getInfo("os.name"), "Windows")) {
+        exec("cmd", "/c", full_cmd);
+    } else {
+        exec("sh", "-c", full_cmd);
+    }
+
+    end_time = getTime();
+    install_time = (end_time - start_time) / 1000;
+
+    print("✅ Installation completed in " + install_time + " seconds");
+    return true;
 }
 
 /*
