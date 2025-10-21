@@ -99,8 +99,13 @@ function segmentMyotubesWithGUI() {
     python_script_cmd = PYTHON_COMMAND + " \"" + SCRIPT_PATH + "\" --gui";
 
     if (startsWith(getInfo("os.name"), "Windows")) {
-        // Windows conda activation
-        full_cmd = "conda activate " + CONDA_ENV + " && set " + env_var + " && " + python_script_cmd;
+        // Windows: Try multiple conda initialization methods
+        // Method 1: Use conda hook initialization
+        conda_init = "%USERPROFILE%\\miniconda3\\Scripts\\activate.bat";
+        if (!File.exists(replace(conda_init, "%USERPROFILE%", getInfo("user.home")))) {
+            conda_init = "%USERPROFILE%\\anaconda3\\Scripts\\activate.bat";
+        }
+        full_cmd = "call " + conda_init + " " + CONDA_ENV + " && set " + env_var + " && " + python_script_cmd;
     } else {
         // Unix/Mac conda activation
         full_cmd = "source $(conda info --base)/etc/profile.d/conda.sh && conda activate " + CONDA_ENV + " && export " + env_var + " && " + python_script_cmd;
