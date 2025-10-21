@@ -25,6 +25,12 @@ import numpy as np
 import cv2
 import torch
 
+# Fix Windows console encoding for emoji/Unicode characters
+if sys.platform == 'win32':
+    import io
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
+
 # Find Mask2Former project directory
 # Priority: 1) Environment variable, 2) Config file, 3) Auto-detection, 4) Current directory
 
@@ -74,11 +80,23 @@ def find_mask2former_project():
     
     raise ImportError("Mask2Former project not found. See instructions above.")
 
-# Add project to Python path
-project_dir = find_mask2former_project()
-sys.path.insert(0, project_dir)
+# Add project to Python path (delayed for GUI mode)
+project_dir = None  # Will be set when needed
 
+def ensure_mask2former_loaded():
+    """Ensure Mask2Former project is loaded into Python path."""
+    global project_dir
+    if project_dir is None:
+        project_dir = find_mask2former_project()
+        if project_dir not in sys.path:
+            sys.path.insert(0, project_dir)
+    return project_dir
+
+# Detectron2 imports - these will be attempted but may fail if GUI mode
 try:
+    # Only load if not in GUI mode (checked via command line args)
+    if '--gui' not in sys.argv:
+        ensure_mask2former_loaded()
     from detectron2.engine.defaults import DefaultPredictor
     from detectron2.config import get_cfg
     from detectron2.projects.deeplab import add_deeplab_config
