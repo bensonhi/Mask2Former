@@ -464,24 +464,43 @@ function checkAndCreateCondaEnvironment() {
 
     showStatus("Creating conda environment " + CONDA_ENV + "...");
 
-    if (startsWith(getInfo("os.name"), "Windows")) {
-        create_env_cmd = "call \"" + conda_init + "\" base && conda create -n " + CONDA_ENV + " python=3.9 -y";
-    } else {
-        create_env_cmd = "conda create -n " + CONDA_ENV + " python=3.9 -y";
-    }
-
     create_start = getTime();
 
     if (startsWith(getInfo("os.name"), "Windows")) {
-        exec("cmd", "/c", create_env_cmd);
+        // Use batch file to capture output
+        create_output_file = getDirectory("temp") + "create_env_output.txt";
+        create_batch_file = getDirectory("temp") + "create_env.bat";
+
+        batch_content = "@echo off\r\n";
+        batch_content = batch_content + "echo Starting environment creation... > \"" + create_output_file + "\"\r\n";
+        batch_content = batch_content + "call \"" + conda_init + "\" base >> \"" + create_output_file + "\" 2>&1\r\n";
+        batch_content = batch_content + "if errorlevel 1 (\r\n";
+        batch_content = batch_content + "    echo ERROR: Conda base activation failed >> \"" + create_output_file + "\"\r\n";
+        batch_content = batch_content + "    exit /b 1\r\n";
+        batch_content = batch_content + ")\r\n";
+        batch_content = batch_content + "echo Creating environment " + CONDA_ENV + "... >> \"" + create_output_file + "\"\r\n";
+        batch_content = batch_content + "conda create -n " + CONDA_ENV + " python=3.9 -y >> \"" + create_output_file + "\" 2>&1\r\n";
+        batch_content = batch_content + "echo Environment creation completed >> \"" + create_output_file + "\"\r\n";
+
+        File.saveString(batch_content, create_batch_file);
+        exec("cmd", "/c", create_batch_file);
+
+        // Read and show output
+        if (File.exists(create_output_file)) {
+            create_output = File.openAsString(create_output_file);
+            print("=== Environment Creation Log ===");
+            print(create_output);
+            print("=== End Creation Log ===");
+        }
     } else {
+        create_env_cmd = "conda create -n " + CONDA_ENV + " python=3.9 -y";
         exec("sh", "-c", create_env_cmd);
     }
 
     create_end = getTime();
     create_time = (create_end - create_start) / 1000;
 
-    print("✅ Environment created in " + create_time + " seconds");
+    print("✅ Environment creation completed in " + create_time + " seconds");
 
     // Wait a moment for conda to register the new environment
     print("Waiting for conda to register the environment...");
