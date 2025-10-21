@@ -1,21 +1,40 @@
 #!/usr/bin/env python3
 """
-Nuclei-Myotube Relationship Analysis
+Nuclei-Myotube Relationship Analysis with Sequential Filtering
 
 This script analyzes the spatial relationship between segmented myotube masks and nuclei binary images.
-It calculates overlap ratios, assigns nuclei to myotubes, and generates comprehensive CSV reports.
+It applies sequential filtering (size → eccentricity → overlap) to identify valid nuclei assignments.
 
 Usage:
-    python analyze_nuclei_myotube_relationship.py --nuclei_dir /path/to/nuclei/images [options]
-    python analyze_nuclei_myotube_relationship.py --myotube_dir /custom/myotube/path --nuclei_dir /path/to/nuclei/images [options]
+    # Basic usage with default filters (400-2000px, ecc<0.9, 60% overlap)
+    # For quadrant images (_tl/_tr/_bl/_br) with alignment issues
+    python analyze_nuclei_myotube_relationship.py --nuclei_dir /path/to/nuclei/images
+
+    # For full images (no quadrants) without alignment issues
+    python analyze_nuclei_myotube_relationship.py \
+        --nuclei_dir /path/to/nuclei/images \
+        --full_image_mode \
+        --skip_alignment_resize
+
+    # Custom filter parameters
+    python analyze_nuclei_myotube_relationship.py \
+        --nuclei_dir /path/to/nuclei/images \
+        --min_nucleus_area 300 \
+        --max_nucleus_area 2500 \
+        --max_eccentricity 0.85 \
+        --overlap_threshold 0.70
 
 Features:
-    - Crops nuclei images to match myotube segmentation regions
-    - Calculates nuclei-myotube overlap with configurable threshold
-    - Assigns myotube pixels to closest nuclei
+    - Sequential filtering: Size (400-2000px) → Eccentricity (<0.9) → Overlap (≥60%)
+    - All filter parameters are configurable via command-line arguments
+    - Full image mode: Process complete images without quadrant cropping
+    - Skip alignment resize: Bypass dimension matching for images without alignment issues
+    - Color-coded visualization: GREEN=passed, RED=size, YELLOW=eccentricity, BLUE=overlap
+    - Crops nuclei images to match myotube segmentation regions (if not in full_image_mode)
     - Computes nuclei shape metrics: circularity, eccentricity, solidity
-    - Generates two CSV reports: myotube-centric and nuclei-centric
+    - Generates two CSV reports: myotube-centric and nuclei-centric (includes filter_status column)
     - Saves cropped nuclei binary images in myotube result folders
+    - Detailed summary statistics showing filter effectiveness
 """
 
 import os
@@ -35,7 +54,13 @@ from tqdm import tqdm
 class NucleiMyotubeAnalyzer:
     """Analyzes spatial relationships between nuclei and myotubes."""
 
-    def __init__(self, myotube_dir: str, nuclei_dir: str, overlap_threshold: float = 0.60):
+    def __init__(self, myotube_dir: str, nuclei_dir: str,
+                 overlap_threshold: float = 0.60,
+                 min_nucleus_area: int = 400,
+                 max_nucleus_area: int = 2000,
+                 max_eccentricity: float = 0.9,
+                 full_image_mode: bool = False,
+                 skip_alignment_resize: bool = False):
         """
         Initialize the analyzer.
 
@@ -43,14 +68,33 @@ class NucleiMyotubeAnalyzer:
             myotube_dir: Directory containing myotube segmentation results
             nuclei_dir: Directory containing nuclei binary images
             overlap_threshold: Minimum overlap ratio for nuclei-myotube assignment (default: 0.60)
+            min_nucleus_area: Minimum nucleus area in pixels (default: 400)
+            max_nucleus_area: Maximum nucleus area in pixels (default: 2000)
+            max_eccentricity: Maximum eccentricity (default: 0.9, where 0=circle, 1=line)
+            full_image_mode: If True, process full images without quadrant cropping (default: False)
+            skip_alignment_resize: If True, skip resizing nuclei to match processed dimensions (default: False)
         """
         self.myotube_dir = Path(myotube_dir)
         self.nuclei_dir = Path(nuclei_dir)
         self.overlap_threshold = overlap_threshold
+        self.min_nucleus_area = min_nucleus_area
+        self.max_nucleus_area = max_nucleus_area
+        self.max_eccentricity = max_eccentricity
+        self.full_image_mode = full_image_mode
+        self.skip_alignment_resize = skip_alignment_resize
 
         # Results storage
         self.myotube_results = []  # For myotube-centric CSV
         self.nuclei_results = []   # For nuclei-centric CSV
+
+        # Filter statistics
+        self.filter_stats = {
+            'total_detected': 0,
+            'filtered_by_size': 0,
+            'filtered_by_eccentricity': 0,
+            'filtered_by_overlap': 0,
+            'passed_all_filters': 0
+        }
 
     def find_nuclei_image(self, myotube_folder_name: str) -> Optional[Path]:
         """
@@ -62,12 +106,14 @@ class NucleiMyotubeAnalyzer:
         Returns:
             Path to nuclei image or None if not found
         """
-        # Remove the position suffix (_bl, _br, _tl, _tr) to get base name
+        # Get base name (remove position suffix if not in full_image_mode)
         base_name = myotube_folder_name
-        for suffix in ['_bl', '_br', '_tl', '_tr']:
-            if base_name.endswith(suffix):
-                base_name = base_name[:-len(suffix)]
-                break
+        if not self.full_image_mode:
+            # Remove the position suffix (_bl, _br, _tl, _tr) to get base name
+            for suffix in ['_bl', '_br', '_tl', '_tr']:
+                if base_name.endswith(suffix):
+                    base_name = base_name[:-len(suffix)]
+                    break
 
         # Try different nuclei image naming patterns
         nuclei_patterns = [
@@ -93,10 +139,10 @@ class NucleiMyotubeAnalyzer:
     def get_crop_coordinates(self, folder_name: str, full_image_shape: Tuple[int, int],
                            crop_shape: Tuple[int, int]) -> Tuple[int, int, int, int]:
         """
-        Calculate crop coordinates based on position suffix.
+        Calculate crop coordinates based on position suffix or return full image coordinates.
 
         Args:
-            folder_name: Myotube folder name with position suffix
+            folder_name: Myotube folder name with position suffix (or full image name)
             full_image_shape: (height, width) of full nuclei image
             crop_shape: (height, width) of cropped myotube region
 
@@ -105,6 +151,10 @@ class NucleiMyotubeAnalyzer:
         """
         h_full, w_full = full_image_shape
         h_crop, w_crop = crop_shape
+
+        # If full_image_mode, return coordinates for the entire image
+        if self.full_image_mode:
+            return 0, h_full, 0, w_full
 
         # Extract position from folder name
         position = folder_name[-2:]  # Last two characters
@@ -341,23 +391,31 @@ class NucleiMyotubeAnalyzer:
             return False
         print(f"Nuclei image loaded: {nuclei_full.shape}")
 
-        # Resize nuclei to match the processed image dimensions used for myotube segmentation
-        # The myotube quadrants are from a resized processed image (e.g., 9450×9438 → 9000×8988)
-        h_full, w_full = nuclei_full.shape
-        expected_processed_h = image_shape[0] * 2  # Quadrant height * 2
-        expected_processed_w = image_shape[1] * 2  # Quadrant width * 2
+        # Handle alignment resize (if needed and not skipped)
+        if not self.skip_alignment_resize and not self.full_image_mode:
+            # Resize nuclei to match the processed image dimensions used for myotube segmentation
+            # The myotube quadrants are from a resized processed image (e.g., 9450×9438 → 9000×8988)
+            h_full, w_full = nuclei_full.shape
+            expected_processed_h = image_shape[0] * 2  # Quadrant height * 2
+            expected_processed_w = image_shape[1] * 2  # Quadrant width * 2
 
-        if h_full != expected_processed_h or w_full != expected_processed_w:
-            # Need to resize to match processed image dimensions
-            print(f"Resizing nuclei from {nuclei_full.shape} to ({expected_processed_h}, {expected_processed_w})")
-            nuclei_full = cv2.resize(nuclei_full, (expected_processed_w, expected_processed_h), interpolation=cv2.INTER_NEAREST)
-            print(f"Resized nuclei to: {nuclei_full.shape}")
+            if h_full != expected_processed_h or w_full != expected_processed_w:
+                # Need to resize to match processed image dimensions
+                print(f"Resizing nuclei from {nuclei_full.shape} to ({expected_processed_h}, {expected_processed_w})")
+                nuclei_full = cv2.resize(nuclei_full, (expected_processed_w, expected_processed_h), interpolation=cv2.INTER_NEAREST)
+                print(f"Resized nuclei to: {nuclei_full.shape}")
+        elif self.skip_alignment_resize:
+            print(f"Skipping alignment resize (skip_alignment_resize=True)")
 
         # Crop nuclei image to match myotube region
         try:
             y1, y2, x1, x2 = self.get_crop_coordinates(folder_name, nuclei_full.shape, image_shape)
             nuclei_cropped = nuclei_full[y1:y2, x1:x2]
-            print(f"Cropped nuclei to: {nuclei_cropped.shape}")
+
+            if self.full_image_mode:
+                print(f"Full image mode - using entire nuclei image: {nuclei_cropped.shape}")
+            else:
+                print(f"Cropped nuclei to: {nuclei_cropped.shape}")
 
             # Resize to match myotube image dimensions if needed
             if nuclei_cropped.shape != tuple(image_shape):
@@ -402,13 +460,56 @@ class NucleiMyotubeAnalyzer:
         myotube_areas = {myotube_id: np.sum(mask) for myotube_id, mask in myotube_masks.items()}
         print(f"Labeled myotube image created", flush=True)
 
-        # Analyze each nucleus - MUCH faster with labeled image
-        print(f"Analyzing nucleus-myotube overlaps...", flush=True)
+        # Analyze each nucleus with sequential filtering
+        print(f"Analyzing nucleus-myotube overlaps with filtering...", flush=True)
         for nucleus in nuclei_list:
             nucleus_id = nucleus['nucleus_id']
             nucleus_label = nucleus['label']
             nucleus_area = nucleus['area']
+            nucleus_eccentricity = nucleus['eccentricity']
 
+            # Track total detected nuclei
+            self.filter_stats['total_detected'] += 1
+
+            # FILTER 1: Size filtering (400-2000 pixels)
+            if nucleus_area < self.min_nucleus_area or nucleus_area > self.max_nucleus_area:
+                self.filter_stats['filtered_by_size'] += 1
+                # Store filtered nucleus with reason
+                self.nuclei_results.append({
+                    'nucleus_id': nucleus_id,
+                    'nucleus_area': nucleus_area,
+                    'circularity': nucleus['circularity'],
+                    'eccentricity': nucleus_eccentricity,
+                    'solidity': nucleus['solidity'],
+                    'assigned_myotube_id': None,
+                    'overlap_pixels': 0,
+                    'overlap_percentage': 0.0,
+                    'myotube_pixels_assigned_to_nucleus': 0,
+                    'filter_status': 'filtered_size',
+                    'filter_reason': f'Area {nucleus_area} outside range [{self.min_nucleus_area}, {self.max_nucleus_area}]'
+                })
+                continue
+
+            # FILTER 2: Eccentricity filtering (<0.9)
+            if nucleus_eccentricity > self.max_eccentricity:
+                self.filter_stats['filtered_by_eccentricity'] += 1
+                # Store filtered nucleus with reason
+                self.nuclei_results.append({
+                    'nucleus_id': nucleus_id,
+                    'nucleus_area': nucleus_area,
+                    'circularity': nucleus['circularity'],
+                    'eccentricity': nucleus_eccentricity,
+                    'solidity': nucleus['solidity'],
+                    'assigned_myotube_id': None,
+                    'overlap_pixels': 0,
+                    'overlap_percentage': 0.0,
+                    'myotube_pixels_assigned_to_nucleus': 0,
+                    'filter_status': 'filtered_eccentricity',
+                    'filter_reason': f'Eccentricity {nucleus_eccentricity:.3f} > {self.max_eccentricity}'
+                })
+                continue
+
+            # Nucleus passed size and eccentricity filters - now check overlap
             # Extract individual nucleus mask on-demand from labeled image
             nucleus_pixels = (labeled_nuclei == nucleus_label)
 
@@ -450,17 +551,36 @@ class NucleiMyotubeAnalyzer:
                     if nucleus_id in assignment_info['nucleus_pixel_counts']:
                         myotube_pixels_for_nucleus = assignment_info['nucleus_pixel_counts'][nucleus_id]
 
+            # FILTER 3: Overlap threshold (only if there was some overlap detected)
+            if len(overlapping_myotube_labels) > 0 and assigned_myotube is None:
+                # Had overlap but didn't meet threshold
+                self.filter_stats['filtered_by_overlap'] += 1
+                filter_status = 'filtered_overlap'
+                filter_reason = f'Best overlap {best_overlap*100:.1f}% < threshold {self.overlap_threshold*100:.1f}%'
+            elif assigned_myotube is not None:
+                # Passed all filters
+                self.filter_stats['passed_all_filters'] += 1
+                filter_status = 'passed'
+                filter_reason = 'Passed all filters'
+            else:
+                # No overlap at all
+                self.filter_stats['filtered_by_overlap'] += 1
+                filter_status = 'filtered_overlap'
+                filter_reason = 'No overlap with any myotube'
+
             # Store nuclei-centric result for this sample
             self.nuclei_results.append({
                 'nucleus_id': nucleus_id,
                 'nucleus_area': nucleus_area,
                 'circularity': nucleus['circularity'],
-                'eccentricity': nucleus['eccentricity'],
+                'eccentricity': nucleus_eccentricity,
                 'solidity': nucleus['solidity'],
                 'assigned_myotube_id': assigned_myotube,
                 'overlap_pixels': best_overlap_pixels,
                 'overlap_percentage': best_overlap * 100,
-                'myotube_pixels_assigned_to_nucleus': myotube_pixels_for_nucleus
+                'myotube_pixels_assigned_to_nucleus': myotube_pixels_for_nucleus,
+                'filter_status': filter_status,
+                'filter_reason': filter_reason
             })
 
         # Count nuclei per myotube for this sample
@@ -489,7 +609,13 @@ class NucleiMyotubeAnalyzer:
     def create_nuclei_overlay(self, sample_folder: Path, sample_name: str,
                              labeled_nuclei: np.ndarray, nuclei_list: List[Dict]):
         """
-        Create visualization overlay showing assigned (green) and unassigned (red) nuclei.
+        Create visualization overlay showing filtered and assigned nuclei with color coding.
+
+        Color scheme:
+        - GREEN: Passed all filters and assigned to myotube
+        - RED: Filtered by size (too small/large)
+        - YELLOW: Filtered by eccentricity (too elongated)
+        - BLUE: Filtered by overlap (insufficient overlap with myotube)
 
         Args:
             sample_folder: Path to the sample's myotube segmentation folder
@@ -509,11 +635,10 @@ class NucleiMyotubeAnalyzer:
             print(f"  Warning: Could not load overlay image", flush=True)
             return
 
-        # Create a mapping of nucleus_id to assignment status
-        assigned_nucleus_ids = set()
+        # Create a mapping of nucleus_id to filter status
+        nucleus_filter_map = {}
         for result in self.nuclei_results:
-            if result['assigned_myotube_id'] is not None:
-                assigned_nucleus_ids.add(result['nucleus_id'])
+            nucleus_filter_map[result['nucleus_id']] = result['filter_status']
 
         # Draw nuclei contours and labels on overlay
         for nucleus in nuclei_list:
@@ -527,11 +652,18 @@ class NucleiMyotubeAnalyzer:
             # Find contours
             contours, _ = cv2.findContours(nucleus_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
-            # Choose color based on assignment
-            if nucleus_id in assigned_nucleus_ids:
-                color = (0, 255, 0)  # Green for assigned
+            # Choose color based on filter status
+            filter_status = nucleus_filter_map.get(nucleus_id, 'unknown')
+            if filter_status == 'passed':
+                color = (0, 255, 0)  # Green for passed all filters
+            elif filter_status == 'filtered_size':
+                color = (0, 0, 255)  # Red for size filtered
+            elif filter_status == 'filtered_eccentricity':
+                color = (0, 255, 255)  # Yellow for eccentricity filtered
+            elif filter_status == 'filtered_overlap':
+                color = (255, 0, 0)  # Blue for overlap filtered
             else:
-                color = (0, 0, 255)  # Red for unassigned
+                color = (128, 128, 128)  # Gray for unknown
 
             # Draw contour with thick line for visibility
             cv2.drawContours(overlay, contours, -1, color, 2)
@@ -582,9 +714,21 @@ class NucleiMyotubeAnalyzer:
         # Calculate statistics
         total_myotubes = len(myotube_df)
         total_nuclei = len(nuclei_df)
+
+        # Filter statistics
+        passed_nuclei_df = nuclei_df[nuclei_df['filter_status'] == 'passed']
+        filtered_size_df = nuclei_df[nuclei_df['filter_status'] == 'filtered_size']
+        filtered_ecc_df = nuclei_df[nuclei_df['filter_status'] == 'filtered_eccentricity']
+        filtered_overlap_df = nuclei_df[nuclei_df['filter_status'] == 'filtered_overlap']
+
+        num_passed = len(passed_nuclei_df)
+        num_filtered_size = len(filtered_size_df)
+        num_filtered_ecc = len(filtered_ecc_df)
+        num_filtered_overlap = len(filtered_overlap_df)
+
+        # Assigned nuclei (same as passed)
         assigned_nuclei_df = nuclei_df[nuclei_df['assigned_myotube_id'].notna()]
         num_assigned_nuclei = len(assigned_nuclei_df)
-        num_unassigned_nuclei = total_nuclei - num_assigned_nuclei
 
         myotubes_with_nuclei = myotube_df[myotube_df['nuclei_count'] > 0]
         num_myotubes_with_nuclei = len(myotubes_with_nuclei)
@@ -594,6 +738,19 @@ class NucleiMyotubeAnalyzer:
         total_myotube_area = myotube_df['myotube_area'].sum()
         avg_myotube_area = myotube_df['myotube_area'].mean()
 
+        # Calculate stats for passed nuclei only
+        if num_passed > 0:
+            avg_nucleus_area_passed = passed_nuclei_df['nucleus_area'].mean()
+            avg_circularity_passed = passed_nuclei_df['circularity'].mean()
+            avg_eccentricity_passed = passed_nuclei_df['eccentricity'].mean()
+            avg_solidity_passed = passed_nuclei_df['solidity'].mean()
+        else:
+            avg_nucleus_area_passed = 0.0
+            avg_circularity_passed = 0.0
+            avg_eccentricity_passed = 0.0
+            avg_solidity_passed = 0.0
+
+        # Overall stats for all nuclei
         avg_nucleus_area = nuclei_df['nucleus_area'].mean()
         avg_circularity = nuclei_df['circularity'].mean()
         avg_eccentricity = nuclei_df['eccentricity'].mean()
@@ -611,7 +768,7 @@ class NucleiMyotubeAnalyzer:
         # Write summary
         with open(summary_path, 'w') as f:
             f.write("=" * 80 + "\n")
-            f.write(f"NUCLEI-MYOTUBE ANALYSIS SUMMARY\n")
+            f.write(f"NUCLEI-MYOTUBE ANALYSIS SUMMARY (WITH SEQUENTIAL FILTERING)\n")
             f.write(f"Sample: {sample_name}\n")
             f.write("=" * 80 + "\n\n")
 
@@ -619,13 +776,27 @@ class NucleiMyotubeAnalyzer:
             f.write("-" * 80 + "\n")
             f.write(f"Total myotubes analyzed:        {total_myotubes}\n")
             f.write(f"Total nuclei detected:           {total_nuclei}\n")
+            f.write("\n")
+
+            f.write("FILTER SETTINGS\n")
+            f.write("-" * 80 + "\n")
+            f.write(f"Size range:                      {self.min_nucleus_area} - {self.max_nucleus_area} pixels\n")
+            f.write(f"Max eccentricity:                {self.max_eccentricity} (0=circle, 1=line)\n")
             f.write(f"Overlap threshold:               {self.overlap_threshold * 100:.1f}%\n")
             f.write("\n")
 
-            f.write("NUCLEI ASSIGNMENT\n")
+            f.write("SEQUENTIAL FILTER RESULTS\n")
             f.write("-" * 80 + "\n")
-            f.write(f"Nuclei assigned to myotubes:     {num_assigned_nuclei} ({num_assigned_nuclei/total_nuclei*100:.1f}%)\n")
-            f.write(f"Nuclei not assigned:             {num_unassigned_nuclei} ({num_unassigned_nuclei/total_nuclei*100:.1f}%)\n")
+            f.write(f"Total nuclei detected:           {total_nuclei}\n")
+            f.write(f"  ❌ Filtered by size:           {num_filtered_size} ({num_filtered_size/total_nuclei*100:.1f}%)\n")
+            f.write(f"  ❌ Filtered by eccentricity:   {num_filtered_ecc} ({num_filtered_ecc/total_nuclei*100:.1f}%)\n")
+            f.write(f"  ❌ Filtered by overlap:        {num_filtered_overlap} ({num_filtered_overlap/total_nuclei*100:.1f}%)\n")
+            f.write(f"  ✅ Passed all filters:         {num_passed} ({num_passed/total_nuclei*100:.1f}%)\n")
+            f.write("\n")
+
+            f.write("NUCLEI ASSIGNMENT (PASSED NUCLEI ONLY)\n")
+            f.write("-" * 80 + "\n")
+            f.write(f"Nuclei assigned to myotubes:     {num_assigned_nuclei} (should equal passed: {num_passed})\n")
             f.write("\n")
 
             f.write("MYOTUBE STATISTICS\n")
@@ -637,16 +808,26 @@ class NucleiMyotubeAnalyzer:
             f.write(f"Average myotube area (pixels):   {avg_myotube_area:,.0f}\n")
             f.write("\n")
 
-            f.write("NUCLEI STATISTICS\n")
+            f.write("NUCLEI STATISTICS (ALL DETECTED)\n")
             f.write("-" * 80 + "\n")
             f.write(f"Average nucleus area (pixels):   {avg_nucleus_area:,.0f}\n")
             f.write(f"Average circularity:             {avg_circularity:.3f} (0=irregular, 1=perfect circle)\n")
             f.write(f"Average eccentricity:            {avg_eccentricity:.3f} (0=circle, 1=line)\n")
             f.write(f"Average solidity:                {avg_solidity:.3f} (1=convex, <1=concave/irregular)\n")
-            if num_assigned_nuclei > 0:
+            f.write("\n")
+
+            f.write("NUCLEI STATISTICS (PASSED FILTERS ONLY)\n")
+            f.write("-" * 80 + "\n")
+            if num_passed > 0:
+                f.write(f"Average nucleus area (pixels):   {avg_nucleus_area_passed:,.0f}\n")
+                f.write(f"Average circularity:             {avg_circularity_passed:.3f} (0=irregular, 1=perfect circle)\n")
+                f.write(f"Average eccentricity:            {avg_eccentricity_passed:.3f} (0=circle, 1=line)\n")
+                f.write(f"Average solidity:                {avg_solidity_passed:.3f} (1=convex, <1=concave/irregular)\n")
                 f.write(f"Average overlap percentage:      {avg_overlap_pct:.2f}%\n")
                 f.write(f"Min overlap percentage:          {min_overlap_pct:.2f}%\n")
                 f.write(f"Max overlap percentage:          {max_overlap_pct:.2f}%\n")
+            else:
+                f.write("No nuclei passed all filters.\n")
             f.write("\n")
 
             f.write("NUCLEI DISTRIBUTION PER MYOTUBE\n")
@@ -713,23 +894,58 @@ class NucleiMyotubeAnalyzer:
         print("Analysis complete!")
         print("Results saved in each sample's folder:")
         print("  - {sample_name}_myotube_nuclei_counts.csv")
-        print("  - {sample_name}_nuclei_myotube_assignments.csv")
-        print("  - {sample_name}_analysis_summary.txt")
+        print("  - {sample_name}_nuclei_myotube_assignments.csv (includes filter_status & filter_reason)")
+        print("  - {sample_name}_analysis_summary.txt (includes filter statistics)")
         print("  - {sample_name}_nuclei_cropped.png")
-        print("  - {sample_name}_nuclei_overlay.tif (GREEN=assigned, RED=unassigned)")
+        print("  - {sample_name}_nuclei_overlay.tif")
+        print("\nVisualization Color Coding:")
+        print("  GREEN:  Passed all filters and assigned to myotube")
+        print("  RED:    Filtered by size (too small/large)")
+        print("  YELLOW: Filtered by eccentricity (too elongated)")
+        print("  BLUE:   Filtered by overlap (insufficient overlap)")
         print("=" * 80)
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Analyze nuclei-myotube spatial relationships")
+    parser = argparse.ArgumentParser(
+        description="Analyze nuclei-myotube spatial relationships with sequential filtering",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Sequential Filtering:
+  Nuclei are filtered in the following order:
+    1. Size filter: Area must be between min_nucleus_area and max_nucleus_area
+    2. Eccentricity filter: Eccentricity must be <= max_eccentricity
+    3. Overlap filter: Overlap with myotube must be >= overlap_threshold
+
+Visualization Color Coding:
+  GREEN:  Passed all filters and assigned to myotube
+  RED:    Filtered by size (too small or too large)
+  YELLOW: Filtered by eccentricity (too elongated)
+  BLUE:   Filtered by overlap (insufficient overlap with myotube)
+        """
+    )
     parser.add_argument("--myotube_dir", default="/home/bwang/tmp/myotube_segmentation/output",
                        help="Directory containing myotube segmentation results (default: /home/bwang/tmp/myotube_segmentation/output)")
     parser.add_argument("--nuclei_dir", default="/home/bwang/tmp/myotube_segmentation/nuclei",
                        help="Directory containing nuclei binary images (default: /home/bwang/tmp/myotube_segmentation/nuclei)")
     parser.add_argument("--output_dir", default="./nuclei_myotube_analysis_results",
                        help="Output directory for CSV files")
+
+    # Filter parameters
+    parser.add_argument("--min_nucleus_area", type=int, default=400,
+                       help="Minimum nucleus area in pixels (default: 400)")
+    parser.add_argument("--max_nucleus_area", type=int, default=2000,
+                       help="Maximum nucleus area in pixels (default: 2000)")
+    parser.add_argument("--max_eccentricity", type=float, default=0.9,
+                       help="Maximum eccentricity, where 0=circle and 1=line (default: 0.9)")
     parser.add_argument("--overlap_threshold", type=float, default=0.60,
                        help="Minimum overlap ratio for nuclei-myotube assignment (default: 0.60)")
+
+    # Image processing mode parameters
+    parser.add_argument("--full_image_mode", action="store_true",
+                       help="Process full images without quadrant cropping (use for images without _tl/_tr/_bl/_br suffixes)")
+    parser.add_argument("--skip_alignment_resize", action="store_true",
+                       help="Skip resizing nuclei to match processed image dimensions (use when no alignment issues exist)")
 
     args = parser.parse_args()
 
@@ -742,11 +958,38 @@ def main():
         print(f"Error: Nuclei directory does not exist: {args.nuclei_dir}")
         sys.exit(1)
 
+    # Display filter settings
+    print("=" * 80)
+    print("SEQUENTIAL FILTER SETTINGS")
+    print("=" * 80)
+    print(f"Size range:           {args.min_nucleus_area} - {args.max_nucleus_area} pixels")
+    print(f"Max eccentricity:     {args.max_eccentricity}")
+    print(f"Overlap threshold:    {args.overlap_threshold * 100:.1f}%")
+    print()
+    print("IMAGE PROCESSING MODE")
+    print("-" * 80)
+    print(f"Full image mode:      {args.full_image_mode}")
+    print(f"Skip alignment resize: {args.skip_alignment_resize}")
+    if args.full_image_mode:
+        print("  → Processing full images (no quadrant cropping)")
+    else:
+        print("  → Processing quadrants (_tl/_tr/_bl/_br)")
+    if args.skip_alignment_resize:
+        print("  → Skipping alignment resize (no dimension mismatch expected)")
+    else:
+        print("  → Will resize nuclei if dimensions don't match processed images")
+    print("=" * 80 + "\n")
+
     # Initialize analyzer
     analyzer = NucleiMyotubeAnalyzer(
         myotube_dir=args.myotube_dir,
         nuclei_dir=args.nuclei_dir,
-        overlap_threshold=args.overlap_threshold
+        overlap_threshold=args.overlap_threshold,
+        min_nucleus_area=args.min_nucleus_area,
+        max_nucleus_area=args.max_nucleus_area,
+        max_eccentricity=args.max_eccentricity,
+        full_image_mode=args.full_image_mode,
+        skip_alignment_resize=args.skip_alignment_resize
     )
 
     # Run analysis

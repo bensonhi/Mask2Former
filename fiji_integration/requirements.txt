@@ -1,0 +1,33 @@
+# Myotube Segmentation - Fiji Integration Requirements
+# Install with: pip install -r requirements.txt
+
+# Core dependencies
+torch>=1.10.0
+torchvision>=0.11.0
+detectron2 @ git+https://github.com/facebookresearch/detectron2.git
+
+# Image processing
+opencv-python>=4.5.0
+numpy>=1.19.0
+Pillow>=8.0.0
+scikit-image>=0.18.0
+
+# Data handling
+scipy>=1.5.0
+pandas>=1.1.0
+
+# Progress bar
+tqdm>=4.50.0
+
+# GUI (built-in with Python, but ensure tkinter is available)
+# Note: tkinter usually comes with Python but may need: sudo apt-get install python3-tk (Linux)
+
+# Config parsing
+pyyaml>=5.3
+
+# Utilities
+matplotlib>=3.3.0
+pycocotools>=2.0.0
+
+# Optional: For faster inference
+# ninja  # Uncomment if you want faster CUDA kernel compilation

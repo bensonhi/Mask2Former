@@ -1,9 +1,12 @@
-# Stage 2 Configuration: Manual Annotations Fine-tuning
+# Stage 2 Configuration: Manual Annotations Fine-tuning (OPTIMIZED)
 # Fine-tuning config for high-quality manual annotations
-# 
-# STAGE 2 DATASET: 7 images with high-quality manual annotations  
-# - Training: 1400 iterations for precise fine-tuning (200 epochs × 7 images)
-# - Optimized learning rate for effective adaptation to manual annotations
+#
+# OPTIMAL PARAMETERS from comprehensive 3-phase parameter search (22 experiments):
+# - Best AP50: 36.88% on cropped test set (24 quadrants from 6 images)
+# - Learning Rate: 0.00002 (2e-5) - optimal balance for convergence
+# - Loss Weights: DICE=5.0, MASK=20.0, CLASS=2.0 - emphasizes overlapping structures
+# - Training: 12,000 iterations sufficient (~430 epochs × 28 crops)
+# - Augmentation: 0.7-1.4 scale range optimal
 # - Loads weights from Stage 1 checkpoint
 
 _BASE_: configs/coco/instance-segmentation/swin/maskformer2_swin_large_IN21k_384_bs16_100ep.yaml
@@ -20,28 +23,33 @@ MODEL:
   # Fine-tuned settings for precise manual annotations
   MASK_FORMER:
     # Inherit Swin-Large with 200 queries from Stage 1
-    # Preserve Stage 1 loss weights (don't change what works)
+    # OPTIMAL loss weights from parameter search (Phase 1: lr2e-5_dice - AP50=36.88%)
     DEEP_SUPERVISION: True
-    CLASS_WEIGHT: 2.0    # Keep Stage 1 settings
-    MASK_WEIGHT: 25.0    # Keep Stage 1 settings  
-    DICE_WEIGHT: 2.0     # Keep Stage 1 settings
+    CLASS_WEIGHT: 2.0    # Classification loss weight
+    MASK_WEIGHT: 20.0    # OPTIMIZED: Reduced from 25.0 for better balance
+    DICE_WEIGHT: 5.0     # OPTIMIZED: Increased from 2.0 - better for overlapping myotubes
     
     TEST:
       OBJECT_MASK_THRESHOLD: 0.3  # Slightly higher than Stage 1 for precision
 
 # Dataset configuration for Stage 2 (manual annotations)
 DATASETS:
-  TRAIN: ("myotube_stage2_train",)
-  TEST: ("myotube_stage2_val",)
+  # PRODUCTION MODE (default): Train on all 10 base images, evaluate on same (for monitoring)
+  TRAIN: ("myotube_stage2_train_full",)      # All 20 full images (10 base × 2 channels) - auto-cropped during training
+  TEST: ("myotube_stage2_val_full_cropped",) # Same images as 80 quadrants (for monitoring convergence)
 
-# Stage 2 Solver: Fine-tuning Swin-Large with 4x training data (28 crops from 7 images)
+  # DEVELOPMENT MODE: Use 7/3 split for proper validation (uncomment to use)
+  # TRAIN: ("myotube_stage2_train",)           # 14 full images (7 base × 2 channels) - auto-cropped during training
+  # TEST: ("myotube_stage2_val_cropped",)      # 24 quadrants (3 base × 2 channels × 4 crops) for evaluation
+
+# Stage 2 Solver: Fine-tuning Swin-Large with 4x training data (28 crops from 7 base images)
 SOLVER:
   IMS_PER_BATCH: 1  # Swin-Large requires single batch even for fine-tuning
-  BASE_LR: 0.00002  # Conservative LR for fine-tuning large model
-  MAX_ITER: 5000    # 28 crops × 180 epochs = 5,000 iterations
-  # STEPS: (3500, 4500) # Not needed for cosine LR schedule
+  BASE_LR: 0.00002  # OPTIMIZED: 2e-5 found optimal (tested 1e-5, 2e-5, 5e-5, 1e-4, 2e-4)
+  MAX_ITER: 12000   # OPTIMIZED: 12k iterations sufficient (tested vs 18k, no improvement)
+  # STEPS: (8400, 10800) # Not needed for cosine LR schedule
   WARMUP_FACTOR: 0.1
-  WARMUP_ITERS: 300   # Extended warmup for large model fine-tuning
+  WARMUP_ITERS: 500   # Extended warmup for stable convergence
   WEIGHT_DECAY: 0.01  # Reduced weight decay for fine-tuning
   OPTIMIZER: "ADAMW"
   LR_SCHEDULER_NAME: "WarmupCosineLR"  # Better convergence for fine-tuning
@@ -58,25 +66,27 @@ SOLVER:
 # Input configuration optimized for manual annotations
 INPUT:
   IMAGE_SIZE: 1500  # Match original resolution for precise manual annotations
-  MIN_SCALE: 0.9    # Very conservative scaling for precise manual boundaries
-  MAX_SCALE: 1.1    # Minimal scaling to preserve manual annotation precision
+  MIN_SCALE: 0.7    # OPTIMIZED: Tested 0.5-0.8 range, 0.7-1.4 found optimal
+  MAX_SCALE: 1.4    # OPTIMIZED: Tested up to 1.6, 0.7-1.4 achieves best balance
   FORMAT: "RGB"
   DATASET_MAPPER_NAME: "coco_instance_lsj"
-  
+
   # CONSISTENT: Use same crop size as Stage 1 for transfer learning
   CROP:
     ENABLED: True
     TYPE: "relative_range"
     SIZE: [0.2, 0.3]  # Same as Stage 1 - important for consistent feature learning
-  
-  # Conservative augmentations to preserve manual annotation precision
-  COLOR_AUG_SSD: True  # Mild color augmentation for fluorescence variations
-  
-  RANDOM_FLIP: "horizontal"  # Horizontal flips for myotube orientation diversity (same as Stage 1)
 
-# Evaluation configuration  
+  # STRONGER augmentations to combat overfitting on small dataset (7 base images)
+  COLOR_AUG_SSD: True  # Color augmentation for fluorescence intensity variations
+
+  RANDOM_FLIP: "horizontal"  # Horizontal flips (Note: detectron2 doesn't support "both" directly)
+
+# Evaluation configuration
 TEST:
-  EVAL_PERIOD: 1000  # Evaluate every 36 epochs (5000 iter ÷ 28 crops × 36/180 = 1000 iterations)
+  EVAL_PERIOD: 1000  # Evaluate every ~36 epochs (12000 iter ÷ 28 crops × 36/430 = 1000 iterations)
+  AUG:
+    ENABLED: False  # Disable TTA during training for speed (can enable for final eval)
 
 # Data loader configuration - memory-optimized for Swin-Large
 DATALOADER:

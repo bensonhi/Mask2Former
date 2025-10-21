@@ -122,7 +122,7 @@ class PostProcessingPipeline:
             'min_area': 100,           # Minimum myotube area (pixels)
             'max_area': 50000,         # Maximum myotube area (pixels)
             'min_aspect_ratio': 1.5,   # Minimum length/width ratio for myotubes
-            'confidence_threshold': 0.5, # Minimum detection confidence
+            'confidence_threshold': 0.25, # Minimum detection confidence (matches IJM default)
             'merge_threshold': 0.8,    # IoU threshold for merging overlapping instances
             'fill_holes': True,        # Fill holes in segmentation masks
             'smooth_boundaries': True,  # Smooth mask boundaries
@@ -438,18 +438,24 @@ class PostProcessingPipeline:
             return instances
         
         print(f"      🔗 Merging instances with IoU >= {merge_threshold}")
-        
-        # Calculate IoU matrix
+
+        # Calculate IoU matrix with bounding box pre-filtering for speed
         masks = instances['masks']
+        boxes = instances['boxes']
         n = len(masks)
         iou_matrix = np.zeros((n, n))
-        
+
         for i in range(n):
             for j in range(i + 1, n):
-                intersection = np.logical_and(masks[i], masks[j]).sum()
-                union = np.logical_or(masks[i], masks[j]).sum()
-                iou = intersection / union if union > 0 else 0
-                iou_matrix[i, j] = iou_matrix[j, i] = iou
+                # FAST PRE-FILTER: Check if bounding boxes overlap
+                box1, box2 = boxes[i], boxes[j]
+                if not (box1[2] < box2[0] or box1[0] > box2[2] or
+                       box1[3] < box2[1] or box1[1] > box2[3]):
+                    # Boxes overlap, calculate IoU
+                    intersection = np.logical_and(masks[i], masks[j]).sum()
+                    union = np.logical_or(masks[i], masks[j]).sum()
+                    iou = intersection / union if union > 0 else 0
+                    iou_matrix[i, j] = iou_matrix[j, i] = iou
         
         # Find groups to merge
         merged_groups = []
@@ -566,27 +572,41 @@ class PostProcessingPipeline:
                 # Check if we can use cached components (only for unchanged instances)
                 if i in component_cache and i not in changed_in_last_iteration:
                     # Reuse cached components
-                    labeled_mask, num_components, component_masks = component_cache[i]
+                    labeled_mask, num_components, component_data = component_cache[i]
                 else:
                     # Compute new components
                     labeled_mask, num_components = ndimage.label(mask.astype(bool))
 
                     if num_components > 0:
-                        # OPTIMIZATION 1: Vectorized component extraction
-                        # Instead of loop: for comp_idx in range(1, num_components + 1): component_mask = (labeled_mask == comp_idx)
-                        # Use broadcasting to extract all components at once
-                        component_labels = np.arange(1, num_components + 1)
-                        component_masks = (labeled_mask[None, :, :] == component_labels[:, None, None])
+                        # MEMORY OPTIMIZATION: Store cropped component masks instead of full-size
+                        # Extract bounding box for each component and store only the cropped region
+                        # This reduces memory from O(num_components * H * W) to O(num_components * bbox_area)
+                        component_data = []  # List of (cropped_mask, bbox)
+
+                        for comp_label in range(1, num_components + 1):
+                            comp_mask_full = (labeled_mask == comp_label)
+                            # Get bounding box
+                            coords = np.where(comp_mask_full)
+                            if len(coords[0]) > 0:
+                                y_min, y_max = coords[0].min(), coords[0].max()
+                                x_min, x_max = coords[1].min(), coords[1].max()
+                                # Store only the cropped region + bbox coordinates
+                                cropped_mask = comp_mask_full[y_min:y_max+1, x_min:x_max+1].copy()
+                                bbox = (y_min, y_max, x_min, x_max)
+                                component_data.append((cropped_mask, bbox))
+                            else:
+                                component_data.append((np.array([]), None))
                     else:
-                        component_masks = np.array([])
+                        component_data = []
 
                     # Cache for potential reuse in next iteration
-                    component_cache[i] = (labeled_mask, num_components, component_masks)
+                    component_cache[i] = (labeled_mask, num_components, component_data)
 
                 # Add components to list
                 if num_components > 0:
                     for comp_idx in range(num_components):
-                        all_components.append((i, comp_idx, component_masks[comp_idx]))
+                        cropped_mask, bbox = component_data[comp_idx]
+                        all_components.append((i, comp_idx, cropped_mask, bbox))
 
             if len(all_components) <= 1:
                 print(f"         No components to process - stopping")
@@ -598,21 +618,22 @@ class PostProcessingPipeline:
             reassignments = {}
 
             # OPTIMIZATION 3 & 4: Vectorized bbox extraction and containment checks
-            component_info = []  # [(instance, component_idx, mask, area, bbox)]
+            component_info = []  # [(instance, component_idx, cropped_mask, area, bbox)]
             src_bboxes_list = []
 
-            for src_inst, src_comp_idx, src_mask in all_components:
-                # OPTIMIZATION 5: Use bitwise operations on uint8 view for faster sum
-                src_area = int(src_mask.sum())
+            for src_inst, src_comp_idx, src_cropped_mask, src_bbox in all_components:
+                # Skip invalid components
+                if src_bbox is None or len(src_cropped_mask) == 0:
+                    continue
+
+                # Calculate area from cropped mask
+                src_area = int(src_cropped_mask.sum())
                 if src_area == 0:
                     continue
 
-                # Calculate bounding box for quick filtering
-                coords = np.where(src_mask)
-                if len(coords[0]) > 0:
-                    bbox = (coords[0].min(), coords[0].max(), coords[1].min(), coords[1].max())
-                    component_info.append((src_inst, src_comp_idx, src_mask, src_area, bbox))
-                    src_bboxes_list.append(bbox)
+                # Bbox already computed during component extraction
+                component_info.append((src_inst, src_comp_idx, src_cropped_mask, src_area, src_bbox))
+                src_bboxes_list.append(src_bbox)
 
             if len(component_info) == 0:
                 print(f"         No valid components - stopping")
@@ -640,13 +661,13 @@ class PostProcessingPipeline:
 
             # Check each component against others using pre-computed containment matrix
             for i in range(num_comps):
-                src_inst, src_comp_idx, src_mask, src_area, src_bbox = component_info[i]
+                src_inst, src_comp_idx, src_cropped, src_area, src_bbox = component_info[i]
 
                 for j in range(num_comps):
                     if i == j:  # Same component, skip
                         continue
 
-                    tgt_inst, tgt_comp_idx, tgt_mask, tgt_area, tgt_bbox = component_info[j]
+                    tgt_inst, tgt_comp_idx, tgt_cropped, tgt_area, tgt_bbox = component_info[j]
 
                     if src_inst == tgt_inst:  # Same instance, skip
                         continue
@@ -655,11 +676,38 @@ class PostProcessingPipeline:
                     if not contained_matrix[i, j]:
                         continue
 
-                    # OPTIMIZATION 5: Use bitwise AND for faster intersection
-                    # Convert to uint8 view for bitwise operations (faster than logical_and on bool)
-                    src_mask_uint8 = src_mask.view(np.uint8)
-                    tgt_mask_uint8 = tgt_mask.view(np.uint8)
-                    intersection = np.bitwise_and(src_mask_uint8, tgt_mask_uint8).sum()
+                    # MEMORY OPTIMIZATION: Calculate intersection using cropped masks
+                    # Find overlap region between the two bounding boxes
+                    src_y1, src_y2, src_x1, src_x2 = src_bbox
+                    tgt_y1, tgt_y2, tgt_x1, tgt_x2 = tgt_bbox
+
+                    # Calculate overlap region in global coordinates
+                    overlap_y1 = max(src_y1, tgt_y1)
+                    overlap_y2 = min(src_y2, tgt_y2)
+                    overlap_x1 = max(src_x1, tgt_x1)
+                    overlap_x2 = min(src_x2, tgt_x2)
+
+                    # Check if there's actual overlap
+                    if overlap_y2 < overlap_y1 or overlap_x2 < overlap_x1:
+                        continue  # No overlap
+
+                    # Convert overlap region to local coordinates for each cropped mask
+                    src_local_y1 = overlap_y1 - src_y1
+                    src_local_y2 = overlap_y2 - src_y1
+                    src_local_x1 = overlap_x1 - src_x1
+                    src_local_x2 = overlap_x2 - src_x1
+
+                    tgt_local_y1 = overlap_y1 - tgt_y1
+                    tgt_local_y2 = overlap_y2 - tgt_y1
+                    tgt_local_x1 = overlap_x1 - tgt_x1
+                    tgt_local_x2 = overlap_x2 - tgt_x1
+
+                    # Extract overlap regions from cropped masks
+                    src_overlap = src_cropped[src_local_y1:src_local_y2+1, src_local_x1:src_local_x2+1]
+                    tgt_overlap = tgt_cropped[tgt_local_y1:tgt_local_y2+1, tgt_local_x1:tgt_local_x2+1]
+
+                    # Calculate intersection
+                    intersection = np.logical_and(src_overlap, tgt_overlap).sum()
                     containment_ratio = intersection / src_area
 
                     if containment_ratio > 0.8:
@@ -684,14 +732,22 @@ class PostProcessingPipeline:
 
             # Build mapping of which components belong to each changed instance for efficient lookup
             changed_instance_components = {inst: [] for inst in changed_instances}
-            for src_inst, src_comp_idx, src_mask in all_components:
+            for src_inst, src_comp_idx, src_cropped, src_bbox in all_components:
+                if src_bbox is None or len(src_cropped) == 0:
+                    continue
+
+                # Reconstruct full-size mask from cropped mask + bbox
+                src_y1, src_y2, src_x1, src_x2 = src_bbox
+                full_mask = np.zeros_like(masks[0], dtype=bool)
+                full_mask[src_y1:src_y2+1, src_x1:src_x2+1] = src_cropped
+
                 if (src_inst, src_comp_idx) in reassignments:
                     # Reassigned component
                     target_instance = reassignments[(src_inst, src_comp_idx)]
-                    changed_instance_components[target_instance].append(src_mask)
+                    changed_instance_components[target_instance].append(full_mask)
                 elif src_inst in changed_instances:
                     # Component stays but instance was affected by other changes
-                    changed_instance_components[src_inst].append(src_mask)
+                    changed_instance_components[src_inst].append(full_mask)
 
             # Rebuild changed instances using vectorized operations
             for inst in changed_instances:
@@ -864,24 +920,528 @@ class PostProcessingPipeline:
 
 
 
+class TiledMyotubeSegmentation:
+    """
+    Tiled inference for processing large images that contain too many myotubes
+    for single-pass inference (exceeds model's query capacity).
+
+    Uses overlapping tiles to ensure boundary instances are captured,
+    then merges detections across tiles using IoU-based matching.
+    """
+
+    def __init__(self, fiji_integration, target_overlap=0.20):
+        """
+        Initialize tiled segmentation wrapper.
+
+        Args:
+            fiji_integration: MyotubeFijiIntegration instance
+            target_overlap: Overlap ratio between tiles (default: 0.20 = 20%)
+        """
+        self.integration = fiji_integration
+        self.target_overlap = target_overlap
+        # Always use resolution optimization for tiled inference (automatic ~9× speedup)
+        self.model_resolution = 3000  # Target resolution after merging 2×2 tiles
+
+    def calculate_tiling_params(self, image_size):
+        """
+        Calculate tile size for 2×2 grid with specified overlap.
+
+        For overlap ratio r and image size I:
+        - tile_size = I / (2 - r)
+        - For 20% overlap on 9000px: tile_size = 9000 / 1.8 = 5000
+
+        Args:
+            image_size: Width or height of square image (uses minimum for non-square)
+
+        Returns:
+            tuple: (tile_size, overlap_pixels)
+        """
+        tile_size = int(image_size / (2 - self.target_overlap))
+        overlap = int(tile_size * self.target_overlap)
+
+        return tile_size, overlap
+
+    def create_tiles(self, image, tile_size):
+        """
+        Create 2×2 overlapping tiles from image.
+
+        Args:
+            image: Input image array (H, W, C)
+            tile_size: Size of each tile
+
+        Returns:
+            list: List of (tile_image, (y_start, x_start, y_end, x_end)) tuples
+        """
+        h, w = image.shape[:2]
+
+        # Positions for 2×2 grid
+        # First tile starts at 0, second tile starts at (image_size - tile_size)
+        positions = [0, min(h, w) - tile_size]
+
+        tiles = []
+        for y_pos in positions:
+            for x_pos in positions:
+                y_end = min(y_pos + tile_size, h)
+                x_end = min(x_pos + tile_size, w)
+
+                # Extract tile
+                tile = image[y_pos:y_end, x_pos:x_end]
+
+                # Pad if necessary (edge tiles might be smaller)
+                if tile.shape[0] < tile_size or tile.shape[1] < tile_size:
+                    tile = self._pad_to_size(tile, tile_size)
+
+                tiles.append((tile, (y_pos, x_pos, y_end, x_end)))
+
+        return tiles
+
+    def _pad_to_size(self, tile, target_size):
+        """Pad tile to target_size (for edge cases)."""
+        h, w = tile.shape[:2]
+        if h == target_size and w == target_size:
+            return tile
+
+        # Pad with zeros (black)
+        if len(tile.shape) == 3:
+            padded = np.zeros((target_size, target_size, tile.shape[2]), dtype=tile.dtype)
+        else:
+            padded = np.zeros((target_size, target_size), dtype=tile.dtype)
+        padded[:h, :w] = tile
+        return padded
+
+    def transform_to_global_coords(self, instances, tile_coords, original_shape):
+        """
+        Transform instance coordinates from tile-local to global image coordinates.
+
+        Args:
+            instances: Instances dict with masks, scores, boxes
+            tile_coords: (y_start, x_start, y_end, x_end) of tile in global image
+            original_shape: (H, W) of full image
+
+        Returns:
+            list: List of instance dicts with global coordinates
+        """
+        y_start, x_start, y_end, x_end = tile_coords
+        tile_h, tile_w = y_end - y_start, x_end - x_start
+
+        global_instances = []
+
+        for i in range(len(instances['masks'])):
+            mask = instances['masks'][i]
+            score = instances['scores'][i]
+            box = instances['boxes'][i]
+
+            # Create global mask
+            global_mask = np.zeros(original_shape, dtype=bool)
+            mask_h, mask_w = mask.shape
+
+            # Place tile mask into global coordinates
+            # Handle potential size mismatch due to padding
+            copy_h = min(mask_h, tile_h)
+            copy_w = min(mask_w, tile_w)
+            global_mask[y_start:y_start+copy_h, x_start:x_start+copy_w] = mask[:copy_h, :copy_w]
+
+            # Transform bounding box to global coordinates
+            global_box = [
+                box[0] + x_start,
+                box[1] + y_start,
+                box[2] + x_start,
+                box[3] + y_start
+            ]
+
+            global_instances.append({
+                'mask': global_mask,
+                'score': score,
+                'box': global_box,
+                'tile_coords': tile_coords  # Store tile coordinates for overlap-based IoU
+            })
+
+        return global_instances
+
+    def calculate_iou(self, mask1, mask2):
+        """Calculate Intersection over Union between two masks."""
+        intersection = np.logical_and(mask1, mask2).sum()
+        union = np.logical_or(mask1, mask2).sum()
+        return intersection / union if union > 0 else 0.0
+
+    def calculate_overlap_region_iou(self, inst1, inst2):
+        """
+        Calculate IoU only in the overlapping region between two tiles.
+
+        This is much more accurate for merging tile detections because:
+        - Same myotube in overlap = high IoU ✓
+        - Different myotubes in overlap = low IoU ✓
+        - No dependency on myotube length outside overlap ✓
+
+        Args:
+            inst1: First instance dict with 'mask' and 'tile_coords'
+            inst2: Second instance dict with 'mask' and 'tile_coords'
+
+        Returns:
+            float: IoU calculated only in the overlap region (0.0 to 1.0)
+        """
+        # Get tile coordinates
+        y1_start, x1_start, y1_end, x1_end = inst1['tile_coords']
+        y2_start, x2_start, y2_end, x2_end = inst2['tile_coords']
+
+        # Calculate overlap region
+        overlap_y_start = max(y1_start, y2_start)
+        overlap_y_end = min(y1_end, y2_end)
+        overlap_x_start = max(x1_start, x2_start)
+        overlap_x_end = min(x1_end, x2_end)
+
+        # Check if tiles actually overlap
+        if overlap_y_end <= overlap_y_start or overlap_x_end <= overlap_x_start:
+            return 0.0  # No overlap between tiles
+
+        # Crop masks to overlap region
+        mask1_overlap = inst1['mask'][overlap_y_start:overlap_y_end, overlap_x_start:overlap_x_end]
+        mask2_overlap = inst2['mask'][overlap_y_start:overlap_y_end, overlap_x_start:overlap_x_end]
+
+        # Calculate IoU in overlap region only
+        intersection = np.logical_and(mask1_overlap, mask2_overlap).sum()
+        union = np.logical_or(mask1_overlap, mask2_overlap).sum()
+
+        return intersection / union if union > 0 else 0.0
+
+    def merge_duplicates(self, all_instances, iou_threshold=0.5):
+        """
+        Merge instances detected in multiple overlapping tiles.
+
+        Uses OVERLAP-REGION IoU: Only compares masks within tile overlap zones.
+        This is much more accurate than full-mask IoU for elongated objects.
+
+        Args:
+            all_instances: List of all instances from all tiles (with 'tile_coords')
+            iou_threshold: Minimum overlap-region IoU (default: 0.5, higher than full-mask)
+
+        Returns:
+            list: Merged instances (no duplicates)
+        """
+        if len(all_instances) == 0:
+            return []
+
+        print(f"      🔗 Merging {len(all_instances)} detections (Overlap-region IoU threshold: {iou_threshold})")
+
+        merged = []
+        used = set()
+        merge_count = 0
+
+        for i, inst1 in enumerate(all_instances):
+            if i in used:
+                continue
+
+            # Find all overlapping instances (same myotube detected in adjacent tiles)
+            group = [inst1]
+            box1 = inst1['box']
+
+            for j in range(i + 1, len(all_instances)):
+                if j in used:
+                    continue
+
+                inst2 = all_instances[j]
+                box2 = inst2['box']
+
+                # FAST PRE-FILTER: Check if bounding boxes overlap
+                if not self._boxes_overlap(box1, box2):
+                    continue
+
+                # SMART IoU: Calculate only in tile overlap region
+                # This handles elongated myotubes spanning multiple tiles correctly
+                overlap_iou = self.calculate_overlap_region_iou(inst1, inst2)
+
+                if overlap_iou > iou_threshold:
+                    group.append(inst2)
+                    used.add(j)
+
+            # Merge group into single instance
+            if len(group) > 1:
+                merged_inst = self._merge_group(group)
+                merge_count += 1
+            else:
+                merged_inst = inst1
+
+            merged.append(merged_inst)
+
+        print(f"         Merged {merge_count} duplicate groups")
+        print(f"         Result: {len(all_instances)} → {len(merged)} unique instances")
+
+        return merged
+
+    def _boxes_overlap(self, box1, box2):
+        """Fast check if two bounding boxes overlap."""
+        # box format: [x_min, y_min, x_max, y_max]
+        return not (box1[2] < box2[0] or  # box1 right of box2
+                   box1[0] > box2[2] or  # box1 left of box2
+                   box1[3] < box2[1] or  # box1 above box2
+                   box1[1] > box2[3])    # box1 below box2
+
+    def _merge_group(self, group):
+        """Merge multiple detections of the same myotube."""
+        # Union of all masks
+        merged_mask = np.logical_or.reduce([inst['mask'] for inst in group])
+
+        # Keep highest confidence score
+        merged_score = max(inst['score'] for inst in group)
+
+        # Recalculate bounding box from merged mask
+        coords = np.where(merged_mask)
+        if len(coords[0]) > 0:
+            merged_box = [
+                coords[1].min(),  # x_min
+                coords[0].min(),  # y_min
+                coords[1].max(),  # x_max
+                coords[0].max()   # y_max
+            ]
+        else:
+            # Fallback: use first instance's box
+            merged_box = group[0]['box']
+
+        return {
+            'mask': merged_mask,
+            'score': merged_score,
+            'box': merged_box
+        }
+
+    def convert_to_detectron_format(self, merged_instances, original_shape):
+        """
+        Convert merged instances back to Detectron2 format.
+
+        Args:
+            merged_instances: List of merged instance dicts
+            original_shape: (H, W) of original image
+
+        Returns:
+            dict: Instances in internal format compatible with post-processing
+        """
+        if len(merged_instances) == 0:
+            return {
+                'masks': np.array([]).reshape(0, *original_shape),
+                'scores': np.array([]),
+                'boxes': np.array([]).reshape(0, 4),
+                'image_shape': original_shape
+            }
+
+        masks = np.array([inst['mask'] for inst in merged_instances])
+        scores = np.array([inst['score'] for inst in merged_instances])
+        boxes = np.array([inst['box'] for inst in merged_instances])
+
+        return {
+            'masks': masks,
+            'scores': scores,
+            'boxes': boxes,
+            'image_shape': original_shape
+        }
+
+    def segment_image_tiled(self, image_path, output_dir, custom_config=None):
+        """
+        Segment image using tiled inference.
+
+        Args:
+            image_path: Path to input image
+            output_dir: Output directory
+            custom_config: Custom configuration dict
+
+        Returns:
+            dict: Output files dictionary (same format as segment_image)
+        """
+        print(f"🔲 Using TILED inference mode (overlap: {self.target_overlap*100:.0f}%)")
+
+        # Load image
+        image = cv2.imread(image_path)
+        original_image = image.copy()
+        original_h, original_w = image.shape[:2]
+
+        # Resolution optimization: ALWAYS process at model resolution for ~9× speedup
+        if max(original_h, original_w) > self.model_resolution:
+            # Calculate scale factor to resize to model resolution
+            scale_factor = self.model_resolution / max(original_h, original_w)
+            processing_w = int(original_w * scale_factor)
+            processing_h = int(original_h * scale_factor)
+
+            # Resize image for processing
+            processing_image = cv2.resize(image, (processing_w, processing_h), interpolation=cv2.INTER_AREA)
+
+            # Store original size and scale factor for later upscaling
+            self.integration._original_size = (original_h, original_w)
+            self.integration._scale_factor = scale_factor
+            self.integration._processing_size = (processing_h, processing_w)
+
+            print(f"   🚀 RESOLUTION OPTIMIZATION (Automatic for tiled inference)")
+            print(f"   📐 Original: {original_w}×{original_h}")
+            print(f"   📐 Processing: {processing_w}×{processing_h} (scale: {scale_factor:.3f})")
+            print(f"   ⚡ Expected speedup: ~{(1/scale_factor)**2:.1f}×")
+
+            # Use processing image for tiling
+            image = processing_image
+            h, w = processing_h, processing_w
+        else:
+            # Image already at or below model resolution
+            h, w = original_h, original_w
+            self.integration._original_size = None
+            self.integration._scale_factor = 1.0
+            self.integration._processing_size = None
+
+        # Calculate tiling parameters
+        min_dim = min(h, w)
+        tile_size, overlap = self.calculate_tiling_params(min_dim)
+
+        print(f"   Image: {w}×{h}")
+        print(f"   Tiles: 2×2 grid = 4 tiles")
+        print(f"   Tile size: {tile_size}×{tile_size}")
+        print(f"   Overlap: {overlap}px ({self.target_overlap*100:.0f}%)")
+
+        # Create tiles
+        tiles = self.create_tiles(image, tile_size)
+        print(f"   Created {len(tiles)} tiles")
+
+        # Ensure output directory exists before processing tiles
+        os.makedirs(output_dir, exist_ok=True)
+
+        # Process each tile
+        all_instances = []
+
+        # Temporarily disable the integration's own resizing
+        # We want to pass tiles at their native resolution to match training distribution
+        original_max_size = custom_config.get('max_image_size', None) if custom_config else None
+        if custom_config:
+            custom_config['max_image_size'] = None  # Disable resizing for tiles
+
+        for idx, (tile, coords) in enumerate(tiles):
+            y_start, x_start, y_end, x_end = coords
+            print(f"   🔄 Processing tile {idx+1}/{len(tiles)}: [{x_start}:{x_end}, {y_start}:{y_end}]")
+
+            # Save tile temporarily
+            temp_tile_path = os.path.join(output_dir, f"_temp_tile_{idx}.png")
+            success = cv2.imwrite(temp_tile_path, tile)
+            if not success:
+                raise IOError(f"Failed to write tile image to {temp_tile_path}")
+
+            # Process tile using existing integration
+            # Create a temporary output directory for this tile
+            temp_output_dir = os.path.join(output_dir, f"_temp_tile_{idx}_output")
+            os.makedirs(temp_output_dir, exist_ok=True)
+
+            try:
+                # Use the integration's segment_image method
+                # But we need to intercept the instances before post-processing
+                # Actually, let's directly call the predictor
+
+                # Initialize predictor if needed
+                force_cpu = custom_config.get('force_cpu', False) if custom_config else False
+                self.integration.initialize_predictor(force_cpu=force_cpu)
+
+                # Run inference on tile
+                from detectron2.data.detection_utils import read_image
+                tile_detectron = read_image(temp_tile_path, format="BGR")
+
+                # Clear GPU cache
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+
+                predictions = self.integration.predictor(tile_detectron)
+                instances = predictions["instances"]
+
+                num_detections = len(instances)
+                print(f"      → {num_detections} detections")
+
+                if num_detections > 0:
+                    # Convert to internal format
+                    tile_instances = self.integration.post_processor._convert_to_internal_format(
+                        instances, tile_detectron
+                    )
+
+                    # Transform to global coordinates
+                    global_instances = self.transform_to_global_coords(
+                        tile_instances, coords, (h, w)
+                    )
+
+                    all_instances.extend(global_instances)
+
+                # CRITICAL: Free GPU memory immediately after processing each tile
+                # Delete GPU tensors to prevent OOM on subsequent tiles
+                del predictions
+                del instances
+                if num_detections > 0:
+                    del tile_instances
+                del tile_detectron
+
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                    torch.cuda.synchronize()  # Wait for all operations to complete
+
+                # Clean up temp files
+                os.remove(temp_tile_path)
+                import shutil
+                shutil.rmtree(temp_output_dir, ignore_errors=True)
+
+            except Exception as e:
+                print(f"      ❌ Failed to process tile {idx}: {e}")
+
+                # CRITICAL: Clean up GPU memory even on failure
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                    torch.cuda.synchronize()
+
+                # Clean up temp files and continue
+                if os.path.exists(temp_tile_path):
+                    os.remove(temp_tile_path)
+                continue
+
+        # Restore original max_size config
+        if custom_config and original_max_size is not None:
+            custom_config['max_image_size'] = original_max_size
+
+        print(f"   📊 Total raw detections: {len(all_instances)}")
+
+        # Merge overlapping detections from different tiles using overlap-region IoU
+        merged_instances = self.merge_duplicates(all_instances, iou_threshold=0.5)
+
+        # Convert back to Detectron2 format
+        instances_dict = self.convert_to_detectron_format(merged_instances, (h, w))
+
+        print(f"   ✅ Final merged instances: {len(instances_dict['masks'])}")
+
+        # Apply post-processing pipeline
+        if custom_config:
+            self.integration.post_processor.config.update(custom_config)
+
+        # Use processing-resolution image for post-processing (not original high-res)
+        processed_instances = self.integration.post_processor.process(instances_dict, image)
+
+        # Save outputs using existing methods (pass both raw and processed instances)
+        # Note: original_image is needed for overlays; masks will be upscaled in saving methods
+        output_files = self.integration._generate_fiji_outputs(
+            instances_dict,  # raw instances (after tile merging, before post-processing)
+            processed_instances,  # processed instances (after post-processing)
+            original_image,  # Original high-res image for overlays
+            image_path,
+            output_dir
+        )
+
+        return output_files
+
+
 class MyotubeFijiIntegration:
     """
     Main class for Fiji integration of myotube instance segmentation.
     """
     
-    def __init__(self, config_file: str = None, model_weights: str = None):
+    def __init__(self, config_file: str = None, model_weights: str = None, skip_merged_masks: bool = False):
         """
         Initialize the Fiji integration.
-        
+
         Args:
             config_file: Path to model config file
             model_weights: Path to model weights
+            skip_merged_masks: Skip generation of merged visualization masks (default: False)
         """
         self.config_file = config_file
         self.model_weights = model_weights
+        self.skip_merged_masks = skip_merged_masks
         self.predictor = None
         self.post_processor = PostProcessingPipeline()
-        
+
         # Setup paths
         self.setup_paths()
         
@@ -1216,10 +1776,10 @@ class MyotubeFijiIntegration:
             return self._create_empty_outputs(image_path, output_dir)
         
         print(f"   🎯 Detected {len(instances)} potential myotubes")
-        
-        # Apply post-processing
-        processed_instances = self.post_processor.process(instances, original_image)
-        
+
+        # Apply post-processing using inference resolution (not original high-res)
+        processed_instances = self.post_processor.process(instances, image)
+
         # Generate outputs with both raw and processed overlays
         output_files = self._generate_fiji_outputs(
             instances, processed_instances, original_image, image_path, output_dir
@@ -1259,14 +1819,6 @@ class MyotubeFijiIntegration:
         os.makedirs(output_dir, exist_ok=True)
         base_name = Path(image_path).stem
         
-        # Generate individual mask images (pixel-perfect accuracy!) - using processed instances
-        masks_dir = os.path.join(output_dir, f"{base_name}_masks")
-        self._save_individual_mask_images(processed_instances, original_image, masks_dir)
-
-        # Generate merged visualization masks (connect disconnected components)
-        merged_masks_dir = os.path.join(output_dir, f"{base_name}_merged_masks")
-        self._save_merged_visualization_masks(processed_instances, original_image, merged_masks_dir)
-
         # Generate RAW Detectron2 overlay (before post-processing)
         raw_overlay_path = os.path.join(output_dir, f"{base_name}_raw_overlay.tif")
         self._save_colored_overlay(raw_instances, original_image, raw_overlay_path, overlay_type="raw")
@@ -1274,10 +1826,22 @@ class MyotubeFijiIntegration:
         # Generate PROCESSED overlay (after post-processing)
         processed_overlay_path = os.path.join(output_dir, f"{base_name}_processed_overlay.tif")
         self._save_colored_overlay(processed_instances, original_image, processed_overlay_path, overlay_type="processed")
-        
+
+        # Generate individual mask images (pixel-perfect accuracy!) - using processed instances
+        masks_dir = os.path.join(output_dir, f"{base_name}_masks")
+        self._save_individual_mask_images(processed_instances, original_image, masks_dir)
+
+        # Generate merged visualization masks (connect disconnected components) - optional
+        if not self.skip_merged_masks:
+            merged_masks_dir = os.path.join(output_dir, f"{base_name}_merged_masks")
+            self._save_merged_visualization_masks(processed_instances, original_image, merged_masks_dir)
+        else:
+            print(f"   ⏭️  Skipping merged mask generation (--skip-merged-masks enabled)")
+
         # Generate measurements CSV - using processed instances
         measurements_path = os.path.join(output_dir, f"{base_name}_measurements.csv")
-        self._save_measurements(processed_instances, measurements_path)
+        # TEMPORARILY DISABLED: CSV generation is very slow for many instances
+        # self._save_measurements(processed_instances, measurements_path)
         
         # Generate summary info - using processed instances
         info_path = os.path.join(output_dir, f"{base_name}_info.json")
@@ -1957,16 +2521,31 @@ class MyotubeFijiIntegration:
         return labeled_mask.max()
 
 
-    def _save_colored_overlay(self, instances, original_image: np.ndarray, 
+    def _save_colored_overlay(self, instances, original_image: np.ndarray,
                              output_path: str, overlay_type: str = "processed"):
         """Save colored overlay using Detectron2's built-in visualizer like demo.py."""
         from detectron2.utils.visualizer import Visualizer, ColorMode
         from detectron2.data import MetadataCatalog
         from detectron2.structures import Instances
         import torch
-        
+
         print(f"   🎨 Generating {overlay_type} overlay using Detectron2's Visualizer")
-        
+
+        # MEMORY OPTIMIZATION: Generate overlays at reasonable resolution (not full original)
+        # Overlays are for visualization only - 3000px is more than sufficient
+        max_overlay_size = 3000
+        original_h, original_w = original_image.shape[:2]
+
+        if max(original_h, original_w) > max_overlay_size:
+            scale = max_overlay_size / max(original_h, original_w)
+            overlay_h, overlay_w = int(original_h * scale), int(original_w * scale)
+            overlay_image = cv2.resize(original_image, (overlay_w, overlay_h), interpolation=cv2.INTER_AREA)
+            print(f"      📐 Overlay resolution: {overlay_w}×{overlay_h} (optimized for memory)")
+        else:
+            overlay_image = original_image
+            overlay_h, overlay_w = original_h, original_w
+            scale = 1.0
+
         # Get metadata (try to use the same as our dataset, fallback to COCO)
         try:
             metadata = MetadataCatalog.get("myotube_stage2_train")
@@ -1978,29 +2557,23 @@ class MyotubeFijiIntegration:
         
         # Handle both raw Detectron2 instances and our processed format
         if hasattr(instances, 'pred_masks'):
-            # Raw Detectron2 Instances - need to resize masks to original image size
-            torch_instances = Instances(original_image.shape[:2])
-            
+            # Raw Detectron2 Instances - need to resize masks to overlay resolution
+            torch_instances = Instances((overlay_h, overlay_w))
+
             if len(instances) > 0:
-                # Resize masks to original image size 
+                # Resize masks to overlay resolution (memory-efficient)
                 raw_masks = instances.pred_masks.cpu().numpy()
                 final_masks = []
-                
+
                 for i, mask in enumerate(raw_masks):
-                    # Resize mask to original image size if needed
-                    if hasattr(self, '_scale_factor') and self._scale_factor != 1.0:
-                        original_h, original_w = self._original_size
-                        # Convert boolean mask to uint8 for resizing
-                        mask_uint8 = (mask * 255).astype(np.uint8)
-                        resized_mask = cv2.resize(
-                            mask_uint8, 
-                            (original_w, original_h), 
-                            interpolation=cv2.INTER_NEAREST
-                        )
-                        resized_mask = (resized_mask > 128)  # Back to boolean
-                    else:
-                        resized_mask = mask > 0  # Ensure boolean
-                    
+                    # Resize mask to overlay resolution
+                    mask_uint8 = (mask * 255).astype(np.uint8)
+                    resized_mask = cv2.resize(
+                        mask_uint8,
+                        (overlay_w, overlay_h),
+                        interpolation=cv2.INTER_NEAREST
+                    )
+                    resized_mask = (resized_mask > 128)  # Back to boolean
                     final_masks.append(resized_mask)
                 
                 # Convert to torch tensors
@@ -2017,34 +2590,29 @@ class MyotubeFijiIntegration:
                 num_instances = 0
         else:
             # Our processed format - convert back to Detectron2 Instances
-            torch_instances = Instances(original_image.shape[:2])
-            
+            torch_instances = Instances((overlay_h, overlay_w))
+
             if len(instances['masks']) > 0:
-                # Ensure masks are at original image resolution for visualization
+                # Resize masks to overlay resolution (memory-efficient)
                 final_masks = []
-                
+
                 for i, mask in enumerate(instances['masks']):
                     # Ensure mask is a numpy array first
                     if torch.is_tensor(mask):
                         mask = mask.cpu().numpy()
-                    
+
                     # Ensure mask is boolean
                     mask = mask.astype(bool)
-                    
-                    # Resize mask to original image size if needed
-                    if hasattr(self, '_scale_factor') and self._scale_factor != 1.0:
-                        original_h, original_w = self._original_size
-                        # Convert to uint8 for resizing
-                        mask_uint8 = mask.astype(np.uint8) * 255
-                        resized_mask = cv2.resize(
-                            mask_uint8, 
-                            (original_w, original_h), 
-                            interpolation=cv2.INTER_NEAREST
-                        )
-                        resized_mask = (resized_mask > 128)  # Back to boolean
-                    else:
-                        resized_mask = mask
-                    
+
+                    # Resize mask to overlay resolution
+                    mask_uint8 = mask.astype(np.uint8) * 255
+                    resized_mask = cv2.resize(
+                        mask_uint8,
+                        (overlay_w, overlay_h),
+                        interpolation=cv2.INTER_NEAREST
+                    )
+                    resized_mask = (resized_mask > 128)  # Back to boolean
+
                     # Final validation: ensure boolean numpy array
                     resized_mask = np.array(resized_mask, dtype=bool)
                     final_masks.append(resized_mask)
@@ -2071,10 +2639,10 @@ class MyotubeFijiIntegration:
                 num_instances = 0
         
         print(f"   📊 Created Detectron2 Instances with {num_instances} instances")
-        
+
         # Use Detectron2's visualizer exactly like demo.py does
         # Convert BGR to RGB for visualization (demo.py does this: image[:, :, ::-1])
-        rgb_image = original_image[:, :, ::-1]
+        rgb_image = overlay_image[:, :, ::-1]
         visualizer = Visualizer(rgb_image, metadata, instance_mode=ColorMode.IMAGE)
         
         # Add validation before visualization
@@ -2091,9 +2659,9 @@ class MyotubeFijiIntegration:
             
         except Exception as e:
             print(f"   ❌ Visualization failed: {e}")
-            print(f"   💡 Creating fallback overlay with original image")
-            # Fallback: save original image as overlay
-            vis_image = original_image.copy()
+            print(f"   💡 Creating fallback overlay with image")
+            # Fallback: save overlay image as overlay
+            vis_image = overlay_image.copy()
         
         print(f"   💾 Saving overlay to: {output_path}")
         
@@ -2103,8 +2671,15 @@ class MyotubeFijiIntegration:
             print(f"   ✅ {overlay_type.title()} overlay saved: {os.path.basename(output_path)}")
         else:
             print(f"   ❌ Failed to save {overlay_type} overlay")
-            
+
         print(f"   🔍 {overlay_type.title()} overlay: {num_instances} instances visualized")
+
+        # Memory cleanup after overlay generation
+        del torch_instances, final_masks, vis_image
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        import gc
+        gc.collect()
     
     def _save_measurements(self, instances: Dict[str, Any], output_path: str):
         """Save comprehensive measurements CSV for myotube analysis."""
@@ -2289,6 +2864,402 @@ class MyotubeFijiIntegration:
             json.dump(info, f, indent=2)
 
 
+class ParameterGUI:
+    """User-friendly GUI for parameter configuration."""
+
+    def __init__(self, config_file=None):
+        """Initialize the GUI with saved or default parameters."""
+        import tkinter as tk
+        from tkinter import ttk, filedialog, messagebox
+
+        self.tk = tk
+        self.ttk = ttk
+        self.filedialog = filedialog
+        self.messagebox = messagebox
+
+        # Default parameters
+        self.defaults = {
+            'input_path': '',
+            'output_dir': '',
+            'config': '',
+            'weights': '',
+            'confidence': 0.25,
+            'min_area': 100,
+            'max_area': 50000,
+            'final_min_area': 1000,
+            'cpu': False,
+            'max_image_size': '',
+            'force_1024': False,
+            'use_tiling': True,
+            'tile_overlap': 0.20,
+            'skip_merged_masks': True,
+        }
+
+        # Config file location (in script directory or user home)
+        if config_file is None:
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            config_file = os.path.join(script_dir, '.myotube_gui_config.json')
+        self.config_file = config_file
+
+        # Load saved parameters
+        self.params = self.load_config()
+
+        # GUI state
+        self.result = None
+        self.root = None
+
+    def load_config(self):
+        """Load saved configuration from file."""
+        if os.path.exists(self.config_file):
+            try:
+                with open(self.config_file, 'r') as f:
+                    saved = json.load(f)
+                # Merge with defaults to handle new parameters
+                params = self.defaults.copy()
+                params.update(saved)
+                print(f"📂 Loaded saved configuration from: {self.config_file}")
+                return params
+            except Exception as e:
+                print(f"⚠️  Could not load config file: {e}")
+                return self.defaults.copy()
+        else:
+            return self.defaults.copy()
+
+    def save_config(self):
+        """Save current configuration to file."""
+        try:
+            with open(self.config_file, 'w') as f:
+                json.dump(self.params, f, indent=2)
+            print(f"💾 Saved configuration to: {self.config_file}")
+        except Exception as e:
+            print(f"⚠️  Could not save config file: {e}")
+
+    def restore_defaults(self):
+        """Restore all parameters to default values."""
+        # Keep paths but restore processing parameters
+        input_path = self.params.get('input_path', '')
+        output_dir = self.params.get('output_dir', '')
+        config = self.params.get('config', '')
+        weights = self.params.get('weights', '')
+
+        self.params = self.defaults.copy()
+
+        # Restore the paths
+        self.params['input_path'] = input_path
+        self.params['output_dir'] = output_dir
+        self.params['config'] = config
+        self.params['weights'] = weights
+
+        # Update GUI
+        self.update_gui_from_params()
+
+        # No popup - just restore silently
+        print("✅ Restored parameters to defaults (paths preserved)")
+
+    def update_gui_from_params(self):
+        """Update GUI widgets from current parameters."""
+        # Paths
+        self.input_var.set(self.params['input_path'])
+        self.output_var.set(self.params['output_dir'])
+        self.config_var.set(self.params['config'])
+        self.weights_var.set(self.params['weights'])
+
+        # Processing parameters
+        self.confidence_var.set(self.params['confidence'])
+        self.min_area_var.set(self.params['min_area'])
+        self.max_area_var.set(self.params['max_area'])
+        self.final_min_area_var.set(self.params['final_min_area'])
+
+        # Flags
+        self.cpu_var.set(self.params['cpu'])
+        self.force_1024_var.set(self.params['force_1024'])
+        self.use_tiling_var.set(self.params['use_tiling'])
+        self.skip_merged_var.set(self.params['skip_merged_masks'])
+
+        # Optional parameters
+        self.max_image_size_var.set(str(self.params['max_image_size']) if self.params['max_image_size'] else '')
+        self.tile_overlap_var.set(self.params['tile_overlap'] * 100)  # Display as percentage
+
+        # Update formatted labels if they exist
+        if hasattr(self, 'confidence_label'):
+            self.confidence_label.configure(text=f"{self.params['confidence']:.2f}")
+        if hasattr(self, 'tile_overlap_label'):
+            self.tile_overlap_label.configure(text=f"{self.params['tile_overlap'] * 100:.1f}")
+
+    def update_params_from_gui(self):
+        """Update parameters from GUI widgets."""
+        self.params['input_path'] = self.input_var.get()
+        self.params['output_dir'] = self.output_var.get()
+        self.params['config'] = self.config_var.get()
+        self.params['weights'] = self.weights_var.get()
+
+        self.params['confidence'] = float(self.confidence_var.get())
+        self.params['min_area'] = int(self.min_area_var.get())
+        self.params['max_area'] = int(self.max_area_var.get())
+        self.params['final_min_area'] = int(self.final_min_area_var.get())
+
+        self.params['cpu'] = self.cpu_var.get()
+        self.params['force_1024'] = self.force_1024_var.get()
+        self.params['use_tiling'] = self.use_tiling_var.get()
+        self.params['skip_merged_masks'] = self.skip_merged_var.get()
+
+        # Optional max_image_size
+        max_size_str = self.max_image_size_var.get().strip()
+        self.params['max_image_size'] = int(max_size_str) if max_size_str else ''
+
+        # Tile overlap (convert from percentage)
+        self.params['tile_overlap'] = float(self.tile_overlap_var.get()) / 100.0
+
+    def browse_input(self):
+        """Browse for input file or directory."""
+        path = self.filedialog.askdirectory(title="Select Input Directory")
+        if not path:
+            path = self.filedialog.askopenfilename(
+                title="Select Input Image",
+                filetypes=[("Image files", "*.png *.jpg *.jpeg *.tif *.tiff *.bmp"), ("All files", "*.*")]
+            )
+        if path:
+            self.input_var.set(path)
+
+    def browse_output(self):
+        """Browse for output directory."""
+        path = self.filedialog.askdirectory(title="Select Output Directory")
+        if path:
+            self.output_var.set(path)
+
+    def browse_config(self):
+        """Browse for config file."""
+        path = self.filedialog.askopenfilename(
+            title="Select Config File",
+            filetypes=[("YAML files", "*.yaml *.yml"), ("All files", "*.*")]
+        )
+        if path:
+            self.config_var.set(path)
+
+    def browse_weights(self):
+        """Browse for model weights."""
+        path = self.filedialog.askopenfilename(
+            title="Select Model Weights",
+            filetypes=[("Model files", "*.pth *.pkl"), ("All files", "*.*")]
+        )
+        if path:
+            self.weights_var.set(path)
+
+    def on_run(self):
+        """Handle Run button click."""
+        # Update parameters from GUI
+        self.update_params_from_gui()
+
+        # Validate required fields
+        if not self.params['input_path']:
+            self.messagebox.showerror("Error", "Please select an input image or directory")
+            return
+
+        if not self.params['output_dir']:
+            self.messagebox.showerror("Error", "Please select an output directory")
+            return
+
+        # Validate numeric parameters
+        try:
+            if not (0 <= self.params['confidence'] <= 1):
+                raise ValueError("Confidence must be between 0 and 1")
+            if self.params['min_area'] <= 0:
+                raise ValueError("Minimum area must be positive")
+            if self.params['max_area'] <= self.params['min_area']:
+                raise ValueError("Maximum area must be greater than minimum area")
+            if self.params['final_min_area'] < 0:
+                raise ValueError("Final minimum area must be non-negative")
+            if not (0 < self.params['tile_overlap'] < 1):
+                raise ValueError("Tile overlap must be between 0 and 1")
+        except ValueError as e:
+            self.messagebox.showerror("Invalid Parameter", str(e))
+            return
+
+        # Save configuration
+        self.save_config()
+
+        # Set result and close
+        self.result = self.params
+        self.root.quit()
+        self.root.destroy()
+
+    def on_cancel(self):
+        """Handle Cancel button click."""
+        self.result = None
+        self.root.quit()
+        self.root.destroy()
+
+    def show(self):
+        """Display the GUI and return selected parameters."""
+        # Create main window
+        self.root = self.tk.Tk()
+        self.root.title("Myotube Segmentation Parameters")
+        self.root.geometry("700x750")
+
+        # Create scrollable frame
+        main_frame = self.ttk.Frame(self.root, padding="10")
+        main_frame.grid(row=0, column=0, sticky=(self.tk.N, self.tk.W, self.tk.E, self.tk.S))
+        self.root.columnconfigure(0, weight=1)
+        self.root.rowconfigure(0, weight=1)
+
+        # Variables for GUI widgets
+        self.input_var = self.tk.StringVar(value=self.params['input_path'])
+        self.output_var = self.tk.StringVar(value=self.params['output_dir'])
+        self.config_var = self.tk.StringVar(value=self.params['config'])
+        self.weights_var = self.tk.StringVar(value=self.params['weights'])
+        self.confidence_var = self.tk.DoubleVar(value=self.params['confidence'])
+        self.min_area_var = self.tk.IntVar(value=self.params['min_area'])
+        self.max_area_var = self.tk.IntVar(value=self.params['max_area'])
+        self.final_min_area_var = self.tk.IntVar(value=self.params['final_min_area'])
+        self.cpu_var = self.tk.BooleanVar(value=self.params['cpu'])
+        self.max_image_size_var = self.tk.StringVar(value=str(self.params['max_image_size']) if self.params['max_image_size'] else '')
+        self.force_1024_var = self.tk.BooleanVar(value=self.params['force_1024'])
+        self.use_tiling_var = self.tk.BooleanVar(value=self.params['use_tiling'])
+        self.tile_overlap_var = self.tk.DoubleVar(value=self.params['tile_overlap'] * 100)
+        self.skip_merged_var = self.tk.BooleanVar(value=self.params['skip_merged_masks'])
+
+        row = 0
+
+        # ===== Paths Section =====
+        self.ttk.Label(main_frame, text="Input/Output Paths", font=('Arial', 11, 'bold')).grid(row=row, column=0, columnspan=3, sticky=self.tk.W, pady=(0, 5))
+        row += 1
+
+        self.ttk.Label(main_frame, text="Input (Image/Directory):").grid(row=row, column=0, sticky=self.tk.W)
+        self.ttk.Entry(main_frame, textvariable=self.input_var, width=50).grid(row=row, column=1, sticky=(self.tk.W, self.tk.E), padx=5)
+        self.ttk.Button(main_frame, text="Browse...", command=self.browse_input).grid(row=row, column=2)
+        row += 1
+
+        self.ttk.Label(main_frame, text="Output Directory:").grid(row=row, column=0, sticky=self.tk.W)
+        self.ttk.Entry(main_frame, textvariable=self.output_var, width=50).grid(row=row, column=1, sticky=(self.tk.W, self.tk.E), padx=5)
+        self.ttk.Button(main_frame, text="Browse...", command=self.browse_output).grid(row=row, column=2)
+        row += 1
+
+        # Separator
+        self.ttk.Separator(main_frame, orient='horizontal').grid(row=row, column=0, columnspan=3, sticky=(self.tk.W, self.tk.E), pady=10)
+        row += 1
+
+        # ===== Model Configuration =====
+        self.ttk.Label(main_frame, text="Model Configuration (Optional)", font=('Arial', 11, 'bold')).grid(row=row, column=0, columnspan=3, sticky=self.tk.W, pady=(0, 5))
+        row += 1
+
+        self.ttk.Label(main_frame, text="Config File:").grid(row=row, column=0, sticky=self.tk.W)
+        self.ttk.Entry(main_frame, textvariable=self.config_var, width=50).grid(row=row, column=1, sticky=(self.tk.W, self.tk.E), padx=5)
+        self.ttk.Button(main_frame, text="Browse...", command=self.browse_config).grid(row=row, column=2)
+        row += 1
+
+        self.ttk.Label(main_frame, text="Model Weights:").grid(row=row, column=0, sticky=self.tk.W)
+        self.ttk.Entry(main_frame, textvariable=self.weights_var, width=50).grid(row=row, column=1, sticky=(self.tk.W, self.tk.E), padx=5)
+        self.ttk.Button(main_frame, text="Browse...", command=self.browse_weights).grid(row=row, column=2)
+        row += 1
+
+        self.ttk.Label(main_frame, text="(Leave empty for auto-detection)", font=('Arial', 9, 'italic')).grid(row=row, column=1, sticky=self.tk.W, padx=5)
+        row += 1
+
+        # Separator
+        self.ttk.Separator(main_frame, orient='horizontal').grid(row=row, column=0, columnspan=3, sticky=(self.tk.W, self.tk.E), pady=10)
+        row += 1
+
+        # ===== Detection Parameters =====
+        self.ttk.Label(main_frame, text="Detection Parameters", font=('Arial', 11, 'bold')).grid(row=row, column=0, columnspan=3, sticky=self.tk.W, pady=(0, 5))
+        row += 1
+
+        self.ttk.Label(main_frame, text="Confidence Threshold (0-1):").grid(row=row, column=0, sticky=self.tk.W)
+        confidence_scale = self.ttk.Scale(main_frame, from_=0.0, to=1.0, variable=self.confidence_var, orient='horizontal', length=300)
+        confidence_scale.grid(row=row, column=1, sticky=(self.tk.W, self.tk.E), padx=5)
+        self.confidence_label = self.ttk.Label(main_frame, text=f"{self.confidence_var.get():.2f}")
+        self.confidence_label.grid(row=row, column=2)
+        confidence_scale.configure(command=lambda v: self.confidence_label.configure(text=f"{float(v):.2f}"))
+        row += 1
+
+        self.ttk.Label(main_frame, text="Minimum Area (pixels):").grid(row=row, column=0, sticky=self.tk.W)
+        self.ttk.Entry(main_frame, textvariable=self.min_area_var, width=20).grid(row=row, column=1, sticky=self.tk.W, padx=5)
+        row += 1
+
+        self.ttk.Label(main_frame, text="Maximum Area (pixels):").grid(row=row, column=0, sticky=self.tk.W)
+        self.ttk.Entry(main_frame, textvariable=self.max_area_var, width=20).grid(row=row, column=1, sticky=self.tk.W, padx=5)
+        row += 1
+
+        self.ttk.Label(main_frame, text="Final Min Area (pixels):").grid(row=row, column=0, sticky=self.tk.W)
+        self.ttk.Entry(main_frame, textvariable=self.final_min_area_var, width=20).grid(row=row, column=1, sticky=self.tk.W, padx=5)
+        row += 1
+
+        # Separator
+        self.ttk.Separator(main_frame, orient='horizontal').grid(row=row, column=0, columnspan=3, sticky=(self.tk.W, self.tk.E), pady=10)
+        row += 1
+
+        # ===== Performance Options =====
+        self.ttk.Label(main_frame, text="Performance Options", font=('Arial', 11, 'bold')).grid(row=row, column=0, columnspan=3, sticky=self.tk.W, pady=(0, 5))
+        row += 1
+
+        self.ttk.Checkbutton(main_frame, text="Use CPU (slower, less memory)", variable=self.cpu_var).grid(row=row, column=0, columnspan=2, sticky=self.tk.W, pady=2)
+        row += 1
+
+        self.ttk.Checkbutton(main_frame, text="Force 1024px input (memory optimization)", variable=self.force_1024_var).grid(row=row, column=0, columnspan=2, sticky=self.tk.W, pady=2)
+        row += 1
+
+        self.ttk.Label(main_frame, text="Max Image Size (optional):").grid(row=row, column=0, sticky=self.tk.W)
+        self.ttk.Entry(main_frame, textvariable=self.max_image_size_var, width=20).grid(row=row, column=1, sticky=self.tk.W, padx=5)
+        row += 1
+
+        # Separator
+        self.ttk.Separator(main_frame, orient='horizontal').grid(row=row, column=0, columnspan=3, sticky=(self.tk.W, self.tk.E), pady=10)
+        row += 1
+
+        # ===== Tiling Options =====
+        self.ttk.Label(main_frame, text="Tiling Options", font=('Arial', 11, 'bold')).grid(row=row, column=0, columnspan=3, sticky=self.tk.W, pady=(0, 5))
+        row += 1
+
+        self.ttk.Checkbutton(main_frame, text="Use tiled inference (for images with many myotubes)", variable=self.use_tiling_var).grid(row=row, column=0, columnspan=2, sticky=self.tk.W, pady=2)
+        row += 1
+
+        self.ttk.Label(main_frame, text="Tile Overlap (%):").grid(row=row, column=0, sticky=self.tk.W)
+        tile_overlap_scale = self.ttk.Scale(main_frame, from_=10, to=50, variable=self.tile_overlap_var, orient='horizontal', length=300)
+        tile_overlap_scale.grid(row=row, column=1, sticky=(self.tk.W, self.tk.E), padx=5)
+        self.tile_overlap_label = self.ttk.Label(main_frame, text=f"{self.tile_overlap_var.get():.1f}")
+        self.tile_overlap_label.grid(row=row, column=2)
+        tile_overlap_scale.configure(command=lambda v: self.tile_overlap_label.configure(text=f"{float(v):.1f}"))
+        row += 1
+
+        # Separator
+        self.ttk.Separator(main_frame, orient='horizontal').grid(row=row, column=0, columnspan=3, sticky=(self.tk.W, self.tk.E), pady=10)
+        row += 1
+
+        # ===== Output Options =====
+        self.ttk.Label(main_frame, text="Output Options", font=('Arial', 11, 'bold')).grid(row=row, column=0, columnspan=3, sticky=self.tk.W, pady=(0, 5))
+        row += 1
+
+        self.ttk.Checkbutton(main_frame, text="Skip merged masks (skip imaginary boundary generation)", variable=self.skip_merged_var).grid(row=row, column=0, columnspan=2, sticky=self.tk.W, pady=2)
+        row += 1
+
+        # Separator
+        self.ttk.Separator(main_frame, orient='horizontal').grid(row=row, column=0, columnspan=3, sticky=(self.tk.W, self.tk.E), pady=10)
+        row += 1
+
+        # ===== Buttons =====
+        button_frame = self.ttk.Frame(main_frame)
+        button_frame.grid(row=row, column=0, columnspan=3, pady=10)
+
+        self.ttk.Button(button_frame, text="Restore Defaults", command=self.restore_defaults).pack(side=self.tk.LEFT, padx=5)
+        self.ttk.Button(button_frame, text="Cancel", command=self.on_cancel).pack(side=self.tk.LEFT, padx=5)
+        self.ttk.Button(button_frame, text="Run Segmentation", command=self.on_run).pack(side=self.tk.LEFT, padx=5)
+
+        # Configure column weights
+        main_frame.columnconfigure(1, weight=1)
+
+        # Center window on screen
+        self.root.update_idletasks()
+        width = self.root.winfo_width()
+        height = self.root.winfo_height()
+        x = (self.root.winfo_screenwidth() // 2) - (width // 2)
+        y = (self.root.winfo_screenheight() // 2) - (height // 2)
+        self.root.geometry(f'{width}x{height}+{x}+{y}')
+
+        # Run the GUI
+        self.root.mainloop()
+
+        return self.result
+
+
 def main():
     """Main function for command-line usage."""
     
@@ -2305,12 +3276,20 @@ def main():
         pass
     
     parser = argparse.ArgumentParser(description="Myotube Instance Segmentation for Fiji")
-    parser.add_argument("input_path", help="Path to input image or directory containing images")
-    parser.add_argument("output_dir", help="Output directory for results")
+
+    # GUI mode
+    parser.add_argument("--gui", action="store_true",
+                       help="Launch graphical user interface for parameter configuration")
+
+    # Positional arguments (optional when using --gui)
+    parser.add_argument("input_path", nargs='?', help="Path to input image or directory containing images")
+    parser.add_argument("output_dir", nargs='?', help="Output directory for results")
+
+    # Optional arguments
     parser.add_argument("--config", help="Path to model config file")
     parser.add_argument("--weights", help="Path to model weights")
-    parser.add_argument("--confidence", type=float, default=0.5, 
-                       help="Confidence threshold for detection")
+    parser.add_argument("--confidence", type=float, default=0.25,
+                       help="Confidence threshold for detection (default: 0.25)")
     parser.add_argument("--min-area", type=int, default=100,
                        help="Minimum myotube area in pixels")
     parser.add_argument("--max-area", type=int, default=50000,
@@ -2323,8 +3302,74 @@ def main():
                        help="Maximum image dimension (larger images will be resized). Default: respect training resolution")
     parser.add_argument("--force-1024", action="store_true",
                        help="Force 1024px input resolution for memory optimization (may reduce accuracy)")
-    
+
+    # Tiling parameters
+    parser.add_argument("--use-tiling", action="store_true", default=True,
+                       help="Enable tiled inference for large images with many myotubes (4 tiles with 20%% overlap, enabled by default)")
+    parser.add_argument("--no-tiling", dest="use_tiling", action="store_false",
+                       help="Disable tiled inference and process entire image at once")
+    parser.add_argument("--tile-overlap", type=float, default=0.20,
+                       help="Overlap ratio between tiles (default: 0.20 = 20%%). Only used with --use-tiling")
+
+    # Merged mask generation parameter
+    parser.add_argument("--skip-merged-masks", action="store_true", default=True,
+                       help="Skip generation of merged visualization masks (imaginary boundaries connecting disconnected components, skipped by default)")
+    parser.add_argument("--generate-merged-masks", dest="skip_merged_masks", action="store_false",
+                       help="Generate merged visualization masks with imaginary boundaries")
+
     args = parser.parse_args()
+
+    # Check if GUI mode is requested
+    if args.gui:
+        print("🖥️  Launching GUI...")
+        gui = ParameterGUI()
+        params = gui.show()
+
+        if params is None:
+            print("❌ User cancelled")
+            return
+
+        print("✅ Parameters selected via GUI")
+
+        # Override args with GUI parameters
+        args.input_path = params['input_path']
+        args.output_dir = params['output_dir']
+        args.config = params['config'] if params['config'] else None
+        args.weights = params['weights'] if params['weights'] else None
+        args.confidence = params['confidence']
+        args.min_area = params['min_area']
+        args.max_area = params['max_area']
+        args.final_min_area = params['final_min_area']
+        args.cpu = params['cpu']
+        args.force_1024 = params['force_1024']
+        args.use_tiling = params['use_tiling']
+        args.tile_overlap = params['tile_overlap']
+        args.skip_merged_masks = params['skip_merged_masks']
+        args.max_image_size = params['max_image_size'] if params['max_image_size'] else None
+    else:
+        # Command-line mode - validate required arguments
+        if not args.input_path or not args.output_dir:
+            parser.error("input_path and output_dir are required unless using --gui mode")
+
+    # Print parameter summary
+    print("\n" + "="*60)
+    print("MYOTUBE SEGMENTATION PARAMETERS")
+    print("="*60)
+    print(f"Input:           {args.input_path}")
+    print(f"Output:          {args.output_dir}")
+    print(f"Config:          {args.config or 'Auto-detect'}")
+    print(f"Weights:         {args.weights or 'Auto-detect'}")
+    print(f"Confidence:      {args.confidence}")
+    print(f"Min Area:        {args.min_area} px")
+    print(f"Max Area:        {args.max_area} px")
+    print(f"Final Min Area:  {args.final_min_area} px")
+    print(f"CPU Mode:        {args.cpu}")
+    print(f"Force 1024px:    {args.force_1024}")
+    print(f"Max Image Size:  {args.max_image_size or 'Auto'}")
+    print(f"Use Tiling:      {args.use_tiling}")
+    print(f"Tile Overlap:    {args.tile_overlap*100:.0f}%")
+    print(f"Skip Merged:     {args.skip_merged_masks}")
+    print("="*60 + "\n")
     
     # Custom post-processing config
     max_image_size = 1024 if args.force_1024 else args.max_image_size
@@ -2340,9 +3385,20 @@ def main():
     # Initialize integration
     integration = MyotubeFijiIntegration(
         config_file=args.config,
-        model_weights=args.weights
+        model_weights=args.weights,
+        skip_merged_masks=args.skip_merged_masks
     )
-    
+
+    # Initialize tiled segmentation if requested
+    if args.use_tiling:
+        print(f"🔲 Tiled inference mode enabled (overlap: {args.tile_overlap*100:.0f}%)")
+        tiled_segmenter = TiledMyotubeSegmentation(
+            fiji_integration=integration,
+            target_overlap=args.tile_overlap
+        )
+    else:
+        tiled_segmenter = None
+
     # Apply memory optimization settings
     if args.cpu:
         print("🖥️  CPU inference mode enabled")
@@ -2409,13 +3465,21 @@ def main():
                 try:
                     # Create subdirectory for each image's output
                     image_output_dir = os.path.join(args.output_dir, Path(image_path).stem)
-                    
-                    output_files = integration.segment_image(
-                        str(image_path),
-                        image_output_dir,
-                        custom_config
-                    )
-                    
+
+                    # Use tiled or standard segmentation based on flag
+                    if tiled_segmenter:
+                        output_files = tiled_segmenter.segment_image_tiled(
+                            str(image_path),
+                            image_output_dir,
+                            custom_config
+                        )
+                    else:
+                        output_files = integration.segment_image(
+                            str(image_path),
+                            image_output_dir,
+                            custom_config
+                        )
+
                     myotube_count = output_files['count']
                     total_myotubes += myotube_count
                     successful_images += 1

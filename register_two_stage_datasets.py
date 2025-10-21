@@ -82,7 +82,60 @@ def _register_instance_datasets(annotations_dir, images_dir):
         if stage2_train_ann in [r.split('/')[-1] for r in registered]:
             register_coco_instances("myotube_stage2_val", {}, stage2_train_ann, images_dir)
             registered.append("myotube_stage2_val")
-    
+
+    # Stage 2: Cropped test set (4× quadrants for evaluation)
+    stage2_cropped_ann = os.path.join(annotations_dir, "manual_test_cropped_annotations.json")
+    cropped_images_dir = os.path.join(os.path.dirname(images_dir), "images_test_cropped")
+
+    if os.path.exists(stage2_cropped_ann) and os.path.exists(cropped_images_dir):
+        register_coco_instances("myotube_stage2_val_cropped", {}, stage2_cropped_ann, cropped_images_dir)
+        registered.append("myotube_stage2_val_cropped")
+        print(f"      ✅ Registered myotube_stage2_val_cropped (quadrant crops)")
+
+        # Count images and annotations
+        with open(stage2_cropped_ann, 'r') as f:
+            data = json.load(f)
+        print(f"      📈 Cropped val images: {len(data['images'])} (4× quadrants)")
+        print(f"      📈 Cropped val annotations: {len(data['annotations'])}")
+    else:
+        if not os.path.exists(stage2_cropped_ann):
+            print(f"      ℹ️  Cropped test annotations not found: {stage2_cropped_ann}")
+        if not os.path.exists(cropped_images_dir):
+            print(f"      ℹ️  Cropped images dir not found: {cropped_images_dir}")
+
+    # Stage 2 PRODUCTION: Full training set (all 10 base images = 20 with channels)
+    print(f"   🏭 Stage 2 PRODUCTION: Full Training Set")
+    stage2_full_train_ann = os.path.join(annotations_dir, "manual_train_full_annotations.json")
+    stage2_full_train_cropped_ann = os.path.join(annotations_dir, "manual_train_full_cropped_annotations.json")
+    full_cropped_images_dir = os.path.join(os.path.dirname(images_dir), "images_train_full_cropped")
+
+    if os.path.exists(stage2_full_train_ann):
+        # Register full uncropped (for reference)
+        register_coco_instances("myotube_stage2_train_full", {}, stage2_full_train_ann, images_dir)
+        registered.append("myotube_stage2_train_full")
+        print(f"      ✅ Registered myotube_stage2_train_full (all 10 base images)")
+
+        with open(stage2_full_train_ann, 'r') as f:
+            data = json.load(f)
+        print(f"      📈 Full training images: {len(data['images'])} (10 base × 2 channels)")
+        print(f"      📈 Full training annotations: {len(data['annotations'])}")
+
+    if os.path.exists(stage2_full_train_cropped_ann) and os.path.exists(full_cropped_images_dir):
+        # Register full cropped (for training - matches training distribution)
+        register_coco_instances("myotube_stage2_train_full_cropped", {}, stage2_full_train_cropped_ann, full_cropped_images_dir)
+        registered.append("myotube_stage2_train_full_cropped")
+        print(f"      ✅ Registered myotube_stage2_train_full_cropped (80 quadrants)")
+
+        # Also register as test (same data for monitoring convergence)
+        register_coco_instances("myotube_stage2_val_full_cropped", {}, stage2_full_train_cropped_ann, full_cropped_images_dir)
+        registered.append("myotube_stage2_val_full_cropped")
+        print(f"      ✅ Registered myotube_stage2_val_full_cropped (same as train, for monitoring)")
+
+        with open(stage2_full_train_cropped_ann, 'r') as f:
+            data = json.load(f)
+        print(f"      📈 Full cropped images: {len(data['images'])} (20 base × 4 crops)")
+        print(f"      📈 Full cropped annotations: {len(data['annotations'])}")
+
     return registered
 
 def _register_panoptic_datasets(panoptic_dir, images_dir):
