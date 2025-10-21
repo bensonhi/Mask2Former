@@ -8,6 +8,9 @@ torch>=1.10.0
 torchvision>=0.11.0
 # detectron2 requires torch, so it's installed separately after torch
 
+# Model dependencies
+timm>=0.4.12  # PyTorch Image Models - required for Mask2Former
+
 # Image processing
 opencv-python>=4.5.0
 numpy>=1.19.0
