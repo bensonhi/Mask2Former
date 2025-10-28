@@ -1501,7 +1501,8 @@ class TiledMyotubeSegmentation:
             processed_instances,  # processed instances (after post-processing)
             original_image,  # Original high-res image for overlays
             image_path,
-            output_dir
+            output_dir,
+            custom_config  # pass custom_config for measurements settings
         )
 
         return output_files
@@ -1883,7 +1884,7 @@ class MyotubeFijiIntegration:
 
         # Generate outputs with both raw and processed overlays
         output_files = self._generate_fiji_outputs(
-            instances, processed_instances, original_image, image_path, output_dir
+            instances, processed_instances, original_image, image_path, output_dir, custom_config
         )
         
         return output_files
@@ -1915,7 +1916,7 @@ class MyotubeFijiIntegration:
         }
     
     def _generate_fiji_outputs(self, raw_instances, processed_instances: Dict[str, Any], original_image: np.ndarray,
-                              image_path: str, output_dir: str) -> Dict[str, str]:
+                              image_path: str, output_dir: str, custom_config: Dict[str, Any] = None) -> Dict[str, str]:
         """Generate all Fiji-compatible output files."""
         os.makedirs(output_dir, exist_ok=True)
         base_name = Path(image_path).stem
@@ -3814,14 +3815,17 @@ def main():
             image_files = []
             for sd in search_dirs:
                 for ext in image_extensions:
-                    image_files.extend(sd.glob(f"*{ext}"))
-                    image_files.extend(sd.glob(f"*{ext.upper()}"))
-                    # also recursive
+                    # Use rglob for recursive search (includes current directory too)
                     image_files.extend(sd.rglob(f"*{ext}"))
                     image_files.extend(sd.rglob(f"*{ext.upper()}"))
             
-            # De-duplicate
-            image_files = sorted({str(p) for p in image_files})
+            # De-duplicate using resolved absolute paths to handle path variations
+            unique_files = {}
+            for f in image_files:
+                # Resolve to absolute path to handle any path variations (e.g., ./ vs absolute)
+                resolved = f.resolve()
+                unique_files[str(resolved)] = f
+            image_files = sorted(unique_files.values(), key=lambda p: str(p))
             
             if not image_files:
                 msg = (f"No image files found in directory: {args.input_path}\n"
