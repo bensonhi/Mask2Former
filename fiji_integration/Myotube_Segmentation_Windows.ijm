@@ -102,9 +102,9 @@ function segmentMyotubesWithGUI() {
     showProgress(0.1);
     showStatus("Launching parameter GUI...");
 
-    // Build Python command with --gui flag and output directory
-    // IMPORTANT: Pass OUTPUT_DIR so results go to the temp directory where Fiji expects them
-    python_script_cmd = PYTHON_COMMAND + " \"" + SCRIPT_PATH + "\" --gui --gui-output \"" + OUTPUT_DIR + "\"";
+    // Build Python command with --gui flag
+    // User will select output directory in the Python GUI
+    python_script_cmd = PYTHON_COMMAND + " \"" + SCRIPT_PATH + "\" --gui";
 
     if (startsWith(getInfo("os.name"), "Windows")) {
         // Windows: Try multiple conda initialization methods

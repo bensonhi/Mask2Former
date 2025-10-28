@@ -1932,10 +1932,13 @@ class MyotubeFijiIntegration:
         else:
             print(f"   ⏭️  Skipping merged mask generation (--skip-merged-masks enabled)")
 
-        # Generate measurements CSV - using processed instances
-        measurements_path = os.path.join(output_dir, f"{base_name}_measurements.csv")
-        # TEMPORARILY DISABLED: CSV generation is very slow for many instances
-        # self._save_measurements(processed_instances, measurements_path)
+        # Generate measurements CSV - using processed instances (optional)
+        if custom_config and custom_config.get('save_measurements', False):
+            measurements_path = os.path.join(output_dir, f"{base_name}_measurements.csv")
+            print(f"   📊 Generating measurements CSV...")
+            self._save_measurements(processed_instances, measurements_path)
+        else:
+            print(f"   ⏭️  Skipping measurements CSV (disabled in settings)")
         
         # Generate summary info - using processed instances
         info_path = os.path.join(output_dir, f"{base_name}_info.json")
@@ -2978,9 +2981,12 @@ class ParameterGUI:
         self.locked_output_dir = locked_output_dir
 
         # Default parameters
+        # Set default output directory to Desktop/myotube_results
+        default_output = os.path.join(os.path.expanduser('~'), 'Desktop', 'myotube_results')
+
         self.defaults = {
             'input_path': '',
-            'output_dir': '',
+            'output_dir': default_output,
             'config': '',
             'weights': '',
             'mask2former_path': '',
@@ -2995,6 +3001,7 @@ class ParameterGUI:
             'grid_size': 2,
             'tile_overlap': 0.20,
             'skip_merged_masks': True,
+            'save_measurements': False,
         }
 
         # Config file location (in script directory or user home)
@@ -3006,10 +3013,8 @@ class ParameterGUI:
         # Load saved parameters
         self.params = self.load_config()
 
-        # Override output directory if locked (from Fiji integration)
-        if self.locked_output_dir:
-            self.params['output_dir'] = self.locked_output_dir
-            print(f"🔒 Output directory locked by Fiji: {self.locked_output_dir}")
+        # Note: locked_output_dir parameter kept for backward compatibility but not used
+        # Users can now always choose their output directory in the GUI
 
         # GUI state
         self.result = None
@@ -3112,6 +3117,7 @@ class ParameterGUI:
         self.params['force_1024'] = self.force_1024_var.get()
         self.params['use_tiling'] = self.use_tiling_var.get()
         self.params['skip_merged_masks'] = self.skip_merged_var.get()
+        self.params['save_measurements'] = self.save_measurements_var.get()
 
         # Optional max_image_size
         max_size_str = self.max_image_size_var.get().strip()
@@ -3240,6 +3246,7 @@ class ParameterGUI:
         self.grid_size_var = self.tk.IntVar(value=self.params['grid_size'])
         self.tile_overlap_var = self.tk.DoubleVar(value=self.params['tile_overlap'] * 100)
         self.skip_merged_var = self.tk.BooleanVar(value=self.params['skip_merged_masks'])
+        self.save_measurements_var = self.tk.BooleanVar(value=self.params['save_measurements'])
 
         row = 0
 
@@ -3257,10 +3264,6 @@ class ParameterGUI:
         output_entry.grid(row=row, column=1, sticky=(self.tk.W, self.tk.E), padx=5)
         output_browse_btn = self.ttk.Button(main_frame, text="Browse...", command=self.browse_output)
         output_browse_btn.grid(row=row, column=2)
-        # Disable output directory selection if locked by Fiji
-        if self.locked_output_dir:
-            output_entry.config(state='readonly')
-            output_browse_btn.config(state='disabled')
         row += 1
 
         # Separator
@@ -3370,6 +3373,9 @@ class ParameterGUI:
         self.ttk.Checkbutton(main_frame, text="Skip merged masks (skip imaginary boundary generation)", variable=self.skip_merged_var).grid(row=row, column=0, columnspan=2, sticky=self.tk.W, pady=2)
         row += 1
 
+        self.ttk.Checkbutton(main_frame, text="Save measurements CSV (includes area, length, width, etc.)", variable=self.save_measurements_var).grid(row=row, column=0, columnspan=2, sticky=self.tk.W, pady=2)
+        row += 1
+
         # Separator
         self.ttk.Separator(main_frame, orient='horizontal').grid(row=row, column=0, columnspan=3, sticky=(self.tk.W, self.tk.E), pady=10)
         row += 1
@@ -3462,6 +3468,10 @@ def main():
     parser.add_argument("--generate-merged-masks", dest="skip_merged_masks", action="store_false",
                        help="Generate merged visualization masks with imaginary boundaries")
 
+    # Measurements CSV generation parameter
+    parser.add_argument("--save-measurements", action="store_true", default=False,
+                       help="Save comprehensive measurements CSV (area, length, width, etc. - disabled by default)")
+
     args = parser.parse_args()
 
     # Check if GUI mode is requested
@@ -3494,6 +3504,7 @@ def main():
         args.grid_size = params['grid_size']
         args.tile_overlap = params['tile_overlap']
         args.skip_merged_masks = params['skip_merged_masks']
+        args.save_measurements = params['save_measurements']
         args.max_image_size = params['max_image_size'] if params['max_image_size'] else None
 
         # Now that GUI is done, load the imports we skipped earlier
@@ -3540,7 +3551,8 @@ def main():
         'max_area': args.max_area,
         'final_min_area': args.final_min_area,
         'max_image_size': max_image_size,
-        'force_cpu': args.cpu
+        'force_cpu': args.cpu,
+        'save_measurements': args.save_measurements
     }
     
     # Initialize integration

@@ -270,10 +270,12 @@ Before running the segmentation for the first time, prepare your images so you c
    - Click **"Select Folder"**
 
 5. **Select your output folder** (in Python GUI):
-   - Click **"Browse..."** next to "Output Directory"
-   - Choose where you want to save the segmentation results
-   - Example: `C:\Users\YourUsername\Documents\MyExperiment_Results`
-   - Click **"Select Folder"**
+   - The "Output Directory" field shows the default location: `Desktop/myotube_results`
+   - You can keep this default or click **"Browse..."** to choose a different location
+   - Example locations:
+     - Default: `C:\Users\YourUsername\Desktop\myotube_results`
+     - Custom: `C:\Users\YourUsername\Documents\MyExperiment_Results`
+   - The output path will be saved for future runs
 
 6. **Configure Mask2Former path** (first time only):
    - You'll be asked for the Mask2Former directory
@@ -325,7 +327,8 @@ OutputFolder/
 ├── ImageName_masks/                    ← Folder containing individual myotube masks
 ├── ImageName_processed_overlay.tif     ← Visualization with colored outlines
 ├── ImageName_raw_overlay.tif           ← Alternative visualization
-└── ImageName_info.json                 ← Processing metadata
+├── ImageName_info.json                 ← Processing metadata
+└── ImageName_measurements.csv          ← Measurements (if enabled in settings)
 ```
 
 **Example output structure:**
@@ -337,7 +340,8 @@ C:\Users\YourUsername\Documents\Results\
 │   └── ... (one mask per detected myotube)
 ├── MyImage_processed_overlay.tif
 ├── MyImage_raw_overlay.tif
-└── MyImage_info.json
+├── MyImage_info.json
+└── MyImage_measurements.csv (optional)
 ```
 
 **Files explained**:
@@ -359,6 +363,15 @@ C:\Users\YourUsername\Documents\Results\
 - **[ImageName]_info.json**: Processing metadata and parameters
   - Contains settings used for this segmentation
   - Useful for reproducibility
+
+- **[ImageName]_measurements.csv** (optional): Comprehensive measurements spreadsheet
+  - Generated only if "Save measurements CSV" is enabled in the GUI
+  - Contains detailed metrics for each myotube:
+    - Area, Visible Length, Estimated Total Length, Width
+    - Aspect Ratio, Connected Components, Perimeter
+    - Bounding Box dimensions and Confidence scores
+  - Open in Excel or any spreadsheet program
+  - Note: Generation may be slow for images with many myotubes (disabled by default)
 
 ---
 
@@ -519,6 +532,7 @@ If you encounter issues not covered in this guide:
 **Results location**:
 - Look in the output folder you selected in the GUI
 - For each image: `[ImageName]_masks/` folder, `_processed_overlay.tif`, `_raw_overlay.tif`, `_info.json`
+- Optional: `_measurements.csv` (if enabled in GUI settings)
 - Open overlay files to view segmentation results
 
 ---
