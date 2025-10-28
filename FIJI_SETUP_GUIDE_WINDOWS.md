@@ -302,19 +302,29 @@ Before running the segmentation for the first time, prepare your images so you c
    | **Target Resolution** | 9000 | Resize images to this width (pixels) |
 
    - For first-time users, **use the defaults**
-   - Click **"Run"** to start processing
+   - Click **"Run Segmentation"** to start processing
 
-9. **Wait for processing**:
-   - A progress bar will show processing status
-   - Processing time depends on:
-     - Number of images
-     - Image size
-     - Computer speed
-   - Typical: 1-3 minutes per image
+9. **Monitor progress in console**:
+   - The Python GUI includes a "Console Output" section at the bottom
+   - You'll see real-time progress messages:
+     - "Processing 1/5: image001.tif"
+     - Progress through each image
+     - Any errors or warnings
+   - **The GUI will stay open** during processing
+   - Processing time: 1-3 minutes per image typically
 
-10. **Processing complete**:
-   - You'll see a message: "Processing complete!"
-   - Results will automatically open in your file explorer
+10. **Run multiple times** (optional):
+   - After processing completes, you'll see "=== Ready for next run ===" in the console
+   - The "Run Segmentation" button will be re-enabled
+   - You can:
+     - Adjust parameters (confidence, area filters, etc.)
+     - Select different input/output folders
+     - Click "Run Segmentation" again
+   - **No need to restart** - the GUI stays open for multiple runs!
+
+11. **Close the GUI**:
+   - When you're done, click the **"Close"** button
+   - Your settings will be saved for next time
 
 ---
 

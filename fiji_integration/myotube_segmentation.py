@@ -19,6 +19,7 @@ import os
 import sys
 import argparse
 import json
+import glob
 from pathlib import Path
 from typing import List, Dict, Any, Tuple, Optional
 import numpy as np
@@ -1613,21 +1614,27 @@ class MyotubeFijiIntegration:
         """Initialize the segmentation predictor."""
         if self.predictor is not None:
             return
-        
+
         self.force_cpu = force_cpu
-        
+
         print("🚀 Initializing Mask2Former predictor...")
-        
+
+        # Import required modules (must be done after ensure_mask2former_loaded is called)
+        from detectron2.engine.defaults import DefaultPredictor
+        from detectron2.config import get_cfg
+        from detectron2.projects.deeplab import add_deeplab_config
+        from mask2former import add_maskformer2_config
+
         # Clear GPU cache before initialization
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
             print(f"   💾 GPU Memory: {torch.cuda.get_device_properties(0).total_memory // 1e9:.1f}GB total")
             print(f"   🔥 GPU Memory: {torch.cuda.memory_allocated() // 1e6:.0f}MB allocated before init")
-        
+
         # Validate files exist
         if not os.path.exists(self.config_file):
             raise FileNotFoundError(f"Config file not found: {self.config_file}")
-        
+
         # Setup configuration in correct order (like demo.py)
         cfg = get_cfg()
         # CRITICAL: Add configs in same order as demo.py
@@ -2961,6 +2968,20 @@ class MyotubeFijiIntegration:
             json.dump(info, f, indent=2)
 
 
+class GUIOutputStream:
+    """Redirects stdout to GUI console widget."""
+
+    def __init__(self, gui):
+        self.gui = gui
+
+    def write(self, text):
+        if text:  # Write all text including newlines
+            self.gui.write_to_console(text)
+
+    def flush(self):
+        pass  # Required for file-like object
+
+
 class ParameterGUI:
     """User-friendly GUI for parameter configuration."""
 
@@ -3019,6 +3040,24 @@ class ParameterGUI:
         # GUI state
         self.result = None
         self.root = None
+        self.console_text = None
+        self.is_running = False
+
+    def write_to_console(self, text):
+        """Write text to console widget."""
+        if self.console_text:
+            self.console_text.config(state='normal')
+            self.console_text.insert(self.tk.END, text)
+            self.console_text.see(self.tk.END)  # Auto-scroll to bottom
+            self.console_text.config(state='disabled')
+            self.root.update_idletasks()
+
+    def clear_console(self):
+        """Clear console widget."""
+        if self.console_text:
+            self.console_text.config(state='normal')
+            self.console_text.delete('1.0', self.tk.END)
+            self.console_text.config(state='disabled')
 
     def load_config(self):
         """Load saved configuration from file."""
@@ -3170,8 +3209,12 @@ class ParameterGUI:
         if path:
             self.mask2former_path_var.set(path)
 
-    def on_run(self):
-        """Handle Run button click."""
+    def on_run_threaded(self):
+        """Handle Run button click - runs segmentation in a thread."""
+        if self.is_running:
+            self.messagebox.showwarning("Already Running", "Segmentation is already in progress. Please wait.")
+            return
+
         # Update parameters from GUI
         self.update_params_from_gui()
 
@@ -3205,13 +3248,138 @@ class ParameterGUI:
         # Save configuration
         self.save_config()
 
+        # Clear console and start segmentation in thread
+        self.clear_console()
+        self.write_to_console("=== Starting Segmentation ===\n")
+        self.write_to_console(f"Input: {self.params['input_path']}\n")
+        self.write_to_console(f"Output: {self.params['output_dir']}\n\n")
+
+        # Disable run button
+        self.is_running = True
+        self.run_button.config(state='disabled')
+
+        # Run in thread
+        import threading
+        thread = threading.Thread(target=self.run_segmentation_in_gui)
+        thread.daemon = True
+        thread.start()
+
+    def run_segmentation_in_gui(self):
+        """Run segmentation and redirect output to console."""
+        import sys
+
+        # Redirect stdout to capture print statements
+        old_stdout = sys.stdout
+        sys.stdout = GUIOutputStream(self)
+
+        try:
+            # Load Mask2Former modules
+            print("🔄 Loading Mask2Former and detectron2 modules...")
+            ensure_mask2former_loaded(explicit_path=self.params.get('mask2former_path'))
+
+            # Import after Mask2Former is loaded
+            from detectron2.engine.defaults import DefaultPredictor
+            from detectron2.config import get_cfg
+            from detectron2.projects.deeplab import add_deeplab_config
+            from detectron2.data.detection_utils import read_image
+            from mask2former import add_maskformer2_config
+            print("✅ Modules loaded successfully\n")
+
+            # Build custom config from parameters
+            max_image_size = 1024 if self.params.get('force_1024') else self.params.get('max_image_size')
+            custom_config = {
+                'confidence_threshold': self.params['confidence'],
+                'min_area': self.params['min_area'],
+                'max_area': self.params['max_area'],
+                'final_min_area': self.params['final_min_area'],
+                'max_image_size': max_image_size,
+                'force_cpu': self.params['cpu'],
+                'save_measurements': self.params['save_measurements']
+            }
+
+            # Initialize integration
+            integration = MyotubeFijiIntegration(
+                config_file=self.params['config'] if self.params['config'] else None,
+                model_weights=self.params['weights'] if self.params['weights'] else None,
+                skip_merged_masks=self.params['skip_merged_masks'],
+                mask2former_path=self.params['mask2former_path'] if self.params['mask2former_path'] else None
+            )
+
+            # Initialize tiled segmentation if requested
+            if self.params['use_tiling']:
+                print(f"🔲 Tiled inference mode enabled (grid: {self.params['grid_size']}×{self.params['grid_size']}, overlap: {self.params['tile_overlap']*100:.0f}%)")
+                tiled_segmenter = TiledMyotubeSegmentation(
+                    fiji_integration=integration,
+                    target_overlap=self.params['tile_overlap'],
+                    grid_size=self.params['grid_size']
+                )
+            else:
+                tiled_segmenter = None
+
+            # Process input
+            input_path = self.params['input_path']
+            output_dir = self.params['output_dir']
+
+            if os.path.isfile(input_path):
+                # Single image
+                print(f"📷 Processing single image: {input_path}")
+                if tiled_segmenter:
+                    tiled_segmenter.segment_image_tiled(input_path, output_dir, custom_config)
+                else:
+                    integration.segment_image(input_path, output_dir, custom_config)
+            elif os.path.isdir(input_path):
+                # Directory of images
+                image_files = []
+                for ext in ['*.tif', '*.tiff', '*.png', '*.jpg', '*.jpeg']:
+                    image_files.extend(glob.glob(os.path.join(input_path, ext)))
+                    image_files.extend(glob.glob(os.path.join(input_path, ext.upper())))
+
+                print(f"📁 Found {len(image_files)} images in directory")
+
+                for i, img_path in enumerate(image_files, 1):
+                    print(f"\n{'='*60}")
+                    print(f"Processing {i}/{len(image_files)}: {os.path.basename(img_path)}")
+                    print(f"{'='*60}")
+
+                    try:
+                        if tiled_segmenter:
+                            tiled_segmenter.segment_image_tiled(img_path, output_dir, custom_config)
+                        else:
+                            integration.segment_image(img_path, output_dir, custom_config)
+                    except Exception as e:
+                        print(f"❌ Error processing {os.path.basename(img_path)}: {e}")
+                        continue
+
+                print(f"\n🎉 Batch processing complete! Processed {len(image_files)} images.")
+
+            print(f"\n✅ All segmentation complete!")
+            print(f"📂 Results saved to: {output_dir}")
+
+        except Exception as e:
+            print(f"\n❌ Error: {str(e)}")
+            import traceback
+            print(traceback.format_exc())
+        finally:
+            # Restore stdout
+            sys.stdout = old_stdout
+
+            # Re-enable run button
+            self.is_running = False
+            self.root.after(0, lambda: self.run_button.config(state='normal'))
+
+    def on_close(self):
+        """Handle Close button click - returns parameters."""
+        # Update parameters before closing
+        self.update_params_from_gui()
+        self.save_config()
+
         # Set result and close
         self.result = self.params
         self.root.quit()
         self.root.destroy()
 
     def on_cancel(self):
-        """Handle Cancel button click."""
+        """Handle Cancel button click - for backward compatibility."""
         self.result = None
         self.root.quit()
         self.root.destroy()
@@ -3221,7 +3389,7 @@ class ParameterGUI:
         # Create main window
         self.root = self.tk.Tk()
         self.root.title("Myotube Segmentation Parameters")
-        self.root.geometry("700x750")
+        self.root.geometry("900x1000")
 
         # Create scrollable frame
         main_frame = self.ttk.Frame(self.root, padding="10")
@@ -3380,13 +3548,43 @@ class ParameterGUI:
         self.ttk.Separator(main_frame, orient='horizontal').grid(row=row, column=0, columnspan=3, sticky=(self.tk.W, self.tk.E), pady=10)
         row += 1
 
+        # ===== Output Console =====
+        self.ttk.Label(main_frame, text="Console Output", font=('Arial', 11, 'bold')).grid(row=row, column=0, columnspan=3, sticky=self.tk.W, pady=(0, 5))
+        row += 1
+
+        # Create text widget with scrollbar
+        console_frame = self.ttk.Frame(main_frame)
+        console_frame.grid(row=row, column=0, columnspan=3, sticky=(self.tk.W, self.tk.E, self.tk.N, self.tk.S), pady=5)
+
+        scrollbar = self.ttk.Scrollbar(console_frame)
+        scrollbar.pack(side=self.tk.RIGHT, fill=self.tk.Y)
+
+        self.console_text = self.tk.Text(console_frame, height=15, width=80,
+                                          yscrollcommand=scrollbar.set,
+                                          bg='#1e1e1e', fg='#d4d4d4',
+                                          font=('Consolas', 9))
+        self.console_text.pack(side=self.tk.LEFT, fill=self.tk.BOTH, expand=True)
+        scrollbar.config(command=self.console_text.yview)
+
+        # Make console read-only
+        self.console_text.config(state='disabled')
+
+        # Configure row weight for console
+        main_frame.rowconfigure(row, weight=1)
+        row += 1
+
+        # Separator
+        self.ttk.Separator(main_frame, orient='horizontal').grid(row=row, column=0, columnspan=3, sticky=(self.tk.W, self.tk.E), pady=10)
+        row += 1
+
         # ===== Buttons =====
         button_frame = self.ttk.Frame(main_frame)
         button_frame.grid(row=row, column=0, columnspan=3, pady=10)
 
         self.ttk.Button(button_frame, text="Restore Defaults", command=self.restore_defaults).pack(side=self.tk.LEFT, padx=5)
-        self.ttk.Button(button_frame, text="Cancel", command=self.on_cancel).pack(side=self.tk.LEFT, padx=5)
-        self.ttk.Button(button_frame, text="Run Segmentation", command=self.on_run).pack(side=self.tk.LEFT, padx=5)
+        self.run_button = self.ttk.Button(button_frame, text="Run Segmentation", command=self.on_run_threaded)
+        self.run_button.pack(side=self.tk.LEFT, padx=5)
+        self.ttk.Button(button_frame, text="Close", command=self.on_close).pack(side=self.tk.LEFT, padx=5)
 
         # Configure column weights
         main_frame.columnconfigure(1, weight=1)
