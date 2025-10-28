@@ -3330,10 +3330,36 @@ class ParameterGUI:
                     integration.segment_image(input_path, output_dir, custom_config)
             elif os.path.isdir(input_path):
                 # Directory of images
-                image_files = []
-                for ext in ['*.tif', '*.tiff', '*.png', '*.jpg', '*.jpeg']:
-                    image_files.extend(glob.glob(os.path.join(input_path, ext)))
-                    image_files.extend(glob.glob(os.path.join(input_path, ext.upper())))
+                from pathlib import Path
+                image_extensions = ['.png', '.jpg', '.jpeg', '.tiff', '.tif', '.bmp']
+                base_dir = Path(input_path)
+                
+                # Priority: search images/ subdirectory if it exists, otherwise search base directory
+                images_subdir = base_dir / 'images'
+                if images_subdir.exists() and images_subdir.is_dir():
+                    search_dir = images_subdir
+                    print(f"   📂 Searching images/ subdirectory")
+                else:
+                    search_dir = base_dir
+                
+                # Collect image files
+                image_files_set = []
+                for ext in image_extensions:
+                    for pattern in [f"*{ext}", f"*{ext.upper()}"]:
+                        image_files_set.extend(search_dir.rglob(pattern))
+                
+                # De-duplicate using resolved absolute paths
+                unique_files = {}
+                for f in image_files_set:
+                    try:
+                        resolved = str(f.resolve())
+                        if sys.platform == 'win32':
+                            resolved = resolved.lower()
+                        unique_files[resolved] = str(f)
+                    except (OSError, RuntimeError):
+                        unique_files[str(f)] = str(f)
+                
+                image_files = sorted(unique_files.values())
 
                 print(f"📁 Found {len(image_files)} images in directory")
 
@@ -3803,33 +3829,47 @@ def main():
             # Batch processing mode
             print(f"📁 Batch processing mode: {args.input_path}")
             
-            # Find all image files in directory (robust: check images/ subdir and recurse)
+            # Find all image files in directory
             image_extensions = ['.png', '.jpg', '.jpeg', '.tiff', '.tif', '.bmp']
-            search_dirs = []
             base_dir = Path(args.input_path)
-            images_subdir = base_dir / 'images'
-            if images_subdir.exists():
-                search_dirs.append(images_subdir)
-            search_dirs.append(base_dir)
-
-            image_files = []
-            for sd in search_dirs:
-                for ext in image_extensions:
-                    # Use rglob for recursive search (includes current directory too)
-                    image_files.extend(sd.rglob(f"*{ext}"))
-                    image_files.extend(sd.rglob(f"*{ext.upper()}"))
             
-            # De-duplicate using resolved absolute paths to handle path variations
+            # Priority: search images/ subdirectory if it exists, otherwise search base directory
+            images_subdir = base_dir / 'images'
+            if images_subdir.exists() and images_subdir.is_dir():
+                # Use images/ subdirectory (COCO format)
+                search_dir = images_subdir
+                print(f"   📂 Searching images/ subdirectory: {images_subdir}")
+            else:
+                # Use base directory
+                search_dir = base_dir
+            
+            # Collect image files (recursive search)
+            image_files = []
+            for ext in image_extensions:
+                # Search case-insensitively by checking both lowercase and uppercase
+                # Use set to avoid case-insensitive duplicates on Windows
+                for pattern in [f"*{ext}", f"*{ext.upper()}"]:
+                    image_files.extend(search_dir.rglob(pattern))
+            
+            # De-duplicate using resolved absolute paths (handles symlinks, UNC paths, etc.)
             unique_files = {}
             for f in image_files:
-                # Resolve to absolute path to handle any path variations (e.g., ./ vs absolute)
-                resolved = f.resolve()
-                unique_files[str(resolved)] = f
+                # Resolve to canonical absolute path
+                try:
+                    resolved = str(f.resolve())
+                    # On Windows, normalize to handle case-insensitive filesystem
+                    if sys.platform == 'win32':
+                        resolved = resolved.lower()
+                    unique_files[resolved] = f
+                except (OSError, RuntimeError):
+                    # Handle edge cases with inaccessible files
+                    unique_files[str(f)] = f
+            
             image_files = sorted(unique_files.values(), key=lambda p: str(p))
             
             if not image_files:
                 msg = (f"No image files found in directory: {args.input_path}\n"
-                       f"Searched: {', '.join(str(d) for d in search_dirs)}\n"
+                       f"Searched: {search_dir}\n"
                        f"Supported: {', '.join(image_extensions)}")
                 print(f"❌ {msg}")
                 # Write error status for Fiji macro
