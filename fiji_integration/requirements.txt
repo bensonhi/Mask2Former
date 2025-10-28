@@ -12,7 +12,7 @@ timm>=0.4.12  # PyTorch Image Models - required for Mask2Former
 
 # Image processing
 opencv-python>=4.5.0
-numpy>=1.19.0
+numpy>=1.19.0,<2.0.0  # Pin to NumPy 1.x for PyTorch 1.10.2 compatibility
 Pillow==9.4.0
 scikit-image>=0.18.0
 

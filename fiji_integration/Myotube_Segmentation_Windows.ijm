@@ -653,7 +653,14 @@ function installDependenciesQuiet() {
         batch_content = batch_content + "echo Conda activated, installing base packages... >> \"" + install_output_file + "\"\r\n";
         batch_content = batch_content + pip_cmd + " >> \"" + install_output_file + "\" 2>&1\r\n";
         batch_content = batch_content + "echo Base packages installed, now installing detectron2... >> \"" + install_output_file + "\"\r\n";
-        batch_content = batch_content + PYTHON_COMMAND + " -m pip install --extra-index-url https://miropsota.github.io/torch_packages_builder detectron2 >> \"" + install_output_file + "\" 2>&1\r\n";
+        batch_content = batch_content + PYTHON_COMMAND + " -m pip uninstall detectron2 -y >> \"" + install_output_file + "\" 2>&1\r\n";
+        batch_content = batch_content + "echo Listing available detectron2 versions... >> \"" + install_output_file + "\"\r\n";
+        batch_content = batch_content + PYTHON_COMMAND + " -m pip index versions detectron2 --find-links https://miropsota.github.io/torch_packages_builder/detectron2/ >> \"" + install_output_file + "\" 2>&1\r\n";
+        batch_content = batch_content + "echo Installing CPU-compatible detectron2... >> \"" + install_output_file + "\"\r\n";
+        batch_content = batch_content + PYTHON_COMMAND + " -m pip install \"detectron2\" --find-links https://miropsota.github.io/torch_packages_builder/detectron2/ --only-binary=:all: --platform=win_amd64 --python-version=39 --abi=cp39 --no-cache-dir >> \"" + install_output_file + "\" 2>&1\r\n";
+        batch_content = batch_content + "echo detectron2 installation complete >> \"" + install_output_file + "\"\r\n";
+        batch_content = batch_content + "echo Installing Mask2Former... >> \"" + install_output_file + "\"\r\n";
+        batch_content = batch_content + "cd /d \"" + MASK2FORMER_PATH + "\" && " + PYTHON_COMMAND + " -m pip install -e . >> \"" + install_output_file + "\" 2>&1\r\n";
         batch_content = batch_content + "echo Installation complete >> \"" + install_output_file + "\"\r\n";
 
         File.saveString(batch_content, install_batch_file);
