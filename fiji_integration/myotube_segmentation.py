@@ -25,6 +25,7 @@ from typing import List, Dict, Any, Tuple, Optional
 import numpy as np
 import cv2
 import torch
+from datetime import datetime
 
 # Fix Windows console encoding for emoji/Unicode characters
 if sys.platform == 'win32':
@@ -258,8 +259,6 @@ class PostProcessingPipeline:
                     print(f"   ⚠️  Warning: Step '{step['name']}' returned None, keeping original")
             except Exception as e:
                 print(f"   ⚠️  Warning: Step '{step['name']}' failed: {e}")
-                import traceback
-                print(f"   🔍 DEBUG: Full traceback: {traceback.format_exc()}")
                 # Keep the original processed_instances on error
                 continue
         
@@ -422,12 +421,8 @@ class PostProcessingPipeline:
                     area_increase = filled_area - original_area
                     if area_increase < original_area * 0.1:
                         filled_masks.append(filled_mask.astype(mask.dtype))
-                        if i < 3:  # Debug first few
-                            print(f"      🔧 Mask {i+1}: filled {area_increase} hole pixels")
                     else:
                         filled_masks.append(mask)  # Keep original if too much filling
-                        if i < 3:
-                            print(f"      ⚠️ Mask {i+1}: skipped filling ({area_increase} pixels too many)")
                 else:
                     filled_masks.append(mask)  # Keep empty masks as-is
             
@@ -2787,71 +2782,106 @@ class MyotubeFijiIntegration:
         gc.collect()
     
     def _save_measurements(self, instances: Dict[str, Any], output_path: str):
-        """Save comprehensive measurements CSV for myotube analysis."""
+        """Save comprehensive measurements CSV for myotube analysis (with parallel processing)."""
         import pandas as pd
-        from skimage import measure, morphology
+        from joblib import Parallel, delayed
+        num_myotubes = len(instances['masks'])
+        print(f"\n📊 Computing measurements for {num_myotubes} myotubes...")
 
-        measurements = []
+        # Get scale factor and original size if available
+        scale_factor = 1.0 / self._scale_factor if hasattr(self, '_scale_factor') and self._scale_factor != 1.0 else None
+        original_size = self._original_size if hasattr(self, '_original_size') else None
 
-        for i, (mask, score, box) in enumerate(zip(instances['masks'], instances['scores'], instances['boxes'])):
-            # Resize mask to original size for accurate measurements
-            if hasattr(self, '_scale_factor') and self._scale_factor != 1.0:
-                original_h, original_w = self._original_size
-                # Use proper mask scaling like in ROI generation
-                mask_uint8 = (mask * 255).astype(np.uint8)
-                resized_mask = cv2.resize(
-                    mask_uint8,
-                    (original_w, original_h),
-                    interpolation=cv2.INTER_NEAREST
-                )
-                resized_mask = (resized_mask > 128).astype(bool)
-
-                # Scale bounding box back to original coordinates
-                scale_factor = 1.0 / self._scale_factor
-                scaled_box = box * scale_factor
-            else:
-                resized_mask = mask.astype(bool)
-                scaled_box = box
-
-            # Calculate existing measurements
-            area = resized_mask.sum()
-            contours = measure.find_contours(resized_mask, 0.5)
-            perimeter = sum(len(contour) for contour in contours)
-
-            # Calculate new myotube-specific measurements
-            visible_length, estimated_total_length, num_components = self._calculate_myotube_length(resized_mask)
-            width_pixels = area / visible_length if visible_length > 0 else 0
-            myotube_aspect_ratio = estimated_total_length / width_pixels if width_pixels > 0 else 0
-
-            # Calculate bounding box measurements (keep existing logic)
-            bbox_width = scaled_box[2] - scaled_box[0]
-            bbox_height = scaled_box[3] - scaled_box[1]
-            bbox_aspect_ratio = max(bbox_width, bbox_height) / min(bbox_width, bbox_height) if min(bbox_width, bbox_height) > 0 else 0
-
-            measurements.append({
-                'Instance': f'Myotube_{i+1}',
-                'Area': int(area),
-                'Visible_Length_pixels': round(visible_length, 2),
-                'Estimated_Total_Length_pixels': round(estimated_total_length, 2),
-                'Width_pixels': round(width_pixels, 2),
-                'Aspect_Ratio': round(myotube_aspect_ratio, 2),
-                'Connected_Components': num_components,
-                'Perimeter': round(perimeter, 2),
-                'BBox_AspectRatio': round(bbox_aspect_ratio, 2),
-                'Confidence': round(score, 4),
-                'BoundingBox_X': round(box[0], 1),
-                'BoundingBox_Y': round(box[1], 1),
-                'BoundingBox_Width': round(bbox_width, 1),
-                'BoundingBox_Height': round(bbox_height, 1)
-            })
+        # Process all myotubes in parallel
+        measurements = Parallel(n_jobs=64, verbose=0, backend='loky')(
+            delayed(self._process_single_myotube_measurements)(
+                mask, score, box, i, scale_factor, original_size
+            )
+            for i, (mask, score, box) in enumerate(zip(
+                instances['masks'], instances['scores'], instances['boxes']
+            ))
+        )
 
         # Save to CSV
         df = pd.DataFrame(measurements)
         df.to_csv(output_path, index=False)
         print(f"💾 Saved myotube measurements for {len(measurements)} instances to {output_path}")
 
-    def _calculate_myotube_length(self, mask: np.ndarray) -> Tuple[float, float, int]:
+    @staticmethod
+    def _process_single_myotube_measurements(mask: np.ndarray, score: float, box: np.ndarray,
+                                            instance_id: int, scale_factor: Optional[float] = None,
+                                            original_size: Optional[Tuple[int, int]] = None) -> Dict[str, Any]:
         """
+        Process measurements for a single myotube (for parallel processing).
+
+        Args:
+            mask: Binary mask for this myotube
+            score: Confidence score
+            box: Bounding box coordinates
+            instance_id: Myotube instance number
+            scale_factor: Optional scale factor for resizing
+            original_size: Optional original image size (h, w)
+
+        Returns:
+            Dictionary with all measurements for this myotube
+        """
+        from skimage import measure, morphology
+        import cv2
+        import numpy as np
+
+        # Resize mask to original size if needed
+        if scale_factor is not None and scale_factor != 1.0 and original_size is not None:
+            original_h, original_w = original_size
+            mask_uint8 = (mask * 255).astype(np.uint8)
+            resized_mask = cv2.resize(
+                mask_uint8,
+                (original_w, original_h),
+                interpolation=cv2.INTER_NEAREST
+            )
+            resized_mask = (resized_mask > 128).astype(bool)
+
+            # Scale bounding box back to original coordinates
+            scaled_box = box / scale_factor
+        else:
+            resized_mask = mask.astype(bool)
+            scaled_box = box
+
+        # Calculate existing measurements
+        area = resized_mask.sum()
+        contours = measure.find_contours(resized_mask, 0.5)
+        perimeter = sum(len(contour) for contour in contours)
+
+        # Calculate myotube-specific measurements (skeletonization happens here)
+        visible_length, estimated_total_length, num_components = MyotubeFijiIntegration._calculate_myotube_length_static(resized_mask)
+        width_pixels = area / visible_length if visible_length > 0 else 0
+        myotube_aspect_ratio = estimated_total_length / width_pixels if width_pixels > 0 else 0
+
+        # Calculate bounding box measurements
+        bbox_width = scaled_box[2] - scaled_box[0]
+        bbox_height = scaled_box[3] - scaled_box[1]
+        bbox_aspect_ratio = max(bbox_width, bbox_height) / min(bbox_width, bbox_height) if min(bbox_width, bbox_height) > 0 else 0
+
+        return {
+            'Instance': f'Myotube_{instance_id+1}',
+            'Area': int(area),
+            'Visible_Length_pixels': round(visible_length, 2),
+            'Estimated_Total_Length_pixels': round(estimated_total_length, 2),
+            'Width_pixels': round(width_pixels, 2),
+            'Aspect_Ratio': round(myotube_aspect_ratio, 2),
+            'Connected_Components': num_components,
+            'Perimeter': round(perimeter, 2),
+            'BBox_AspectRatio': round(bbox_aspect_ratio, 2),
+            'Confidence': round(score, 4),
+            'BoundingBox_X': round(scaled_box[0], 1),
+            'BoundingBox_Y': round(scaled_box[1], 1),
+            'BoundingBox_Width': round(bbox_width, 1),
+            'BoundingBox_Height': round(bbox_height, 1)
+        }
+
+    @staticmethod
+    def _calculate_myotube_length_static(mask: np.ndarray) -> Tuple[float, float, int]:
+        """
+        Static version of _calculate_myotube_length for parallel processing.
         Calculate visible and estimated total myotube length.
 
         Returns:
@@ -2860,6 +2890,7 @@ class MyotubeFijiIntegration:
             num_components: Number of connected components
         """
         from skimage import morphology, measure
+        import numpy as np
 
         # Find connected components
         labeled_mask = measure.label(mask)
@@ -2868,74 +2899,38 @@ class MyotubeFijiIntegration:
         if num_components == 0:
             return 0.0, 0.0, 0
 
-        # Calculate skeleton for each component
+        # Calculate skeleton for each component (sequential within each myotube)
         component_skeletons = []
         total_visible_length = 0
 
-        # TIMING: Bottleneck #2 detailed analysis
-        print(f"\n[BOTTLENECK #2] Skeletonization Analysis")
-        print(f"  Image size: {labeled_mask.shape}")
-        print(f"  Number of components to process: {num_components}")
-        print(f"  Starting at: {datetime.now().strftime('%H:%M:%S')}")
-
-        import time
-        total_start = time.time()
-        mask_creation_time = 0
-        skeletonize_time = 0
-        argwhere_time = 0
-
         for component_id in range(1, num_components + 1):
-            # Time: Creating component mask
-            t0 = time.time()
             component_mask = (labeled_mask == component_id)
-            mask_creation_time += time.time() - t0
-
-            # Process all components (no size filtering)
-
-            # Time: Skeletonization (the expensive operation)
-            t1 = time.time()
             skeleton = morphology.skeletonize(component_mask)
-            skeletonize_time += time.time() - t1
-
-            # Time: Finding skeleton points
-            t2 = time.time()
             skeleton_points = np.argwhere(skeleton)
-            argwhere_time += time.time() - t2
 
             if len(skeleton_points) > 0:
                 component_skeletons.append(skeleton_points)
-                # Approximate skeleton length as number of skeleton pixels
                 total_visible_length += len(skeleton_points)
-
-        total_elapsed = time.time() - total_start
-        print(f"\n[BOTTLENECK #2] Timing Breakdown:")
-        print(f"  Total time: {total_elapsed:.2f}s")
-        print(f"  ├─ Mask creation: {mask_creation_time:.2f}s ({mask_creation_time/total_elapsed*100:.1f}%)")
-        print(f"  ├─ Skeletonization: {skeletonize_time:.2f}s ({skeletonize_time/total_elapsed*100:.1f}%)")
-        print(f"  └─ Point finding: {argwhere_time:.2f}s ({argwhere_time/total_elapsed*100:.1f}%)")
-        print(f"  Average per component: {total_elapsed/num_components:.3f}s")
-        print(f"  Completed at: {datetime.now().strftime('%H:%M:%S')}\n")
 
         # Estimate total length including gaps between components
         estimated_total_length = total_visible_length
 
         if len(component_skeletons) > 1:
             # Add estimated lengths of gaps between components
-            gap_length = self._estimate_gap_lengths(component_skeletons)
+            gap_length = MyotubeFijiIntegration._estimate_gap_lengths_static(component_skeletons)
             estimated_total_length += gap_length
 
         return total_visible_length, estimated_total_length, num_components
 
-    def _estimate_gap_lengths(self, component_skeletons: List[np.ndarray]) -> float:
+    @staticmethod
+    def _estimate_gap_lengths_static(component_skeletons: List[np.ndarray]) -> float:
         """
-        Estimate total length of gaps between skeleton components using linear interpolation.
-
-        Args:
-            component_skeletons: List of skeleton point arrays for each component
-
-        Returns:
-            total_gap_length: Sum of estimated gap lengths
+        Static version for parallel processing.
+        Estimate total length of gaps between skeleton components.
         """
+        import numpy as np
+        from scipy.spatial.distance import cdist
+
         if len(component_skeletons) < 2:
             return 0.0
 
@@ -2950,38 +2945,55 @@ class MyotubeFijiIntegration:
             # For each component, find the two points that are farthest apart
             if len(skeleton_points) == 1:
                 endpoints = [skeleton_points[0], skeleton_points[0]]
-            elif len(skeleton_points) == 2:
-                endpoints = [skeleton_points[0], skeleton_points[1]]
             else:
-                # Find the two points with maximum distance
-                from scipy.spatial.distance import pdist, squareform
-                distances = squareform(pdist(skeleton_points))
-                i, j = np.unravel_index(distances.argmax(), distances.shape)
-                endpoints = [skeleton_points[i], skeleton_points[j]]
+                # Calculate pairwise distances
+                distances = cdist(skeleton_points, skeleton_points)
+                # Find the pair with maximum distance
+                max_idx = np.unravel_index(distances.argmax(), distances.shape)
+                endpoints = [skeleton_points[max_idx[0]], skeleton_points[max_idx[1]]]
 
             component_endpoints.append(endpoints)
 
-        # Connect nearest endpoints between different components
-        connected_pairs = set()
+        # Estimate gaps between adjacent components
+        for i in range(len(component_endpoints) - 1):
+            # Find minimum distance between endpoints of consecutive components
+            min_gap = float('inf')
+            for ep1 in component_endpoints[i]:
+                for ep2 in component_endpoints[i + 1]:
+                    gap = np.linalg.norm(ep1 - ep2)
+                    min_gap = min(min_gap, gap)
 
-        for i in range(len(component_endpoints)):
-            for j in range(i + 1, len(component_endpoints)):
-                # Find minimum distance between any endpoint of component i and component j
-                min_distance = float('inf')
-
-                for endpoint_i in component_endpoints[i]:
-                    for endpoint_j in component_endpoints[j]:
-                        distance = np.linalg.norm(endpoint_i - endpoint_j)
-                        if distance < min_distance:
-                            min_distance = distance
-
-                # Add this gap (connect all components within the same myotube)
-                pair_key = tuple(sorted([i, j]))
-                if pair_key not in connected_pairs:
-                    total_gap_length += min_distance
-                    connected_pairs.add(pair_key)
+            total_gap_length += min_gap
 
         return total_gap_length
+
+    def _calculate_myotube_length(self, mask: np.ndarray) -> Tuple[float, float, int]:
+        """
+        Calculate visible and estimated total myotube length.
+
+        Note: This is a wrapper that calls the static version for compatibility.
+        Parallelization happens at the myotube level, not component level.
+
+        Returns:
+            visible_length: Length of visible skeleton parts
+            estimated_total_length: Visible length + interpolated gaps
+            num_components: Number of connected components
+        """
+        return self._calculate_myotube_length_static(mask)
+
+    def _estimate_gap_lengths(self, component_skeletons: List[np.ndarray]) -> float:
+        """
+        Estimate total length of gaps between skeleton components.
+
+        Note: This is a wrapper that calls the static version for compatibility.
+
+        Args:
+            component_skeletons: List of skeleton point arrays for each component
+
+        Returns:
+            total_gap_length: Sum of estimated gap lengths
+        """
+        return self._estimate_gap_lengths_static(component_skeletons)
     
     def _save_info(self, instances: Dict[str, Any], image_path: str, output_path: str):
         """Save processing information."""
@@ -3073,6 +3085,7 @@ class ParameterGUI:
         self.root = None
         self.console_text = None
         self.is_running = False
+        self.stop_requested = False
 
     def write_to_console(self, text):
         """Write text to console widget."""
@@ -3285,15 +3298,24 @@ class ParameterGUI:
         self.write_to_console(f"Input: {self.params['input_path']}\n")
         self.write_to_console(f"Output: {self.params['output_dir']}\n\n")
 
-        # Disable run button
+        # Disable run button, enable stop button, reset stop flag
         self.is_running = True
+        self.stop_requested = False
         self.run_button.config(state='disabled')
+        self.stop_button.config(state='normal')
 
         # Run in thread
         import threading
         thread = threading.Thread(target=self.run_segmentation_in_gui)
         thread.daemon = True
         thread.start()
+
+    def on_stop(self):
+        """Handle Stop button click - requests segmentation to stop."""
+        if self.is_running:
+            self.stop_requested = True
+            self.write_to_console("\n⚠️  Stop requested. Segmentation will halt after current image...\n")
+            self.stop_button.config(state='disabled')
 
     def run_segmentation_in_gui(self):
         """Run segmentation and redirect output to console."""
@@ -3393,7 +3415,13 @@ class ParameterGUI:
 
                 print(f"📁 Found {len(image_files)} images in directory")
 
+                processed_count = 0
                 for i, img_path in enumerate(image_files, 1):
+                    # Check if stop was requested
+                    if self.stop_requested:
+                        print(f"\n🛑 Segmentation stopped by user after {processed_count}/{len(image_files)} images")
+                        break
+
                     print(f"\n{'='*60}")
                     print(f"Processing {i}/{len(image_files)}: {os.path.basename(img_path)}")
                     print(f"{'='*60}")
@@ -3403,13 +3431,18 @@ class ParameterGUI:
                             tiled_segmenter.segment_image_tiled(img_path, output_dir, custom_config)
                         else:
                             integration.segment_image(img_path, output_dir, custom_config)
+                        processed_count += 1
                     except Exception as e:
                         print(f"❌ Error processing {os.path.basename(img_path)}: {e}")
                         continue
 
-                print(f"\n🎉 Batch processing complete! Processed {len(image_files)} images.")
+                if not self.stop_requested:
+                    print(f"\n🎉 Batch processing complete! Processed {processed_count} images.")
+                else:
+                    print(f"\n✅ Partial results saved for {processed_count} processed images.")
 
-            print(f"\n✅ All segmentation complete!")
+            if not self.stop_requested:
+                print(f"\n✅ All segmentation complete!")
             print(f"📂 Results saved to: {output_dir}")
 
         except Exception as e:
@@ -3420,9 +3453,10 @@ class ParameterGUI:
             # Restore stdout
             sys.stdout = old_stdout
 
-            # Re-enable run button
+            # Re-enable run button, disable stop button
             self.is_running = False
             self.root.after(0, lambda: self.run_button.config(state='normal'))
+            self.root.after(0, lambda: self.stop_button.config(state='disabled'))
 
     def on_close(self):
         """Handle Close button click - returns parameters."""
@@ -3448,11 +3482,55 @@ class ParameterGUI:
         self.root.title("Myotube Segmentation Parameters")
         self.root.geometry("900x1000")
 
-        # Create scrollable frame
-        main_frame = self.ttk.Frame(self.root, padding="10")
-        main_frame.grid(row=0, column=0, sticky=(self.tk.N, self.tk.W, self.tk.E, self.tk.S))
+        # Create main container frame
+        container = self.ttk.Frame(self.root)
+        container.grid(row=0, column=0, sticky=(self.tk.N, self.tk.W, self.tk.E, self.tk.S))
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(0, weight=1)
+
+        # Create canvas with scrollbar
+        canvas = self.tk.Canvas(container)
+        scrollbar = self.ttk.Scrollbar(container, orient="vertical", command=canvas.yview)
+
+        # Create scrollable frame inside canvas
+        main_frame = self.ttk.Frame(canvas, padding="10")
+
+        # Configure canvas
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+        # Pack scrollbar and canvas
+        scrollbar.pack(side=self.tk.RIGHT, fill=self.tk.Y)
+        canvas.pack(side=self.tk.LEFT, fill=self.tk.BOTH, expand=True)
+
+        # Create window in canvas
+        canvas_frame = canvas.create_window((0, 0), window=main_frame, anchor="nw")
+
+        # Configure scroll region when frame changes size
+        def configure_scroll_region(event=None):
+            canvas.configure(scrollregion=canvas.bbox("all"))
+
+        main_frame.bind("<Configure>", configure_scroll_region)
+
+        # Bind mousewheel for scrolling
+        def on_mousewheel(event):
+            canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+
+        # Bind mousewheel to canvas and all child widgets
+        def bind_mousewheel(widget):
+            widget.bind("<MouseWheel>", on_mousewheel)  # Windows/MacOS
+            widget.bind("<Button-4>", lambda e: canvas.yview_scroll(-1, "units"))  # Linux scroll up
+            widget.bind("<Button-5>", lambda e: canvas.yview_scroll(1, "units"))   # Linux scroll down
+            for child in widget.winfo_children():
+                bind_mousewheel(child)
+
+        # Initial bind
+        self.root.after(100, lambda: bind_mousewheel(main_frame))
+
+        # Update canvas width when container is resized
+        def on_canvas_configure(event):
+            canvas.itemconfig(canvas_frame, width=event.width)
+
+        canvas.bind("<Configure>", on_canvas_configure)
 
         # Variables for GUI widgets
         self.input_var = self.tk.StringVar(value=self.params['input_path'])
@@ -3641,6 +3719,8 @@ class ParameterGUI:
         self.ttk.Button(button_frame, text="Restore Defaults", command=self.restore_defaults).pack(side=self.tk.LEFT, padx=5)
         self.run_button = self.ttk.Button(button_frame, text="Run Segmentation", command=self.on_run_threaded)
         self.run_button.pack(side=self.tk.LEFT, padx=5)
+        self.stop_button = self.ttk.Button(button_frame, text="Stop", command=self.on_stop, state='disabled')
+        self.stop_button.pack(side=self.tk.LEFT, padx=5)
         self.ttk.Button(button_frame, text="Close", command=self.on_close).pack(side=self.tk.LEFT, padx=5)
 
         # Configure column weights
