@@ -2872,19 +2872,49 @@ class MyotubeFijiIntegration:
         component_skeletons = []
         total_visible_length = 0
 
+        # TIMING: Bottleneck #2 detailed analysis
+        print(f"\n[BOTTLENECK #2] Skeletonization Analysis")
+        print(f"  Image size: {labeled_mask.shape}")
+        print(f"  Number of components to process: {num_components}")
+        print(f"  Starting at: {datetime.now().strftime('%H:%M:%S')}")
+
+        import time
+        total_start = time.time()
+        mask_creation_time = 0
+        skeletonize_time = 0
+        argwhere_time = 0
+
         for component_id in range(1, num_components + 1):
+            # Time: Creating component mask
+            t0 = time.time()
             component_mask = (labeled_mask == component_id)
+            mask_creation_time += time.time() - t0
 
             # Process all components (no size filtering)
 
-            # Create skeleton
+            # Time: Skeletonization (the expensive operation)
+            t1 = time.time()
             skeleton = morphology.skeletonize(component_mask)
+            skeletonize_time += time.time() - t1
+
+            # Time: Finding skeleton points
+            t2 = time.time()
             skeleton_points = np.argwhere(skeleton)
+            argwhere_time += time.time() - t2
 
             if len(skeleton_points) > 0:
                 component_skeletons.append(skeleton_points)
                 # Approximate skeleton length as number of skeleton pixels
                 total_visible_length += len(skeleton_points)
+
+        total_elapsed = time.time() - total_start
+        print(f"\n[BOTTLENECK #2] Timing Breakdown:")
+        print(f"  Total time: {total_elapsed:.2f}s")
+        print(f"  ├─ Mask creation: {mask_creation_time:.2f}s ({mask_creation_time/total_elapsed*100:.1f}%)")
+        print(f"  ├─ Skeletonization: {skeletonize_time:.2f}s ({skeletonize_time/total_elapsed*100:.1f}%)")
+        print(f"  └─ Point finding: {argwhere_time:.2f}s ({argwhere_time/total_elapsed*100:.1f}%)")
+        print(f"  Average per component: {total_elapsed/num_components:.3f}s")
+        print(f"  Completed at: {datetime.now().strftime('%H:%M:%S')}\n")
 
         # Estimate total length including gaps between components
         estimated_total_length = total_visible_length
