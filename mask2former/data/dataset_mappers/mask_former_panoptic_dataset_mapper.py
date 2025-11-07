@@ -56,55 +56,6 @@ class MaskFormerPanopticDatasetMapper(MaskFormerSemanticDatasetMapper):
             size_divisibility=size_divisibility,
         )
 
-    @classmethod
-    def from_config(cls, cfg, is_train=True):
-        from detectron2.projects.point_rend import ColorAugSSDTransform
-        from detectron2.data import MetadataCatalog
-        
-        # Build augmentation with CROP-FIRST-THEN-SCALE order for high-res images
-        augs = []
-        
-        # 1. CROP FIRST at full resolution (for 9000×9000 myotube images)
-        if cfg.INPUT.CROP.ENABLED:
-            # Use standard RandomCrop instead of CategoryAreaConstraint
-            # (which requires semantic segmentation that we don't have)
-            augs.append(
-                T.RandomCrop(
-                    cfg.INPUT.CROP.TYPE,
-                    cfg.INPUT.CROP.SIZE,
-                )
-            )
-        
-        # 2. THEN SCALE the cropped region (preserves maximum detail)
-        augs.append(
-            T.ResizeShortestEdge(
-                cfg.INPUT.MIN_SIZE_TRAIN,
-                cfg.INPUT.MAX_SIZE_TRAIN,
-                cfg.INPUT.MIN_SIZE_TRAIN_SAMPLING,
-            )
-        )
-        
-        # 3. Color augmentation after geometric transforms
-        if cfg.INPUT.COLOR_AUG_SSD:
-            augs.append(ColorAugSSDTransform(img_format=cfg.INPUT.FORMAT))
-            
-        # 4. Random flip last
-        augs.append(T.RandomFlip())
-
-        # Assume always applies to the training set.
-        dataset_names = cfg.DATASETS.TRAIN
-        meta = MetadataCatalog.get(dataset_names[0])
-        ignore_label = meta.ignore_label
-
-        ret = {
-            "is_train": is_train,
-            "augmentations": augs,
-            "image_format": cfg.INPUT.FORMAT,
-            "ignore_label": ignore_label,
-            "size_divisibility": cfg.INPUT.SIZE_DIVISIBILITY,
-        }
-        return ret
-
     def __call__(self, dataset_dict):
         """
         Args:
@@ -153,27 +104,6 @@ class MaskFormerPanopticDatasetMapper(MaskFormerSemanticDatasetMapper):
         from panopticapi.utils import rgb2id
 
         pan_seg_gt = rgb2id(pan_seg_gt)
-        
-        # CRITICAL FIX: Convert segment IDs to class IDs for training
-        # Create a mapping from segment ID to class ID
-        from detectron2.data import MetadataCatalog
-        
-        # Get metadata for the current dataset
-        dataset_name = dataset_dict.get("dataset_name", "myotube_stage1_panoptic_train")
-        meta = MetadataCatalog.get(dataset_name)
-        
-        pan_seg_class_map = np.zeros_like(pan_seg_gt)
-        
-        for segment_info in segments_info:
-            segment_id = segment_info["id"]
-            category_id = segment_info["category_id"]
-            
-            # Simple mapping: category 0 -> class 0 (background), category 1 -> class 1 (myotube)
-            class_id = category_id
-            
-            pan_seg_class_map[pan_seg_gt == segment_id] = class_id
-        
-        pan_seg_gt = pan_seg_class_map
 
         # Pad image and segmentation label here!
         image = torch.as_tensor(np.ascontiguousarray(image.transpose(2, 0, 1)))
@@ -204,10 +134,6 @@ class MaskFormerPanopticDatasetMapper(MaskFormerSemanticDatasetMapper):
         dataset_dict["image"] = image
         if sem_seg_gt is not None:
             dataset_dict["sem_seg"] = sem_seg_gt.long()
-        
-        # CRITICAL FIX: Add the processed panoptic segmentation tensor to the dataset dict
-        # under the key 'sem_seg', which is what the model's criterion expects.
-        dataset_dict["sem_seg"] = pan_seg_gt
 
         if "annotations" in dataset_dict:
             raise ValueError("Pemantic segmentation dataset should not have 'annotations'.")
