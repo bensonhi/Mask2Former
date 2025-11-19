@@ -30,7 +30,8 @@ from datetime import datetime
 import torch
 
 # Fix Windows console encoding for emoji/Unicode characters
-if sys.platform == 'win32':
+# Only apply if stdout hasn't been replaced by GUI (check for .buffer attribute)
+if sys.platform == 'win32' and hasattr(sys.stdout, 'buffer'):
     import io
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
     sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
