@@ -422,6 +422,26 @@ class MyotubeFijiIntegration(SegmentationInterface):
         # Apply post-processing using inference resolution (not original high-res)
         processed_instances = self._post_processor.process(instances, image)
 
+        # Scale masks back to original resolution if needed
+        if self._scale_factor != 1.0:
+            print(f"   🔄 Scaling masks back to original resolution: {self._original_size}")
+            scaled_masks = []
+            for i, mask in enumerate(processed_instances['masks']):
+                # Scale mask to original size using nearest neighbor
+                mask_uint8 = (mask * 255).astype(np.uint8)
+                resized_mask = cv2.resize(
+                    mask_uint8,
+                    (self._original_size[1], self._original_size[0]),  # (width, height)
+                    interpolation=cv2.INTER_NEAREST
+                )
+                scaled_mask = (resized_mask > 128).astype(bool)
+                scaled_masks.append(scaled_mask)
+
+            # Update processed_instances with scaled masks
+            processed_instances['masks'] = np.array(scaled_masks)
+            processed_instances['image_shape'] = self._original_size
+            print(f"   ✅ Scaled {len(scaled_masks)} masks to {self._original_size}")
+
         # Generate outputs with both raw and processed overlays
         output_files = self._generate_fiji_outputs(
             instances, processed_instances, original_image, image_path, output_dir, custom_config
@@ -532,24 +552,10 @@ class MyotubeFijiIntegration(SegmentationInterface):
                 failed_masks += 1
                 continue
             
-            print(f"      🔍 Processing mask {i+1}: {mask.sum()} pixels at inference resolution")
-            
-            # Resize mask to original image size (same logic as overlay generation)
-            if hasattr(self, '_scale_factor') and self._scale_factor != 1.0:
-                original_h, original_w = self._original_size
-                
-                # Use same scaling as overlay generation for perfect alignment
-                mask_uint8 = (mask * 255).astype(np.uint8)
-                resized_mask = cv2.resize(
-                    mask_uint8, 
-                    (original_w, original_h), 
-                    interpolation=cv2.INTER_NEAREST
-                )
-                final_mask = (resized_mask > 128).astype(np.uint8) * 255
-                
-                print(f"         Scaled to original: {(final_mask > 0).sum()} pixels")
-            else:
-                final_mask = (mask * 255).astype(np.uint8)
+            print(f"      🔍 Processing mask {i+1}: {mask.sum()} pixels")
+
+            # Masks are already at original resolution (scaled in segment_image if needed)
+            final_mask = (mask * 255).astype(np.uint8)
             
             # Save mask as PNG image
             try:
