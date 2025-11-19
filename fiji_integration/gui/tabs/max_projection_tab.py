@@ -447,6 +447,10 @@ class MaxProjectionTab(TabInterface):
         input_dir = self.params['input_dir'].strip()
         output_dir = self.params['output_dir'].strip()
 
+        self.log(f"🔍 Validating parameters...")
+        self.log(f"   Input dir: {input_dir}")
+        self.log(f"   Output dir: {output_dir}")
+
         if not input_dir:
             return False, "Please select an input directory"
 
@@ -456,6 +460,7 @@ class MaxProjectionTab(TabInterface):
         if not os.path.exists(input_dir):
             return False, f"Input directory does not exist: {input_dir}"
 
+        self.log(f"✅ Parameters validated")
         return True, None
 
     def build_ui(self, parent_frame, console_text):
@@ -577,6 +582,10 @@ Output files are named: MAX_{original_name}_grey.tif and MAX_{original_name}_blu
     def run_processing(self, input_dir, output_dir):
         """Run the channel splitting and max projection processing."""
         try:
+            self.log(f"\n🚀 Starting processing...")
+            self.log(f"   Input: {input_dir}")
+            self.log(f"   Output: {output_dir}")
+
             # Create processor
             processor = MaxProjectionProcessor(
                 input_dir=input_dir,
@@ -587,10 +596,10 @@ Output files are named: MAX_{original_name}_grey.tif and MAX_{original_name}_blu
             # Run processing
             processor.process_all()
 
-            self.log("\nProcessing complete!")
+            self.log("\n✅ Processing complete!")
 
         except Exception as e:
-            self.log(f"Error during processing: {e}")
+            self.log(f"\n❌ Error during processing: {e}")
             import traceback
             self.log(traceback.format_exc())
         finally:
