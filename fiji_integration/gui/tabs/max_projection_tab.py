@@ -129,9 +129,9 @@ class MaxProjectionProcessor:
         # If we found channels via metadata, return them
         if grey_idx is not None or blue_idx is not None:
             if grey_idx is None:
-                self.log(f"    ⚠️  No grey channel found in metadata - will skip grey output")
+                self.log(f"    [WARNING]  No grey channel found in metadata - will skip grey output")
             if blue_idx is None:
-                self.log(f"    ⚠️  No blue channel found in metadata - will skip blue output")
+                self.log(f"    [WARNING]  No blue channel found in metadata - will skip blue output")
             return grey_idx, blue_idx
 
         # Fallback: Use intensity-based heuristics if metadata not available
@@ -172,9 +172,9 @@ class MaxProjectionProcessor:
             self.log(f"    Fallback: grey={grey_idx}, blue={blue_idx} (by intensity)")
 
         if grey_idx is None:
-            self.log(f"    ⚠️  No grey channel identified - will skip grey output")
+            self.log(f"    [WARNING]  No grey channel identified - will skip grey output")
         if blue_idx is None:
-            self.log(f"    ⚠️  No blue channel identified - will skip blue output")
+            self.log(f"    [WARNING]  No blue channel identified - will skip blue output")
 
         return grey_idx, blue_idx
 
@@ -423,10 +423,10 @@ class MaxProjectionTab(TabInterface):
                 # Merge with defaults to handle new parameters
                 params = self.default_params.copy()
                 params.update(saved)
-                print(f"📂 Loaded saved Max Projection configuration from: {self.config_file}")
+                print(f"[LOADED] Loaded saved Max Projection configuration from: {self.config_file}")
                 return params
             except Exception as e:
-                print(f"⚠️  Could not load config file: {e}")
+                print(f"[WARNING]  Could not load config file: {e}")
                 return self.default_params.copy()
         else:
             return self.default_params.copy()
@@ -438,16 +438,16 @@ class MaxProjectionTab(TabInterface):
         try:
             with open(self.config_file, 'w') as f:
                 json.dump(config, f, indent=2)
-            print(f"💾 Saved configuration to: {self.config_file}")
+            print(f"[SAVED] Saved configuration to: {self.config_file}")
         except Exception as e:
-            print(f"⚠️  Could not save config file: {e}")
+            print(f"[WARNING]  Could not save config file: {e}")
 
     def validate_parameters(self):
         """Validate current parameters."""
         input_dir = self.params['input_dir'].strip()
         output_dir = self.params['output_dir'].strip()
 
-        self.log(f"🔍 Validating parameters...")
+        self.log(f"[VALIDATING] Validating parameters...")
         self.log(f"   Input dir: {input_dir}")
         self.log(f"   Output dir: {output_dir}")
 
@@ -460,7 +460,7 @@ class MaxProjectionTab(TabInterface):
         if not os.path.exists(input_dir):
             return False, f"Input directory does not exist: {input_dir}"
 
-        self.log(f"✅ Parameters validated")
+        self.log(f"[OK] Parameters validated")
         return True, None
 
     def build_ui(self, parent_frame, console_text):
@@ -547,7 +547,7 @@ Output files are named: MAX_{original_name}_grey.tif and MAX_{original_name}_blu
         """Restore all parameters to default values."""
         self.params = self.default_params.copy()
         self.update_gui_from_params()
-        self.log("✅ Restored parameters to defaults")
+        self.log("[OK] Restored parameters to defaults")
 
     def on_run_threaded(self):
         """Run processing in a separate thread."""
@@ -582,7 +582,7 @@ Output files are named: MAX_{original_name}_grey.tif and MAX_{original_name}_blu
     def run_processing(self, input_dir, output_dir):
         """Run the channel splitting and max projection processing."""
         try:
-            self.log(f"\n🚀 Starting processing...")
+            self.log(f"\n[STARTING] Starting processing...")
             self.log(f"   Input: {input_dir}")
             self.log(f"   Output: {output_dir}")
 
@@ -596,10 +596,10 @@ Output files are named: MAX_{original_name}_grey.tif and MAX_{original_name}_blu
             # Run processing
             processor.process_all()
 
-            self.log("\n✅ Processing complete!")
+            self.log("\n[OK] Processing complete!")
 
         except Exception as e:
-            self.log(f"\n❌ Error during processing: {e}")
+            self.log(f"\n[ERROR] Error during processing: {e}")
             import traceback
             self.log(traceback.format_exc())
         finally:

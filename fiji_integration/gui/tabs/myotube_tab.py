@@ -253,10 +253,10 @@ class MyotubeTab(TabInterface):
                 # Merge with defaults to handle new parameters
                 params = self.default_params.copy()
                 params.update(saved)
-                print(f"📂 Loaded saved configuration from: {self.config_file}")
+                print(f"[LOADED] Loaded saved configuration from: {self.config_file}")
                 return params
             except Exception as e:
-                print(f"⚠️  Could not load config file: {e}")
+                print(f"[WARNING]  Could not load config file: {e}")
                 return self.default_params.copy()
         else:
             return self.default_params.copy()
@@ -268,9 +268,9 @@ class MyotubeTab(TabInterface):
         try:
             with open(self.config_file, 'w') as f:
                 json.dump(config, f, indent=2)
-            print(f"💾 Saved configuration to: {self.config_file}")
+            print(f"[SAVED] Saved configuration to: {self.config_file}")
         except Exception as e:
-            print(f"⚠️  Could not save config file: {e}")
+            print(f"[WARNING]  Could not save config file: {e}")
 
     def validate_parameters(self) -> tuple[bool, Optional[str]]:
         """Validate current parameters before running."""
@@ -368,7 +368,7 @@ class MyotubeTab(TabInterface):
         """Restore all parameters to default values."""
         self.params = self.default_params.copy()
         self.update_gui_from_params()
-        print("✅ Restored parameters to defaults")
+        print("[OK] Restored parameters to defaults")
 
     def browse_input(self):
         """Browse for input file or directory."""
@@ -451,7 +451,7 @@ class MyotubeTab(TabInterface):
         """Handle Stop button click - requests segmentation to stop."""
         if self.is_running:
             self.stop_requested = True
-            self.write_to_console("\n⚠️  Stop requested. Segmentation will halt after current image...\n")
+            self.write_to_console("\n[WARNING]  Stop requested. Segmentation will halt after current image...\n")
             self.stop_button.config(state='disabled')
 
     def run_segmentation_in_gui(self):
@@ -462,7 +462,7 @@ class MyotubeTab(TabInterface):
             # Redirect stdout to capture print statements
             sys.stdout = GUIOutputStream(self)
             # Load Mask2Former modules
-            print("🔄 Loading Mask2Former and detectron2 modules...")
+            print("[RUNNING] Loading Mask2Former and detectron2 modules...")
             ensure_mask2former_loaded(explicit_path=self.params.get('mask2former_path'))
 
             # Import after Mask2Former is loaded
@@ -471,7 +471,7 @@ class MyotubeTab(TabInterface):
             from detectron2.projects.deeplab import add_deeplab_config
             from detectron2.data.detection_utils import read_image
             from mask2former import add_maskformer2_config
-            print("✅ Modules loaded successfully\n")
+            print("[OK] Modules loaded successfully\n")
 
             # Import our core modules (these are now in the modular structure)
             # Note: We can't use relative imports here because this runs in a thread
@@ -502,7 +502,7 @@ class MyotubeTab(TabInterface):
 
             # Initialize tiled segmentation if requested
             if self.params['use_tiling']:
-                print(f"🔲 Tiled inference mode enabled (grid: {self.params['grid_size']}×{self.params['grid_size']}, overlap: {self.params['tile_overlap']*100:.0f}%)")
+                print(f" Tiled inference mode enabled (grid: {self.params['grid_size']}×{self.params['grid_size']}, overlap: {self.params['tile_overlap']*100:.0f}%)")
                 tiled_segmenter = TiledMyotubeSegmentation(
                     segmentation_backend=integration,
                     target_overlap=self.params['tile_overlap'],
@@ -517,14 +517,14 @@ class MyotubeTab(TabInterface):
 
             if os.path.isfile(input_path):
                 # Single image
-                print(f"📷 Processing single image: {input_path}")
+                print(f"[IMAGE] Processing single image: {input_path}")
                 try:
                     if tiled_segmenter:
                         tiled_segmenter.segment_image_tiled(input_path, output_dir, custom_config)
                     else:
                         integration.segment_image(input_path, output_dir, custom_config)
                 except Exception as e:
-                    print(f"❌ Error processing image: {e}")
+                    print(f"[ERROR] Error processing image: {e}")
                     import traceback
                     print("\nFull error traceback:")
                     print(traceback.format_exc())
@@ -537,7 +537,7 @@ class MyotubeTab(TabInterface):
                 images_subdir = base_dir / 'images'
                 if images_subdir.exists() and images_subdir.is_dir():
                     search_dir = images_subdir
-                    print(f"   📂 Searching images/ subdirectory")
+                    print(f"   [LOADED] Searching images/ subdirectory")
                 else:
                     search_dir = base_dir
 
@@ -560,13 +560,13 @@ class MyotubeTab(TabInterface):
 
                 image_files = sorted(unique_files.values())
 
-                print(f"📁 Found {len(image_files)} images in directory (including subfolders)")
+                print(f"[FOLDER] Found {len(image_files)} images in directory (including subfolders)")
 
                 processed_count = 0
                 for i, img_path_obj in enumerate(image_files, 1):
                     # Check if stop was requested
                     if self.stop_requested:
-                        print(f"\n🛑 Segmentation stopped by user after {processed_count}/{len(image_files)} images")
+                        print(f"\n Segmentation stopped by user after {processed_count}/{len(image_files)} images")
                         break
 
                     print(f"\n{'='*60}")
@@ -591,7 +591,7 @@ class MyotubeTab(TabInterface):
                         # Create folder: output_dir/parent_folders/image_name/
                         image_output_dir = os.path.join(output_dir, str(parent_rel_path), base_name)
 
-                        print(f"   📂 Output folder: {image_output_dir}")
+                        print(f"   [LOADED] Output folder: {image_output_dir}")
 
                         if tiled_segmenter:
                             tiled_segmenter.segment_image_tiled(str(img_path_obj), image_output_dir, custom_config)
@@ -599,22 +599,22 @@ class MyotubeTab(TabInterface):
                             integration.segment_image(str(img_path_obj), image_output_dir, custom_config)
                         processed_count += 1
                     except Exception as e:
-                        print(f"❌ Error processing {img_path_obj.name}: {e}")
+                        print(f"[ERROR] Error processing {img_path_obj.name}: {e}")
                         continue
 
                 if not self.stop_requested:
-                    print(f"\n🎉 Batch processing complete! Processed {processed_count} images.")
+                    print(f"\n Batch processing complete! Processed {processed_count} images.")
                 else:
-                    print(f"\n✅ Partial results saved for {processed_count} processed images.")
+                    print(f"\n[OK] Partial results saved for {processed_count} processed images.")
 
             if not self.stop_requested:
-                print(f"\n✅ All segmentation complete!")
-            print(f"📂 Results saved to: {output_dir}")
+                print(f"\n[OK] All segmentation complete!")
+            print(f"[LOADED] Results saved to: {output_dir}")
 
         except Exception as e:
             try:
                 print(f"\n{'='*80}")
-                print(f"❌ SEGMENTATION FAILED")
+                print(f"[ERROR] SEGMENTATION FAILED")
                 print(f"{'='*80}")
                 print(f"Error type: {type(e).__name__}")
                 print(f"Error message: {str(e)}")
@@ -631,7 +631,7 @@ class MyotubeTab(TabInterface):
             except:
                 # If even error printing fails, write directly to console
                 import traceback
-                error_text = f"\n{'='*80}\n❌ CRITICAL ERROR\n{'='*80}\n{traceback.format_exc()}\n{'='*80}\n"
+                error_text = f"\n{'='*80}\n[ERROR] CRITICAL ERROR\n{'='*80}\n{traceback.format_exc()}\n{'='*80}\n"
                 try:
                     self.write_to_console(error_text)
                 except:

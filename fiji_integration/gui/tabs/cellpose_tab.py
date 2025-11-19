@@ -190,10 +190,10 @@ class CellPoseTab(TabInterface):
                 # Merge with defaults to handle new parameters
                 params = self.default_params.copy()
                 params.update(saved)
-                print(f"📂 Loaded saved CellPose configuration from: {self.config_file}")
+                print(f"[LOADED] Loaded saved CellPose configuration from: {self.config_file}")
                 return params
             except Exception as e:
-                print(f"⚠️  Could not load config file: {e}")
+                print(f"[WARNING]  Could not load config file: {e}")
                 return self.default_params.copy()
         else:
             return self.default_params.copy()
@@ -205,9 +205,9 @@ class CellPoseTab(TabInterface):
         try:
             with open(self.config_file, 'w') as f:
                 json.dump(config, f, indent=2)
-            print(f"💾 Saved CellPose configuration to: {self.config_file}")
+            print(f"[SAVED] Saved CellPose configuration to: {self.config_file}")
         except Exception as e:
-            print(f"⚠️  Could not save config file: {e}")
+            print(f"[WARNING]  Could not save config file: {e}")
 
     def validate_parameters(self) -> tuple[bool, Optional[str]]:
         """Validate current parameters before running."""
@@ -269,7 +269,7 @@ class CellPoseTab(TabInterface):
         """Restore all parameters to default values."""
         self.params = self.default_params.copy()
         self.update_gui_from_params()
-        print("✅ Restored CellPose parameters to defaults")
+        print("[OK] Restored CellPose parameters to defaults")
 
     def browse_input(self):
         """Browse for input directory."""
@@ -322,7 +322,7 @@ class CellPoseTab(TabInterface):
         """Handle Stop button click - requests segmentation to stop."""
         if self.is_running:
             self.stop_requested = True
-            self.write_to_console("\n⚠️  Stop requested. Segmentation will halt after current image...\n")
+            self.write_to_console("\n[WARNING]  Stop requested. Segmentation will halt after current image...\n")
             self.stop_button.config(state='disabled')
 
     def run_cellpose_segmentation(self):
@@ -333,18 +333,18 @@ class CellPoseTab(TabInterface):
 
         try:
             # Import CellPose and visualization
-            print("🔄 Loading CellPose...")
+            print("[RUNNING] Loading CellPose...")
             from cellpose import models
             from cellpose.io import save_masks
             import matplotlib
             matplotlib.use('Agg')  # Non-interactive backend
             import matplotlib.pyplot as plt
-            print("✅ CellPose loaded successfully\n")
+            print("[OK] CellPose loaded successfully\n")
 
             # Initialize model
-            print(f"🔄 Initializing CellPose model ({self.params['model_type']})...")
+            print(f"[RUNNING] Initializing CellPose model ({self.params['model_type']})...")
             model = models.Cellpose(gpu=self.params['use_gpu'], model_type=self.params['model_type'])
-            print("✅ Model initialized\n")
+            print("[OK] Model initialized\n")
 
             # Get image files from input directory (recursively)
             input_dir = Path(self.params['input_dir'])
@@ -364,10 +364,10 @@ class CellPoseTab(TabInterface):
 
             image_files = sorted(unique_files.values())
 
-            print(f"📁 Found {len(image_files)} images in directory (including subfolders)\n")
+            print(f"[FOLDER] Found {len(image_files)} images in directory (including subfolders)\n")
 
             if len(image_files) == 0:
-                print("⚠️  No images found in input directory")
+                print("[WARNING]  No images found in input directory")
                 return
 
             # Process each image
@@ -377,7 +377,7 @@ class CellPoseTab(TabInterface):
             for i, img_path_obj in enumerate(image_files, 1):
                 # Check if stop was requested
                 if self.stop_requested:
-                    print(f"\n🛑 Segmentation stopped by user after {processed_count}/{len(image_files)} images")
+                    print(f"\n Segmentation stopped by user after {processed_count}/{len(image_files)} images")
                     break
 
                 img_path = str(img_path_obj)
@@ -397,21 +397,51 @@ class CellPoseTab(TabInterface):
                 try:
                     # Load image
                     img = io.imread(img_path)
-                    print(f"📷 Image shape: {img.shape}, dtype: {img.dtype}")
+                    print(f"[IMAGE] Image shape: {img.shape}, dtype: {img.dtype}")
 
-                    # Run segmentation
-                    print("🔄 Running CellPose segmentation...")
+                    # Run segmentation with progress updates
+                    import time
                     diameter = self.params['diameter'] if self.params['diameter'] > 0 else None
-                    masks, flows, styles, diams = model.eval(
-                        img,
-                        diameter=diameter,
-                        channels=[0, 0],
-                        flow_threshold=self.params['flow_threshold'],
-                        cellprob_threshold=self.params['cellprob_threshold']
-                    )
+
+                    # Print estimate
+                    pixels = img.shape[0] * img.shape[1]
+                    megapixels = pixels / 1_000_000
+                    print(f"[RUNNING] Running CellPose segmentation on {megapixels:.1f} MP image...")
+                    print(f"   Device: {'GPU' if self.params['use_gpu'] else 'CPU'}")
+                    print(f"   [INFO] Large images take several minutes - progress updates every 30 seconds...")
+
+                    # Start progress monitoring thread
+                    start_time = time.time()
+                    keep_running = [True]  # Use list to allow modification in nested function
+
+                    def print_progress():
+                        """Print progress updates every 30 seconds."""
+                        while keep_running[0]:
+                            time.sleep(30)
+                            if keep_running[0]:
+                                elapsed = time.time() - start_time
+                                print(f"   [PROGRESS] Still running... {elapsed:.0f}s elapsed ({elapsed/60:.1f} min)")
+
+                    progress_thread = threading.Thread(target=print_progress, daemon=True)
+                    progress_thread.start()
+
+                    try:
+                        masks, flows, styles, diams = model.eval(
+                            img,
+                            diameter=diameter,
+                            channels=[0, 0],
+                            flow_threshold=self.params['flow_threshold'],
+                            cellprob_threshold=self.params['cellprob_threshold']
+                        )
+                    finally:
+                        # Stop progress updates
+                        keep_running[0] = False
+
+                    elapsed = time.time() - start_time
+                    print(f"[OK] Segmentation completed in {elapsed:.1f}s ({elapsed/60:.1f} min)")
 
                     num_cells = len(np.unique(masks)) - 1  # Subtract background
-                    print(f"✅ Found {num_cells} cells")
+                    print(f"[OK] Found {num_cells} cells")
 
                     # Create output folder for this image (preserving subfolder structure)
                     # Structure: output_dir/subfolder/image_name/files
@@ -421,43 +451,43 @@ class CellPoseTab(TabInterface):
                     # Create folder: output_dir/parent_folders/image_name/
                     image_output_dir = output_base_dir / parent_rel_path / base_name
                     os.makedirs(image_output_dir, exist_ok=True)
-                    print(f"📂 Output folder: {image_output_dir}")
+                    print(f"[LOADED] Output folder: {image_output_dir}")
 
                     # Save _seg.npy format
                     if self.params['save_npy']:
                         npy_path = image_output_dir / f"{base_name}_seg.npy"
                         np.save(npy_path, masks)
-                        print(f"💾 Saved masks: {npy_path.name}")
+                        print(f"[SAVED] Saved masks: {npy_path.name}")
 
                     # Save ROIs (Fiji format)
                     if self.params['save_rois']:
                         roi_path = image_output_dir / f"{base_name}_RoiSet.zip"
                         self.save_rois_fiji(masks, str(roi_path))
-                        print(f"💾 Saved ROIs: {roi_path.name}")
+                        print(f"[SAVED] Saved ROIs: {roi_path.name}")
 
                     # Save visualization (overlay)
-                    print("🔄 Creating visualization...")
+                    print("[RUNNING] Creating visualization...")
                     viz_path = image_output_dir / f"{base_name}_overlay.png"
                     self.save_visualization(img, masks, str(viz_path))
-                    print(f"💾 Saved visualization: {viz_path.name}")
+                    print(f"[SAVED] Saved visualization: {viz_path.name}")
 
                     processed_count += 1
 
                 except Exception as e:
-                    print(f"❌ Error processing {img_path_obj.name}: {e}")
+                    print(f"[ERROR] Error processing {img_path_obj.name}: {e}")
                     import traceback
                     print(traceback.format_exc())
                     continue
 
             if not self.stop_requested:
-                print(f"\n🎉 Batch processing complete! Processed {processed_count} images.")
+                print(f"\n Batch processing complete! Processed {processed_count} images.")
             else:
-                print(f"\n✅ Partial results saved for {processed_count} processed images.")
+                print(f"\n[OK] Partial results saved for {processed_count} processed images.")
 
-            print(f"📂 Results saved to: {self.params['output_dir']}")
+            print(f"[LOADED] Results saved to: {self.params['output_dir']}")
 
         except Exception as e:
-            print(f"\n❌ Error: {str(e)}")
+            print(f"\n[ERROR] Error: {str(e)}")
             import traceback
             print(traceback.format_exc())
         finally:
@@ -522,7 +552,7 @@ class CellPoseTab(TabInterface):
         labels = labels[labels != 0]
 
         if len(labels) == 0:
-            print("⚠️  No objects to save as ROIs")
+            print("[WARNING]  No objects to save as ROIs")
             return
 
         # Create temporary directory for individual ROI files

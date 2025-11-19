@@ -909,10 +909,10 @@ class AnalysisTab(TabInterface):
                 # Merge with defaults to handle new parameters
                 params = self.default_params.copy()
                 params.update(saved)
-                print(f"📂 Loaded saved Analysis configuration from: {self.config_file}")
+                print(f"[LOADED] Loaded saved Analysis configuration from: {self.config_file}")
                 return params
             except Exception as e:
-                print(f"⚠️  Could not load config file: {e}")
+                print(f"[WARNING]  Could not load config file: {e}")
                 return self.default_params.copy()
         else:
             return self.default_params.copy()
@@ -924,9 +924,9 @@ class AnalysisTab(TabInterface):
         try:
             with open(self.config_file, 'w') as f:
                 json.dump(config, f, indent=2)
-            print(f"💾 Saved configuration to: {self.config_file}")
+            print(f"[SAVED] Saved configuration to: {self.config_file}")
         except Exception as e:
-            print(f"⚠️  Could not save config file: {e}")
+            print(f"[WARNING]  Could not save config file: {e}")
 
     def validate_parameters(self):
         """Validate current parameters."""
@@ -1083,7 +1083,7 @@ class AnalysisTab(TabInterface):
         """Restore all parameters to default values."""
         self.params = self.default_params.copy()
         self.update_gui_from_params()
-        self.log("✅ Restored parameters to defaults")
+        self.log("[OK] Restored parameters to defaults")
 
     def on_run_threaded(self):
         """Run analysis in a separate thread."""
