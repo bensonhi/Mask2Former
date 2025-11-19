@@ -491,7 +491,7 @@ class MyotubeFijiIntegration(SegmentationInterface):
         
         # Generate summary info - using processed instances
         info_path = os.path.join(output_dir, f"{base_name}_info.json")
-        self._save_info(processed_instances, image_path, info_path)
+        self._save_info(processed_instances, image_path, info_path, original_image)
         
         # Print comparison
         raw_count = len(raw_instances) if hasattr(raw_instances, '__len__') else len(raw_instances.pred_masks) if hasattr(raw_instances, 'pred_masks') else 0
@@ -919,18 +919,24 @@ class MyotubeFijiIntegration(SegmentationInterface):
 
         return total_gap_length
     
-    def _save_info(self, instances: Dict[str, Any], image_path: str, output_path: str):
+    def _save_info(self, instances: Dict[str, Any], image_path: str, output_path: str, original_image: np.ndarray = None):
         """Save processing information."""
+        # Use original image shape if available, otherwise use processing shape
+        if original_image is not None:
+            image_shape = original_image.shape[:2]
+        else:
+            image_shape = instances['image_shape']
+
         info = {
             'input_image': os.path.basename(image_path),
             'num_instances': len(instances['masks']),
-            'image_shape': instances['image_shape'],
+            'image_shape': image_shape,
             'config_file': self.config_file,
             'model_weights': self.model_weights,
             'post_processing_config': self._post_processor.config,
             'processing_steps': [step['name'] for step in self._post_processor.steps]
         }
-        
+
         with open(output_path, 'w') as f:
             json.dump(info, f, indent=2)
 
