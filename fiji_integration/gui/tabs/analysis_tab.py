@@ -1031,10 +1031,12 @@ class AnalysisTab(TabInterface):
         # Create buttons in button frame
         self.run_button = ttk.Button(self.button_frame, text="Run Analysis", command=self.on_run_threaded)
         self.stop_button = ttk.Button(self.button_frame, text="Stop", command=self.on_stop, state='disabled')
+        self.restore_button = ttk.Button(self.button_frame, text="Restore Defaults", command=self.restore_defaults)
 
     def get_button_frame_widgets(self):
         """Return list of (button, side) tuples for button frame."""
         return [
+            (self.restore_button, tk.LEFT),
             (self.run_button, tk.LEFT),
             (self.stop_button, tk.LEFT)
         ]

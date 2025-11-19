@@ -126,22 +126,19 @@ class MyotubeTab(TabInterface):
         ttk.Label(parent_frame, text="Model Configuration", font=('Arial', 11, 'bold')).grid(row=row, column=0, columnspan=3, sticky=tk.W, pady=(0, 5))
         row += 1
 
-        ttk.Label(parent_frame, text="Config File:").grid(row=row, column=0, sticky=tk.W)
+        ttk.Label(parent_frame, text="*Config File:").grid(row=row, column=0, sticky=tk.W)
         ttk.Entry(parent_frame, textvariable=self.config_var, width=50).grid(row=row, column=1, sticky=(tk.W, tk.E), padx=5)
         ttk.Button(parent_frame, text="Browse...", command=self.browse_config).grid(row=row, column=2)
         row += 1
 
-        ttk.Label(parent_frame, text="Model Weights:").grid(row=row, column=0, sticky=tk.W)
+        ttk.Label(parent_frame, text="*Model Weights:").grid(row=row, column=0, sticky=tk.W)
         ttk.Entry(parent_frame, textvariable=self.weights_var, width=50).grid(row=row, column=1, sticky=(tk.W, tk.E), padx=5)
         ttk.Button(parent_frame, text="Browse...", command=self.browse_weights).grid(row=row, column=2)
         row += 1
 
-        ttk.Label(parent_frame, text="Mask2Former Path:").grid(row=row, column=0, sticky=tk.W)
+        ttk.Label(parent_frame, text="*Mask2Former Path:").grid(row=row, column=0, sticky=tk.W)
         ttk.Entry(parent_frame, textvariable=self.mask2former_path_var, width=50).grid(row=row, column=1, sticky=(tk.W, tk.E), padx=5)
         ttk.Button(parent_frame, text="Browse...", command=self.browse_mask2former_path).grid(row=row, column=2)
-        row += 1
-
-        ttk.Label(parent_frame, text="(Leave empty for auto-detection)", font=('Arial', 9, 'italic')).grid(row=row, column=1, sticky=tk.W, padx=5)
         row += 1
 
         # Separator
@@ -170,24 +167,6 @@ class MyotubeTab(TabInterface):
 
         ttk.Label(parent_frame, text="Final Min Area (pixels):").grid(row=row, column=0, sticky=tk.W)
         ttk.Entry(parent_frame, textvariable=self.final_min_area_var, width=20).grid(row=row, column=1, sticky=tk.W, padx=5)
-        row += 1
-
-        # Separator
-        ttk.Separator(parent_frame, orient='horizontal').grid(row=row, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=10)
-        row += 1
-
-        # ===== Performance Options =====
-        ttk.Label(parent_frame, text="Performance Options", font=('Arial', 11, 'bold')).grid(row=row, column=0, columnspan=3, sticky=tk.W, pady=(0, 5))
-        row += 1
-
-        ttk.Checkbutton(parent_frame, text="Use CPU (slower, less memory)", variable=self.cpu_var).grid(row=row, column=0, columnspan=2, sticky=tk.W, pady=2)
-        row += 1
-
-        ttk.Checkbutton(parent_frame, text="Force 1024px input (memory optimization)", variable=self.force_1024_var).grid(row=row, column=0, columnspan=2, sticky=tk.W, pady=2)
-        row += 1
-
-        ttk.Label(parent_frame, text="Max Image Size (optional):").grid(row=row, column=0, sticky=tk.W)
-        ttk.Entry(parent_frame, textvariable=self.max_image_size_var, width=20).grid(row=row, column=1, sticky=tk.W, padx=5)
         row += 1
 
         # Separator
