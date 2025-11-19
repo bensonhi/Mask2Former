@@ -10,6 +10,9 @@ pip install torch==1.10.2+cu111 torchvision==0.11.3+cu111 torchaudio==0.10.2   -
 
 pip install -U opencv-python
 
+
+pip install detectron2 -f https://dl.fbaipublicfiles.com/detectron2/wheels/cu113/torch1.10/index.html
+
 pip install 'git+https://github.com/facebookresearch/detectron2.git'
 
 
