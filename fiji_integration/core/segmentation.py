@@ -425,6 +425,8 @@ class MyotubeFijiIntegration(SegmentationInterface):
         # Scale masks back to original resolution if needed
         if self._scale_factor != 1.0:
             print(f"   🔄 Scaling masks back to original resolution: {self._original_size}")
+            print(f"      Current mask shape: {processed_instances['masks'][0].shape if len(processed_instances['masks']) > 0 else 'N/A'}")
+            print(f"      Scale factor: {self._scale_factor}")
             scaled_masks = []
             for i, mask in enumerate(processed_instances['masks']):
                 # Scale mask to original size using nearest neighbor
@@ -441,6 +443,7 @@ class MyotubeFijiIntegration(SegmentationInterface):
             processed_instances['masks'] = np.array(scaled_masks)
             processed_instances['image_shape'] = self._original_size
             print(f"   ✅ Scaled {len(scaled_masks)} masks to {self._original_size}")
+            print(f"      New mask shape: {processed_instances['masks'][0].shape if len(processed_instances['masks']) > 0 else 'N/A'}")
 
         # Generate outputs with both raw and processed overlays
         output_files = self._generate_fiji_outputs(
@@ -535,9 +538,12 @@ class MyotubeFijiIntegration(SegmentationInterface):
     def _save_individual_mask_images(self, instances: Dict[str, Any], original_image: np.ndarray, output_dir: str):
         """Save each myotube mask as individual image files - pixel-perfect accuracy!"""
         os.makedirs(output_dir, exist_ok=True)
-        
+
         print(f"   🖼️  Generating individual mask images: {output_dir}")
         print(f"   📊 Processing {len(instances['masks'])} instances for mask images")
+        print(f"   📏 Instance image_shape: {instances['image_shape']}")
+        if len(instances['masks']) > 0:
+            print(f"   📏 First mask shape: {instances['masks'][0].shape}")
         
         successful_masks = 0
         failed_masks = 0
