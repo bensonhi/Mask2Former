@@ -54,6 +54,7 @@ class CellPoseTab(TabInterface):
             'use_gpu': True,
             'save_npy': True,
             'save_rois': False,
+            'target_resolution': 3000,  # Max dimension for processing (0 = no scaling)
         }
 
         # Load saved parameters or use defaults
@@ -69,6 +70,7 @@ class CellPoseTab(TabInterface):
         self.use_gpu_var = None
         self.save_npy_var = None
         self.save_rois_var = None
+        self.target_resolution_var = None
         self.run_button = None
         self.stop_button = None
         self.restore_button = None
@@ -91,6 +93,7 @@ class CellPoseTab(TabInterface):
         self.use_gpu_var = tk.BooleanVar(value=self.params['use_gpu'])
         self.save_npy_var = tk.BooleanVar(value=self.params['save_npy'])
         self.save_rois_var = tk.BooleanVar(value=self.params['save_rois'])
+        self.target_resolution_var = tk.IntVar(value=self.params['target_resolution'])
 
         row = 0
 
@@ -145,6 +148,18 @@ class CellPoseTab(TabInterface):
 
         ttk.Checkbutton(parent_frame, text="Use GPU (faster)", variable=self.use_gpu_var).grid(
             row=row, column=0, columnspan=2, sticky=tk.W, pady=2)
+        row += 1
+
+        ttk.Label(parent_frame, text="Target Resolution (0=no scaling):").grid(row=row, column=0, sticky=tk.W)
+        ttk.Spinbox(parent_frame, from_=0, to=10000, increment=500, textvariable=self.target_resolution_var, width=20).grid(
+            row=row, column=1, sticky=tk.W, padx=5)
+        row += 1
+
+        # Help text for target resolution
+        help_text = ttk.Label(parent_frame,
+            text="Scales large images down for faster processing, then scales results back to original size",
+            font=('Arial', 8), foreground='gray')
+        help_text.grid(row=row, column=0, columnspan=3, sticky=tk.W, pady=(0, 5))
         row += 1
 
         # Separator
@@ -252,6 +267,7 @@ class CellPoseTab(TabInterface):
         self.params['use_gpu'] = self.use_gpu_var.get()
         self.params['save_npy'] = self.save_npy_var.get()
         self.params['save_rois'] = self.save_rois_var.get()
+        self.params['target_resolution'] = int(self.target_resolution_var.get())
 
     def update_gui_from_params(self):
         """Update GUI widgets from current parameters."""
@@ -264,6 +280,7 @@ class CellPoseTab(TabInterface):
         self.use_gpu_var.set(self.params['use_gpu'])
         self.save_npy_var.set(self.params['save_npy'])
         self.save_rois_var.set(self.params['save_rois'])
+        self.target_resolution_var.set(self.params['target_resolution'])
 
     def restore_defaults(self):
         """Restore all parameters to default values."""
@@ -344,7 +361,17 @@ class CellPoseTab(TabInterface):
             # Initialize model
             print(f"[RUNNING] Initializing CellPose model ({self.params['model_type']})...")
             model = models.Cellpose(gpu=self.params['use_gpu'], model_type=self.params['model_type'])
-            print("[OK] Model initialized\n")
+
+            # Verify actual device being used
+            import torch
+            if torch.cuda.is_available() and self.params['use_gpu']:
+                actual_device = f"GPU (CUDA available: {torch.cuda.get_device_name(0)})"
+            elif self.params['use_gpu']:
+                actual_device = "CPU (GPU requested but CUDA not available)"
+            else:
+                actual_device = "CPU (as configured)"
+            print(f"[OK] Model initialized")
+            print(f"   Actual device: {actual_device}\n")
 
             # Get image files from input directory (recursively)
             input_dir = Path(self.params['input_dir'])
@@ -396,18 +423,45 @@ class CellPoseTab(TabInterface):
 
                 try:
                     # Load image
-                    img = io.imread(img_path)
-                    print(f"[IMAGE] Image shape: {img.shape}, dtype: {img.dtype}")
+                    img_original = io.imread(img_path)
+                    original_shape = img_original.shape
+                    print(f"[IMAGE] Original shape: {original_shape}, dtype: {img_original.dtype}")
+
+                    # Scale down if target resolution is set
+                    target_res = self.params['target_resolution']
+                    if target_res > 0 and max(original_shape) > target_res:
+                        from skimage.transform import resize
+                        # Calculate scale factor
+                        scale_factor = target_res / max(original_shape)
+                        new_shape = tuple(int(dim * scale_factor) for dim in original_shape)
+                        img = resize(img_original, new_shape, preserve_range=True, anti_aliasing=True).astype(img_original.dtype)
+                        print(f"[INFO] Scaled to {img.shape} for processing (scale={scale_factor:.3f})")
+                        scaled = True
+                    else:
+                        img = img_original
+                        scale_factor = 1.0
+                        scaled = False
 
                     # Run segmentation with progress updates
                     import time
                     diameter = self.params['diameter'] if self.params['diameter'] > 0 else None
+                    if diameter and scaled:
+                        # Scale diameter proportionally
+                        diameter = int(diameter * scale_factor)
+                        print(f"[INFO] Scaled diameter to {diameter} for processing")
 
                     # Print estimate
                     pixels = img.shape[0] * img.shape[1]
                     megapixels = pixels / 1_000_000
                     print(f"[RUNNING] Running CellPose segmentation on {megapixels:.1f} MP image...")
-                    print(f"   Device: {'GPU' if self.params['use_gpu'] else 'CPU'}")
+                    print(f"   Configured device: {'GPU' if self.params['use_gpu'] else 'CPU'}")
+
+                    # Show actual device
+                    if torch.cuda.is_available() and self.params['use_gpu']:
+                        print(f"   Using: GPU ({torch.cuda.get_device_name(0)})")
+                    else:
+                        print(f"   Using: CPU")
+
                     print(f"   [INFO] Large images take several minutes - progress updates every 30 seconds...")
 
                     # Start progress monitoring thread
@@ -443,6 +497,15 @@ class CellPoseTab(TabInterface):
                     num_cells = len(np.unique(masks)) - 1  # Subtract background
                     print(f"[OK] Found {num_cells} cells")
 
+                    # Scale masks back to original size if we scaled down
+                    if scaled:
+                        from skimage.transform import resize
+                        print(f"[INFO] Scaling masks back to original size {original_shape}...")
+                        # Use nearest neighbor to preserve label values
+                        masks_upscaled = resize(masks, original_shape, order=0, preserve_range=True, anti_aliasing=False).astype(masks.dtype)
+                        masks = masks_upscaled
+                        print(f"[OK] Masks scaled back to {masks.shape}")
+
                     # Create output folder for this image (preserving subfolder structure)
                     # Structure: output_dir/subfolder/image_name/files
                     base_name = img_path_obj.stem
@@ -457,7 +520,7 @@ class CellPoseTab(TabInterface):
                     if self.params['save_npy']:
                         npy_path = image_output_dir / f"{base_name}_seg.npy"
                         np.save(npy_path, masks)
-                        print(f"[SAVED] Saved masks: {npy_path.name}")
+                        print(f"[SAVED] Saved masks: {npy_path.name} (shape: {masks.shape})")
 
                     # Save ROIs (Fiji format)
                     if self.params['save_rois']:
@@ -465,10 +528,10 @@ class CellPoseTab(TabInterface):
                         self.save_rois_fiji(masks, str(roi_path))
                         print(f"[SAVED] Saved ROIs: {roi_path.name}")
 
-                    # Save visualization (overlay)
+                    # Save visualization (overlay) - use original image
                     print("[RUNNING] Creating visualization...")
                     viz_path = image_output_dir / f"{base_name}_overlay.png"
-                    self.save_visualization(img, masks, str(viz_path))
+                    self.save_visualization(img_original, masks, str(viz_path))
                     print(f"[SAVED] Saved visualization: {viz_path.name}")
 
                     processed_count += 1
