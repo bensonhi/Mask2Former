@@ -528,6 +528,29 @@ class TiledMyotubeSegmentation:
         # Use processing-resolution image for post-processing (not original high-res)
         processed_instances = self.backend.post_processor.process(instances_dict, image)
 
+        # Scale masks back to original resolution if needed
+        if self.backend._scale_factor != 1.0:
+            print(f"   🔄 Scaling masks back to original resolution: {self.backend._original_size}")
+            print(f"      Current mask shape: {processed_instances['masks'][0].shape if len(processed_instances['masks']) > 0 else 'N/A'}")
+            print(f"      Scale factor: {self.backend._scale_factor}")
+            scaled_masks = []
+            for i, mask in enumerate(processed_instances['masks']):
+                # Scale mask to original size using nearest neighbor
+                mask_uint8 = (mask * 255).astype(np.uint8)
+                resized_mask = cv2.resize(
+                    mask_uint8,
+                    (self.backend._original_size[1], self.backend._original_size[0]),  # (width, height)
+                    interpolation=cv2.INTER_NEAREST
+                )
+                scaled_mask = (resized_mask > 128).astype(bool)
+                scaled_masks.append(scaled_mask)
+
+            # Update processed_instances with scaled masks
+            processed_instances['masks'] = np.array(scaled_masks)
+            processed_instances['image_shape'] = self.backend._original_size
+            print(f"   ✅ Scaled {len(scaled_masks)} masks to {self.backend._original_size}")
+            print(f"      New mask shape: {processed_instances['masks'][0].shape if len(processed_instances['masks']) > 0 else 'N/A'}")
+
         # Save outputs using existing methods (pass both raw and processed instances)
         # Note: original_image is needed for overlays; masks will be upscaled in saving methods
         output_files = self.backend._generate_fiji_outputs(

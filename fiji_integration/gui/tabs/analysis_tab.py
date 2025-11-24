@@ -688,6 +688,25 @@ class NucleiMyotubeAnalyzer:
             self.log(f"  Warning: Could not load overlay image")
             return
 
+        # Check if overlay and nuclei dimensions match - resize nuclei if needed
+        overlay_h, overlay_w = overlay.shape[:2]
+        nuclei_h, nuclei_w = labeled_nuclei.shape
+
+        if (overlay_h, overlay_w) != (nuclei_h, nuclei_w):
+            self.log(f"  Note: Overlay is {overlay_w}×{overlay_h}, nuclei are {nuclei_w}×{nuclei_h}")
+            self.log(f"  Resizing nuclei to match overlay dimensions for visualization")
+            labeled_nuclei_resized = cv2.resize(labeled_nuclei, (overlay_w, overlay_h), interpolation=cv2.INTER_NEAREST)
+            # Also need to adjust nuclei_list centroids
+            scale_y = overlay_h / nuclei_h
+            scale_x = overlay_w / nuclei_w
+            nuclei_list_scaled = []
+            for nucleus in nuclei_list:
+                nucleus_scaled = nucleus.copy()
+                nucleus_scaled['centroid'] = (nucleus['centroid'][0] * scale_y, nucleus['centroid'][1] * scale_x)
+                nuclei_list_scaled.append(nucleus_scaled)
+            labeled_nuclei = labeled_nuclei_resized
+            nuclei_list = nuclei_list_scaled
+
         # Create nucleus filter status mapping
         nucleus_filter_map = {}
         for result in self.nuclei_results:
