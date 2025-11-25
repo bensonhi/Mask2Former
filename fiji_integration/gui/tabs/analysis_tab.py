@@ -116,21 +116,20 @@ class NucleiMyotubeAnalyzer:
 
         # Try each base name variant
         for base_name_variant in base_names_to_try:
-            # First check for _seg.npy (from CellPose) in subdirectory
+            # First check for _seg.npy (from CellPose) - search recursively
+            npy_pattern = f"{base_name_variant}_seg.npy"
+            # Search in subdirectory first (exact match)
             subdir_path = self.nuclei_dir / base_name_variant
             if subdir_path.is_dir():
-                npy_pattern = f"{base_name_variant}_seg.npy"
                 npy_path = subdir_path / npy_pattern
                 if npy_path.exists():
                     return npy_path
 
-            # Then check for _seg.npy in main directory
-            npy_pattern = f"{base_name_variant}_seg.npy"
-            npy_path = self.nuclei_dir / npy_pattern
-            if npy_path.exists():
+            # Then search recursively in all subdirectories
+            for npy_path in self.nuclei_dir.rglob(npy_pattern):
                 return npy_path
 
-            # Then check for standard image formats
+            # Then check for standard image formats - search recursively
             nuclei_patterns = [
                 f"{base_name_variant}_nuclei.png",
                 f"{base_name_variant}_nuclei.tif",
@@ -144,9 +143,15 @@ class NucleiMyotubeAnalyzer:
                 f"{base_name_variant}_binary.tif"
             ]
 
+            # Search recursively for other image formats
             for pattern in nuclei_patterns:
+                # First check in main directory
                 nuclei_path = self.nuclei_dir / pattern
                 if nuclei_path.exists():
+                    return nuclei_path
+
+                # Then search recursively in subdirectories
+                for nuclei_path in self.nuclei_dir.rglob(pattern):
                     return nuclei_path
 
         return None
@@ -835,8 +840,12 @@ class NucleiMyotubeAnalyzer:
 
     def analyze_all_samples(self):
         """Analyze all myotube segmentation samples."""
-        myotube_folders = [f for f in self.myotube_dir.iterdir()
-                          if f.is_dir() and not f.name.startswith('.')]
+        # Recursively find all folders containing _info.json files
+        myotube_folders = []
+        for info_file in self.myotube_dir.rglob('*_info.json'):
+            folder = info_file.parent
+            if not folder.name.startswith('.'):
+                myotube_folders.append(folder)
 
         self.log(f"Found {len(myotube_folders)} myotube samples to analyze")
         self.log(f"Looking for nuclei images in: {self.nuclei_dir}")
