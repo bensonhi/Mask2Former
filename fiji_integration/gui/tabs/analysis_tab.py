@@ -25,6 +25,7 @@ class NucleiMyotubeAnalyzer:
 
     def __init__(self, myotube_dir: str, nuclei_dir: str, output_dir: str,
                  overlap_threshold: float = 0.60,
+                 periphery_overlap_threshold: float = 0.80,
                  min_nucleus_area: int = 400,
                  max_nucleus_area: int = 2000,
                  max_eccentricity: float = 0.9,
@@ -39,6 +40,7 @@ class NucleiMyotubeAnalyzer:
             nuclei_dir: Directory containing nuclei binary images
             output_dir: Directory where analysis results will be saved
             overlap_threshold: Minimum overlap ratio for nuclei-myotube assignment (default: 0.60)
+            periphery_overlap_threshold: Threshold to distinguish central vs peripheral nuclei (default: 0.80)
             min_nucleus_area: Minimum nucleus area in pixels (default: 400)
             max_nucleus_area: Maximum nucleus area in pixels (default: 2000)
             max_eccentricity: Maximum eccentricity (default: 0.9, where 0=circle, 1=line)
@@ -50,6 +52,7 @@ class NucleiMyotubeAnalyzer:
         self.nuclei_dir = Path(nuclei_dir)
         self.output_dir = Path(output_dir)
         self.overlap_threshold = overlap_threshold
+        self.periphery_overlap_threshold = periphery_overlap_threshold
         self.min_nucleus_area = min_nucleus_area
         self.max_nucleus_area = max_nucleus_area
         self.max_eccentricity = max_eccentricity
@@ -660,8 +663,11 @@ class NucleiMyotubeAnalyzer:
         nuclei_output_path = sample_output_dir / f"{folder_name}_nuclei_cropped.png"
         cv2.imwrite(str(nuclei_output_path), nuclei_cropped * 255)
 
-        # Create nuclei overlay visualization
+        # Create nuclei overlay visualization (all nuclei with filter status)
         self.create_nuclei_overlay(myotube_folder, sample_output_dir, folder_name, labeled_nuclei, nuclei_list)
+
+        # Create periphery overlay visualization (only assigned nuclei, colored by overlap)
+        self.create_periphery_overlay(myotube_folder, sample_output_dir, folder_name, labeled_nuclei, nuclei_list)
 
         # Save CSVs for this sample
         self.save_sample_results(sample_output_dir, folder_name, sample_myotube_results)
@@ -753,6 +759,91 @@ class NucleiMyotubeAnalyzer:
 
         # Save overlay to output folder
         output_path = output_sample_folder / f"{sample_name}_nuclei_overlay.tif"
+        cv2.imwrite(str(output_path), overlay)
+        self.log(f"  Saved: {output_path.name}")
+
+    def create_periphery_overlay(self, myotube_sample_folder: Path, output_sample_folder: Path, sample_name: str,
+                                 labeled_nuclei: np.ndarray, nuclei_list: List[Dict]):
+        """
+        Create visualization overlay showing only assigned nuclei, colored by central vs peripheral.
+
+        Args:
+            myotube_sample_folder: Path to the myotube sample folder (where overlay exists)
+            output_sample_folder: Path to output folder for this sample
+            sample_name: Name of the sample
+            labeled_nuclei: Labeled nuclei image
+            nuclei_list: List of nucleus dictionaries
+        """
+        overlay_path = myotube_sample_folder / f"{sample_name}_processed_overlay.tif"
+        if not overlay_path.exists():
+            self.log(f"  Warning: Processed overlay not found for periphery overlay: {overlay_path.name}")
+            return
+
+        overlay = cv2.imread(str(overlay_path))
+        if overlay is None:
+            self.log(f"  Warning: Could not load overlay image for periphery overlay")
+            return
+
+        # Check if overlay and nuclei dimensions match - resize nuclei if needed
+        overlay_h, overlay_w = overlay.shape[:2]
+        nuclei_h, nuclei_w = labeled_nuclei.shape
+
+        if (overlay_h, overlay_w) != (nuclei_h, nuclei_w):
+            labeled_nuclei_resized = cv2.resize(labeled_nuclei, (overlay_w, overlay_h), interpolation=cv2.INTER_NEAREST)
+            # Also need to adjust nuclei_list centroids
+            scale_y = overlay_h / nuclei_h
+            scale_x = overlay_w / nuclei_w
+            nuclei_list_scaled = []
+            for nucleus in nuclei_list:
+                nucleus_scaled = nucleus.copy()
+                nucleus_scaled['centroid'] = (nucleus['centroid'][0] * scale_y, nucleus['centroid'][1] * scale_x)
+                nuclei_list_scaled.append(nucleus_scaled)
+            labeled_nuclei = labeled_nuclei_resized
+            nuclei_list = nuclei_list_scaled
+
+        # Create nucleus data mapping (only for passed nuclei)
+        nucleus_data_map = {}
+        for result in self.nuclei_results:
+            if result['filter_status'] == 'passed' and result['assigned_myotube_id'] is not None:
+                nucleus_data_map[result['nucleus_id']] = {
+                    'overlap_percentage': result['overlap_percentage']
+                }
+
+        # Draw only assigned nuclei contours
+        for nucleus in nuclei_list:
+            nucleus_id = nucleus['nucleus_id']
+
+            # Skip if not in the assigned nuclei map
+            if nucleus_id not in nucleus_data_map:
+                continue
+
+            nucleus_label = nucleus['label']
+            centroid = nucleus['centroid']
+            overlap_pct = nucleus_data_map[nucleus_id]['overlap_percentage']
+
+            nucleus_mask = (labeled_nuclei == nucleus_label).astype(np.uint8)
+            contours, _ = cv2.findContours(nucleus_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+            # Color based on overlap threshold
+            if overlap_pct >= self.periphery_overlap_threshold * 100:
+                color = (0, 255, 0)  # Green - central nuclei
+            else:
+                color = (0, 255, 255)  # Yellow - peripheral nuclei
+
+            cv2.drawContours(overlay, contours, -1, color, 2)
+
+            # Draw nucleus ID label
+            label_text = f"{nucleus_id}"
+            centroid_pos = (int(centroid[1]), int(centroid[0]))
+            font = cv2.FONT_HERSHEY_SIMPLEX
+            font_scale = 0.5
+            thickness = 2
+            (text_w, text_h), baseline = cv2.getTextSize(label_text, font, font_scale, thickness)
+            text_pos = (centroid_pos[0] - text_w // 2, centroid_pos[1] + text_h // 2)
+            cv2.putText(overlay, label_text, text_pos, font, font_scale, (255, 255, 255), thickness, cv2.LINE_AA)
+
+        # Save overlay to output folder
+        output_path = output_sample_folder / f"{sample_name}_periphery_overlay.tif"
         cv2.imwrite(str(output_path), overlay)
         self.log(f"  Saved: {output_path.name}")
 
@@ -907,6 +998,7 @@ class AnalysisTab(TabInterface):
             'max_area': 2000,
             'max_eccentricity': 0.9,
             'overlap_threshold': 0.6,
+            'periphery_overlap_threshold': 0.8,
             'full_image_mode': True,
         }
 
@@ -921,6 +1013,7 @@ class AnalysisTab(TabInterface):
         self.max_area_var = None
         self.max_eccentricity_var = None
         self.overlap_threshold_var = None
+        self.periphery_overlap_threshold_var = None
         self.full_image_mode_var = None
         self.run_button = None
         self.stop_button = None
@@ -1000,6 +1093,7 @@ class AnalysisTab(TabInterface):
         self.max_area_var = tk.StringVar(value=str(self.params['max_area']))
         self.max_eccentricity_var = tk.StringVar(value=str(self.params['max_eccentricity']))
         self.overlap_threshold_var = tk.StringVar(value=str(self.params['overlap_threshold']))
+        self.periphery_overlap_threshold_var = tk.StringVar(value=str(self.params['periphery_overlap_threshold']))
         self.full_image_mode_var = tk.BooleanVar(value=self.params['full_image_mode'])
 
         # Input/Output Section
@@ -1049,6 +1143,10 @@ class AnalysisTab(TabInterface):
         ttk.Label(param_frame, text="Overlap Threshold (0-1):").grid(row=2, column=0, sticky=tk.W, pady=2)
         ttk.Entry(param_frame, textvariable=self.overlap_threshold_var, width=10).grid(row=2, column=1, sticky=tk.W, pady=2)
 
+        # Periphery overlap threshold
+        ttk.Label(param_frame, text="Periphery Overlap Threshold (0-1):").grid(row=3, column=0, sticky=tk.W, pady=2)
+        ttk.Entry(param_frame, textvariable=self.periphery_overlap_threshold_var, width=10).grid(row=3, column=1, sticky=tk.W, pady=2)
+
         # Processing Options Section
         options_frame = ttk.LabelFrame(parent_frame, text="Processing Options", padding=10)
         options_frame.grid(row=2, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), padx=5, pady=5)
@@ -1096,6 +1194,7 @@ class AnalysisTab(TabInterface):
         self.params['max_area'] = int(self.max_area_var.get())
         self.params['max_eccentricity'] = float(self.max_eccentricity_var.get())
         self.params['overlap_threshold'] = float(self.overlap_threshold_var.get())
+        self.params['periphery_overlap_threshold'] = float(self.periphery_overlap_threshold_var.get())
         self.params['full_image_mode'] = self.full_image_mode_var.get()
 
     def update_gui_from_params(self):
@@ -1107,6 +1206,7 @@ class AnalysisTab(TabInterface):
         self.max_area_var.set(str(self.params['max_area']))
         self.max_eccentricity_var.set(str(self.params['max_eccentricity']))
         self.overlap_threshold_var.set(str(self.params['overlap_threshold']))
+        self.periphery_overlap_threshold_var.set(str(self.params['periphery_overlap_threshold']))
         self.full_image_mode_var.set(self.params['full_image_mode'])
 
     def restore_defaults(self):
@@ -1150,11 +1250,12 @@ class AnalysisTab(TabInterface):
             self.params['min_area'],
             self.params['max_area'],
             self.params['max_eccentricity'],
-            self.params['overlap_threshold']
+            self.params['overlap_threshold'],
+            self.params['periphery_overlap_threshold']
         ), daemon=True)
         thread.start()
 
-    def run_analysis(self, myotube_folder, nuclei_folder, output_folder, min_area, max_area, max_eccentricity, overlap_threshold):
+    def run_analysis(self, myotube_folder, nuclei_folder, output_folder, min_area, max_area, max_eccentricity, overlap_threshold, periphery_overlap_threshold):
         """Run the analysis."""
         try:
             self.log("=" * 80)
@@ -1167,6 +1268,7 @@ class AnalysisTab(TabInterface):
             self.log(f"  Size range: {min_area} - {max_area} pixels")
             self.log(f"  Max eccentricity: {max_eccentricity}")
             self.log(f"  Overlap threshold: {overlap_threshold * 100:.1f}%")
+            self.log(f"  Periphery overlap threshold: {periphery_overlap_threshold * 100:.1f}%")
             self.log(f"  Full image mode: {self.full_image_mode_var.get()}")
             self.log("=" * 80)
 
@@ -1176,6 +1278,7 @@ class AnalysisTab(TabInterface):
                 nuclei_dir=nuclei_folder,
                 output_dir=output_folder,
                 overlap_threshold=overlap_threshold,
+                periphery_overlap_threshold=periphery_overlap_threshold,
                 min_nucleus_area=min_area,
                 max_nucleus_area=max_area,
                 max_eccentricity=max_eccentricity,
