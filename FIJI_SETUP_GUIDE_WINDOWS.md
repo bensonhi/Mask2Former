@@ -307,17 +307,56 @@ The GUI has **4 tabs** for different processing steps. You can run them independ
    - *Config File: Browse to `stage2_config.yaml` in your Mask2Former folder
    - *Model Weights: Browse to the `model_final.pth` you downloaded
    - *Mask2Former Path: Browse to your Mask2Former project folder
-5. **Post-Processing Settings** (use defaults initially):
-   - Confidence Threshold: 0.5
-   - Min/Max Area: 1000 - 1000000 pixels
-   - Overlap Threshold: 0.5
-6. Click **"Run Segmentation"**
 
-**Output** (for each image):
-- `[ImageName]_masks/` - Individual myotube mask PNG files
-- `[ImageName]_processed_overlay.tif` - Visualization
-- `[ImageName]_raw_overlay.tif` - Raw predictions
-- `[ImageName]_info.json` - Processing metadata
+5. **Detection Parameters**:
+   - **Confidence Threshold** (0-1): Default 0.25
+     - Higher = fewer detections (stricter)
+     - Lower = more detections (may include false positives)
+     - *When to adjust*: If missing obvious myotubes, lower to 0.15-0.20
+
+   - **Minimum Area** (pixels): Default 100
+     - Filters out tiny detections
+     - *When to adjust*: If seeing small artifacts, increase to 200-500
+
+   - **Maximum Area** (pixels): Default 50000
+     - Filters out unrealistically large detections
+     - *When to adjust*: Rarely needed unless you have very large myotubes
+
+   - **Final Min Area** (pixels): Default 1000
+     - Second-stage filter after post-processing
+     - Removes small fragments after merging
+     - *When to adjust*: If final results still have small fragments, increase
+
+6. **Tiling Options** (for large images or dense myotubes):
+   - **Use tiled inference**: Check for images with many myotubes
+   - **Grid Size**: Default 2 (creates 2×2=4 tiles)
+     - 1 = no tiling
+     - 2 = 2×2 grid (4 tiles)
+     - 3 = 3×3 grid (9 tiles)
+     - *When to adjust*: If many myotubes, use 2-3 for better detection
+
+   - **Tile Overlap** (%): Default 20%
+     - Overlap between adjacent tiles
+     - Helps detect myotubes at tile boundaries
+     - *When to adjust*: Rarely needed
+
+7. **Output Options**:
+   - **Skip merged masks**: Default checked
+     - Skips generating imaginary boundary files (faster)
+     - *Uncheck if*: You need the merged visualization for presentations
+
+   - **Save measurements CSV**: Default unchecked
+     - Saves detailed measurements (area, length, width) for each myotube
+     - *Check if*: You need quantitative morphology data
+
+8. Click **"Run Segmentation"**
+
+**Output Files** (for each image):
+- `[ImageName]_masks/` - Individual myotube mask PNG files (one per myotube)
+- `[ImageName]_processed_overlay.tif` - **Main result**: Color-coded overlay on original image
+- `[ImageName]_raw_overlay.tif` - Raw model predictions before post-processing
+- `[ImageName]_info.json` - Processing metadata (parameters used, image dimensions, etc.)
+- `[ImageName]_measurements.csv` - Myotube measurements (if "Save measurements" checked)
 
 ---
 
@@ -353,27 +392,62 @@ The GUI has **4 tabs** for different processing steps. You can run them independ
 
 **Steps**:
 1. Click the **"Nuclei-Myotube Analysis"** tab
-2. **Myotube Folder**: Browse to myotube segmentation results (from Tab 2)
-3. **Nuclei Folder**: Browse to nuclei segmentation results (from Tab 3)
-4. **Output Folder**: Choose where to save analysis results
-5. **Filter Settings**:
-   - Nucleus Size Range: 400-2000 pixels
-   - Max Eccentricity: 0.9 (filters out elongated non-nuclei)
-   - Overlap Threshold: 60% (minimum overlap to assign nucleus to myotube)
-6. **Processing Mode**:
-   - Full Image Mode: Check if processing full images (not quadrants)
-   - Skip Alignment Resize: Check if images are already aligned
-7. Click **"Run Analysis"**
 
-**Output** (for each sample):
-- `[Sample]_myotube_nuclei_counts.csv` - Nuclei count per myotube
-- `[Sample]_nuclei_myotube_assignments.csv` - Detailed nucleus assignments
+2. **Input/Output Folders**:
+   - **Myotube Folder**: Browse to myotube segmentation results (from Tab 2)
+   - **Nuclei Folder**: Browse to nuclei segmentation results (from Tab 3)
+   - **Output Folder**: Choose where to save analysis results
+
+3. **Filter Parameters**:
+   - **Nucleus Size Range** (pixels): Default 400-6000
+     - **Min Area**: Removes small debris/artifacts
+     - **Max Area**: Removes large clumps (likely multiple nuclei)
+     - *What it does*: Nuclei outside this range are marked as "filtered_size" (shown in RED on overlay)
+     - *When to adjust*: Measure some nuclei in Fiji to determine appropriate size range for your images
+
+   - **Max Eccentricity** (0-1): Default 0.95
+     - **0** = perfect circle
+     - **1** = elongated line
+     - Values close to 1 indicate highly elongated shapes (likely artifacts, not nuclei)
+     - *What it does*: Nuclei with eccentricity > 0.95 are marked as "filtered_eccentricity" (shown in YELLOW on overlay)
+     - *When to adjust*: If losing real nuclei that are slightly elongated, increase to 0.98
+
+   - **Overlap Threshold** (0-1): Default 0.10 (10%)
+     - Minimum percentage of nucleus that must overlap with a myotube to be assigned to it
+     - Example: 0.10 means ≥10% of the nucleus area must be inside a myotube
+     - *What it does*: Nuclei with <10% overlap are marked as "filtered_overlap" (shown in BLUE on overlay)
+     - *When to adjust*:
+       - Lower (0.05) = include nuclei barely touching myotubes
+       - Higher (0.30-0.50) = only include nuclei with substantial overlap
+
+   - **Periphery Overlap Threshold** (0-1): Default 0.95 (95%)
+     - Used to distinguish "central" vs "peripheral" nuclei in the periphery overlay
+     - Only affects visualization in `*_periphery_overlay.tif`, not the counts
+     - *What it does*:
+       - Nuclei with overlap ≥ periphery threshold → GREEN (central)
+       - Nuclei with overlap < periphery threshold but ≥ regular threshold → YELLOW (peripheral)
+     - *When to adjust*:
+       - Set to 1.0 if you want only perfectly centered nuclei as green
+       - Lower (0.70-0.80) if you want more nuclei classified as central
+
+4. **Processing Options**:
+   - **Full Image Mode**: Check if processing complete images (not cropped quadrants)
+     - *When to check*: Always check this unless you manually cropped images into quadrants
+
+5. Click **"Run Analysis"**
+
+**Output Files** (for each sample):
+- `[Sample]_myotube_nuclei_counts.csv` - **Main result**: Nuclei count per myotube
+- `[Sample]_nuclei_myotube_assignments.csv` - Detailed nucleus-by-nucleus data
 - `[Sample]_analysis_summary.txt` - Statistics summary
-- `[Sample]_nuclei_overlay.tif` - Color-coded visualization:
-  - **GREEN**: Nuclei assigned to myotubes (passed all filters)
-  - **RED**: Filtered by size
-  - **YELLOW**: Filtered by eccentricity
-  - **BLUE**: Filtered by overlap
+- `[Sample]_nuclei_overlay.tif` - Color-coded visualization showing all nuclei:
+  - **GREEN**: Assigned to myotubes (passed all filters)
+  - **RED**: Filtered out by size
+  - **YELLOW**: Filtered out by eccentricity
+  - **BLUE**: Filtered out by overlap
+- `[Sample]_periphery_overlay.tif` - Shows only assigned nuclei:
+  - **GREEN**: Central nuclei (overlap ≥ periphery threshold)
+  - **YELLOW**: Peripheral nuclei (overlap between regular and periphery threshold)
 
 ---
 
@@ -404,9 +478,13 @@ Here's a typical workflow from raw images to final analysis:
    - Myotube Folder: `C:\MyImages\2_myotubes\`
    - Nuclei Folder: `C:\MyImages\3_nuclei\`
    - Output: `C:\MyImages\4_analysis\`
+   - Filter Settings: Use defaults (400-6000 pixels, 0.95 eccentricity, 0.10 overlap, 0.95 periphery)
    - Result: CSV files and overlays showing nuclei-myotube relationships
 
-**Final Output**: CSV files showing number of nuclei per myotube, ready for statistical analysis!
+**Final Output**:
+- `myotube_nuclei_counts.csv` - Ready for statistical analysis!
+- `nuclei_overlay.tif` - Verify filtering worked correctly
+- `periphery_overlay.tif` - See central vs peripheral nuclei distribution
 
 ---
 
@@ -440,26 +518,118 @@ OutputFolder/
 ```
 OutputFolder/
 └── SampleName/
-    ├── SampleName_myotube_nuclei_counts.csv        ← Counts per myotube
-    ├── SampleName_nuclei_myotube_assignments.csv   ← Detailed assignments
-    ├── SampleName_analysis_summary.txt             ← Statistics
-    └── SampleName_nuclei_overlay.tif               ← Color-coded overlay
+    ├── SampleName_myotube_nuclei_counts.csv        ← Main result: Counts per myotube
+    ├── SampleName_nuclei_myotube_assignments.csv   ← Detailed nucleus data
+    ├── SampleName_analysis_summary.txt             ← Statistics summary
+    ├── SampleName_nuclei_overlay.tif               ← All nuclei color-coded
+    └── SampleName_periphery_overlay.tif            ← Only assigned nuclei (central vs peripheral)
 ```
 
-**CSV Files Explained**:
+**Understanding the CSV Files**:
 
-1. **myotube_nuclei_counts.csv**: Summary table
-   - Myotube ID
-   - Number of assigned nuclei (passed all filters)
-   - Total detected nuclei overlapping
-   - Filter statistics
+#### 1. `myotube_nuclei_counts.csv` - **YOUR MAIN RESULTS**
 
-2. **nuclei_myotube_assignments.csv**: Detailed table
-   - Nucleus ID
-   - Assigned myotube ID
-   - Overlap percentage
-   - Filter status (passed/filtered_size/filtered_eccentricity/filtered_overlap)
-   - Morphological measurements (area, circularity, eccentricity)
+This is the file you'll use for statistical analysis. One row per myotube.
+
+**Columns**:
+- `myotube_id`: Unique ID for each myotube (1, 2, 3, ...)
+- `nucleus_count`: **Number of nuclei assigned to this myotube** (passed all filters)
+- `total_overlapping`: Total nuclei detected overlapping with this myotube (before filtering)
+- `filtered_size`: Number filtered out by size criteria
+- `filtered_eccentricity`: Number filtered out by eccentricity (too elongated)
+- `filtered_overlap`: Number filtered out by overlap threshold (not enough overlap)
+
+**Example row**:
+```
+myotube_id,nucleus_count,total_overlapping,filtered_size,filtered_eccentricity,filtered_overlap
+1,12,15,1,1,1
+```
+This means: Myotube #1 has **12 assigned nuclei**. It had 15 total overlapping objects, but 1 was too small, 1 was too elongated, and 1 didn't have enough overlap.
+
+#### 2. `nuclei_myotube_assignments.csv` - **DETAILED NUCLEUS DATA**
+
+One row per detected nucleus. Use this to understand why specific nuclei were filtered.
+
+**Columns**:
+- `nucleus_id`: Unique ID for each nucleus (1, 2, 3, ...)
+- `assigned_myotube_id`: Which myotube this nucleus is assigned to (None if filtered out)
+- `filter_status`: One of:
+  - `passed` - Nucleus assigned to a myotube (counted)
+  - `filtered_size` - Outside size range
+  - `filtered_eccentricity` - Too elongated
+  - `filtered_overlap` - Not enough overlap with any myotube
+- `overlap_percentage`: Percentage of nucleus overlapping with its assigned myotube (0-100)
+- `area`: Nucleus area in pixels
+- `eccentricity`: Shape measure (0=circle, 1=line)
+- `circularity`: Alternative shape measure (1=perfect circle, lower=irregular)
+- `centroid_y`, `centroid_x`: Nucleus center coordinates
+
+**Example rows**:
+```
+nucleus_id,assigned_myotube_id,filter_status,overlap_percentage,area,eccentricity
+408,3,passed,82.5,756,0.65
+431,3,passed,79.3,812,0.58
+156,None,filtered_size,0,189,0.72
+```
+- Nucleus 408: Assigned to myotube 3, 82.5% overlap, 756 pixels
+- Nucleus 431: Assigned to myotube 3, 79.3% overlap, 812 pixels
+- Nucleus 156: Filtered out (too small - only 189 pixels)
+
+#### 3. `analysis_summary.txt` - **STATISTICS OVERVIEW**
+
+Text file with summary statistics:
+- Total myotubes analyzed
+- Total nuclei detected
+- Total nuclei assigned (passed filters)
+- Filtering breakdown (how many filtered by each criterion)
+- Average nuclei per myotube
+- Min/max nuclei per myotube
+
+---
+
+**Understanding the Overlay Visualizations**:
+
+#### `nuclei_overlay.tif` - Shows ALL detected nuclei
+
+This overlay helps you understand your filtering:
+
+- **GREEN nuclei**: Passed all filters and assigned to myotubes ✓
+  - These are counted in your results
+  - Size is within range (400-6000 pixels)
+  - Eccentricity < 0.95 (round enough)
+  - Overlap ≥ threshold (≥10% overlap with myotube)
+
+- **RED nuclei**: Filtered by size ✗
+  - Too small (< min area) or too large (> max area)
+  - Likely debris (small) or clumps (large)
+
+- **YELLOW nuclei**: Filtered by eccentricity ✗
+  - Too elongated (eccentricity > 0.95)
+  - Likely artifacts, not real nuclei
+
+- **BLUE nuclei**: Filtered by overlap ✗
+  - Not enough overlap with any myotube (< overlap threshold)
+  - May be background nuclei not associated with myotubes
+
+**How to use this**: Visually inspect to verify filtering is working correctly. If many real nuclei are being filtered, adjust the parameters.
+
+---
+
+#### `periphery_overlay.tif` - Shows ONLY assigned nuclei (central vs peripheral)
+
+This overlay shows spatial distribution of nuclei within myotubes:
+
+- **GREEN nuclei**: Central nuclei
+  - Overlap ≥ periphery overlap threshold (default 95%)
+  - Deeply embedded inside the myotube
+
+- **YELLOW nuclei**: Peripheral nuclei
+  - Overlap between regular threshold (10%) and periphery threshold (95%)
+  - Closer to myotube edges or partially overlapping
+
+**How to use this**:
+- If you want to analyze central vs peripheral nuclei separately, you can use the `overlap_percentage` column in the CSV along with your threshold values
+- Example: Count nuclei with overlap_percentage ≥ 95 (central) vs 10-95 (peripheral)
 
 ---
 
@@ -489,6 +659,58 @@ You need to update when:
 5. **Restart Fiji**
 
 **Important**: Always restart Fiji after updating files!
+
+---
+
+## Common Questions
+
+### Q: How do I know if my filter settings are correct?
+
+**A**: Check the `nuclei_overlay.tif`:
+- If you see many **RED** nuclei that look like real nuclei → Your size range is too restrictive. Increase max area (e.g., from 6000 to 8000) or decrease min area (e.g., from 400 to 300).
+- If you see many **YELLOW** nuclei that look round → Your eccentricity threshold is too strict. Increase from 0.95 to 0.98.
+- If you see many **BLUE** nuclei clearly inside myotubes → Your overlap threshold is too high. It's already very low at 0.10 (10%), so this is unlikely. If it happens, decrease to 0.05.
+- If you see many small **RED** dots everywhere → That's debris being correctly filtered out. No action needed.
+
+### Q: What's the difference between overlap threshold and periphery overlap threshold?
+
+**A**:
+- **Overlap threshold** (default 0.10): Determines which nuclei are **counted**. Nuclei with <10% overlap are excluded from analysis.
+- **Periphery overlap threshold** (default 0.95): Only affects the **periphery overlay visualization**. Distinguishes central (≥95%) from peripheral (10-95%) nuclei. Both are still counted in your results.
+
+### Q: Should I use tiled inference?
+
+**A**:
+- **Use tiling** (Grid Size 2-3) if:
+  - Your images have many myotubes (>20)
+  - Myotubes are densely packed
+  - You're getting incomplete segmentations
+- **Don't use tiling** (Grid Size 1) if:
+  - Your images have few myotubes (<10)
+  - Myotubes are well-separated
+  - Processing time is acceptable
+
+### Q: Why are nuclei counts different between `total_overlapping` and `nucleus_count`?
+
+**A**: `total_overlapping` includes ALL nuclei that touch the myotube, even those that failed filters (too small, too elongated, or insufficient overlap). `nucleus_count` only includes nuclei that **passed all filters** and are assigned to the myotube.
+
+### Q: Can I process images at different resolutions together?
+
+**A**: Yes, the tool automatically handles different image sizes. However, for **analysis** (Tab 4), make sure your filter parameters (especially size range) are appropriate for your image resolution. If you have mixed resolutions, you may need to run analysis separately for each resolution.
+
+### Q: What if myotube and nuclei images don't align perfectly?
+
+**A**: The analysis automatically resizes nuclei masks to match myotube overlay dimensions if needed. However, the images should be from the **same field of view**. If they're from different regions or different samples, the analysis won't be meaningful.
+
+### Q: How do I analyze just central nuclei?
+
+**A**:
+1. Set periphery overlap threshold to your desired cutoff (default is 0.95 for ≥95% overlap)
+2. After analysis, use the `nuclei_myotube_assignments.csv` file
+3. Filter for rows where `overlap_percentage ≥ 95`
+4. Count these nuclei per myotube in Excel/Python/R
+
+**Example**: If you want nuclei that are mostly inside (≥80% overlap), change periphery overlap threshold to 0.80, then filter the CSV for `overlap_percentage ≥ 80`.
 
 ---
 
@@ -616,11 +838,23 @@ If you encounter issues not covered in this guide:
 **Complete workflow**:
 1. **Tab 1**: Split channels → grey + blue TIFFs
 2. **Tab 2**: Segment myotubes → masks + overlays
+   - Key params: Confidence 0.25, Min area 100, Final min area 1000
 3. **Tab 3**: Segment nuclei → NPY files
+   - Key params: Model cyto3, Diameter 30, Target res 3000
 4. **Tab 4**: Analyze → CSV files + overlays
+   - Key params: Size 400-6000, Eccentricity 0.95, Overlap 0.10, Periphery 0.95
+
+**Main result files**:
+- **Myotube segmentation**: `*_processed_overlay.tif` (visualization), `*_masks/` (individual masks)
+- **Nuclei segmentation**: `*_seg.npy` (required for analysis), `*_overlay.png` (visualization)
+- **Analysis**: `*_myotube_nuclei_counts.csv` (main results), `*_nuclei_overlay.tif` (all nuclei), `*_periphery_overlay.tif` (central vs peripheral)
+
+**Overlay color codes**:
+- **nuclei_overlay.tif**: GREEN=assigned, RED=size filter, YELLOW=eccentricity filter, BLUE=overlap filter
+- **periphery_overlay.tif**: GREEN=central nuclei (≥95% overlap), YELLOW=peripheral nuclei (10-95% overlap)
 
 **After updates**:
-1. Copy entire `fiji_integration/` contents
+1. Copy entire `fiji_integration/` contents (both .ijm files + gui/ + core/ + utils/ folders)
 2. Paste to Fiji's `macros/` folder
 3. Replace all existing files
 4. Restart Fiji
@@ -629,10 +863,17 @@ If you encounter issues not covered in this guide:
 
 ## Version Information
 
-- **Guide Version**: 2.0
-- **Last Updated**: 2025
+- **Guide Version**: 2.1
+- **Last Updated**: November 2025
 - **Compatible with**: Windows 10/11, Fiji/ImageJ
-- **Features**: Multi-tab interface with max projection, myotube segmentation, nuclei segmentation, and relationship analysis
+- **Features**:
+  - Multi-tab interface with 4 processing steps
+  - Max projection and channel splitting
+  - Myotube segmentation with Mask2Former
+  - Nuclei segmentation with CellPose
+  - Comprehensive nuclei-myotube relationship analysis
+  - Central vs peripheral nuclei classification
+  - Detailed parameter explanations and CSV result documentation
 
 ---
 

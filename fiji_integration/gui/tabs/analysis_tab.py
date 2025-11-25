@@ -995,10 +995,10 @@ class AnalysisTab(TabInterface):
             'nuclei_folder': os.path.join(workflow_base, '3_cellpose_segmentation'),
             'output_folder': os.path.join(workflow_base, '4_nuclei_myotube_analysis'),
             'min_area': 400,
-            'max_area': 2000,
-            'max_eccentricity': 0.9,
-            'overlap_threshold': 0.6,
-            'periphery_overlap_threshold': 0.8,
+            'max_area': 6000,
+            'max_eccentricity': 0.95,
+            'overlap_threshold': 0.1,
+            'periphery_overlap_threshold': 0.95,
             'full_image_mode': True,
         }
 
