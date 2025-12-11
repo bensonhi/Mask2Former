@@ -15,6 +15,7 @@ opencv-python>=4.5.0
 numpy>=1.19.0,<2.0.0  # Pin to NumPy 1.x for PyTorch 1.10.2 compatibility
 Pillow==9.4.0
 scikit-image>=0.18.0
+cellpose==3.0.8
 
 # Data handling
 scipy>=1.5.0

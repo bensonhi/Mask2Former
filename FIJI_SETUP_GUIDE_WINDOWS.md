@@ -1,8 +1,8 @@
 # Fiji Integration Setup Guide for Windows
 
-**Complete beginner's guide to setting up and using automated myotube segmentation in Fiji**
+**Complete beginner's guide to setting up and using automated myotube and nuclei analysis in Fiji**
 
-This guide will help you install and run the myotube segmentation tool through Fiji (ImageJ) on Windows. No programming experience required!
+This guide will help you install and run the myotube segmentation, nuclei segmentation, and analysis tools through Fiji (ImageJ) on Windows. No programming experience required!
 
 ---
 
@@ -13,11 +13,12 @@ This guide will help you install and run the myotube segmentation tool through F
 4. [Step 3: Download This Project](#step-3-download-this-project)
 5. [Step 4: Download Trained Model](#step-4-download-trained-model)
 6. [Step 5: Copy Files to Fiji](#step-5-copy-files-to-fiji)
-7. [Step 6: Prepare Your Images](#step-6-prepare-your-images)
-8. [Step 7: First-Time Setup & Run Segmentation](#step-7-first-time-setup--run-segmentation)
-9. [Step 8: Understanding the Results](#step-8-understanding-the-results)
-10. [Updating the Tool](#updating-the-tool)
-11. [Troubleshooting](#troubleshooting)
+7. [Step 6: First-Time Setup](#step-6-first-time-setup)
+8. [Step 7: Using the Multi-Tab Interface](#step-7-using-the-multi-tab-interface)
+9. [Step 8: Complete Workflow Example](#step-8-complete-workflow-example)
+10. [Step 9: Understanding the Results](#step-9-understanding-the-results)
+11. [Updating the Tool](#updating-the-tool)
+12. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -28,6 +29,8 @@ This guide will help you install and run the myotube segmentation tool through F
 - **10GB of free disk space**
 - **Internet connection** for downloading software
 - **Your microscopy images** (TIFF format recommended)
+  - Grey channel images for myotube segmentation
+  - Blue channel images for nuclei segmentation
 
 **Time required**: 30-60 minutes for first-time setup
 
@@ -66,7 +69,7 @@ Fiji is a distribution of ImageJ (popular microscopy image analysis software) wi
 
 ## Step 2: Install Miniconda
 
-Miniconda is a Python distribution manager needed to run the segmentation algorithm.
+Miniconda is a Python distribution manager needed to run the segmentation algorithms.
 
 ### 2.1 Download Miniconda
 
@@ -134,9 +137,9 @@ Miniconda is a Python distribution manager needed to run the segmentation algori
    - Choose a destination like `C:\Users\YourUsername\`
    - Click **"Extract"**
    - The extracted folder will be named `Mask2Former-main`
-   - You can rename it to just `Mask2Former` if you prefer, or keep it as is
-   - Example paths: `C:\Users\YourUsername\Mask2Former` or `C:\Users\YourUsername\Mask2Former-main`
-   - **Remember this path** - you'll need it in Step 7 when configuring the macro
+   - You can rename it to just `Mask2Former` if you prefer
+   - Example paths: `C:\Users\YourUsername\Mask2Former`
+   - **Remember this path** - you'll need it when configuring the tools
 
 ### Option B: Clone with Git (If you have Git installed)
 
@@ -149,16 +152,12 @@ Miniconda is a Python distribution manager needed to run the segmentation algori
    ```
    git clone https://github.com/bensonhi/Mask2Former.git Mask2Former
    ```
-4. Navigate into the project:
-   ```
-   cd Mask2Former
-   ```
 
 ---
 
 ## Step 4: Download Trained Model
 
-The trained model file is required for segmentation. You need to download it from Google Drive.
+The trained model file is required for myotube segmentation.
 
 ### 4.1 Download the Model
 
@@ -169,32 +168,35 @@ The trained model file is required for segmentation. You need to download it fro
 2. **Download the .pth file**:
    - Click the **"Download"** button (usually in the top right)
    - If prompted, click **"Download anyway"** (the file is safe)
-   - The file will be named something like `model_final.pth` or similar
+   - The file will be named `model_final.pth`
    - Download location: Usually goes to your **Downloads** folder
 
 3. **Move the model file** (optional but recommended):
-   - Create a folder for models, for example: `C:\Users\YourUsername\Mask2Former\models`
+   - Create a folder for models: `C:\Users\YourUsername\Mask2Former\models`
    - Move the downloaded `.pth` file to this folder
-   - **Remember this location** - you'll need it in Step 7 when running segmentation
+   - **Remember this location** - you'll need it when running segmentation
 
-**Note**: The model file is large (several hundred MB), so the download may take a few minutes depending on your internet speed.
+**Note**: The model file is large (several hundred MB), so the download may take a few minutes.
 
 ---
 
 ## Step 5: Copy Files to Fiji
 
-This is a **critical step** - you must copy 4 files from the project to Fiji's macro folder.
+This is a **critical step** - you must copy the entire GUI folder structure to Fiji's macros directory.
 
 ### 5.1 Locate the Source Files
 
 1. Open **File Explorer**
 2. Navigate to your Mask2Former project folder
 3. Open the **`fiji_integration`** folder
-4. You should see these 4 files:
-   - `Myotube_Segmentation_Windows.ijm`
-   - `Myotube_Segmentation.ijm` (Linux/Mac version - copy anyway)
+4. You should see:
+   - `Myotube_Segmentation_Windows.ijm` (main macro file)
+   - `Myotube_Segmentation.ijm` (Linux/Mac version)
    - `myotube_segmentation.py`
    - `requirements.txt`
+   - **`gui/`** folder (contains the multi-tab interface)
+   - **`core/`** folder (contains backend processing)
+   - **`utils/`** folder (contains utility functions)
 
 ### 5.2 Locate Fiji's Macros Folder
 
@@ -203,9 +205,17 @@ This is a **critical step** - you must copy 4 files from the project to Fiji's m
 3. Open the **`macros`** folder
    - Full path example: `C:\Program Files\Fiji\macros`
 
-### 5.3 Copy the Files
+### 5.3 Copy the Files and Folders
 
-1. **Select all 4 files** in the `fiji_integration` folder
+1. **Select all files and folders** in the `fiji_integration` folder:
+   - `Myotube_Segmentation_Windows.ijm`
+   - `Myotube_Segmentation.ijm`
+   - `myotube_segmentation.py`
+   - `requirements.txt`
+   - `gui/` folder
+   - `core/` folder
+   - `utils/` folder
+
 2. **Copy them** (Ctrl+C or right-click → Copy)
 3. **Paste them** into the Fiji `macros` folder (Ctrl+V or right-click → Paste)
 4. If asked to replace existing files, click **"Replace"** or **"Yes"**
@@ -217,32 +227,32 @@ C:\Program Files\Fiji\macros\
 ├── Myotube_Segmentation.ijm            ← NEW
 ├── myotube_segmentation.py             ← NEW
 ├── requirements.txt                    ← NEW
-└── (other existing .ijm files)
+├── gui\                                ← NEW FOLDER
+│   ├── __init__.py
+│   ├── main_window.py
+│   ├── base_tab.py
+│   └── tabs\
+│       ├── max_projection_tab.py
+│       ├── myotube_tab.py
+│       ├── cellpose_tab.py
+│       └── analysis_tab.py
+├── core\                               ← NEW FOLDER
+│   ├── __init__.py
+│   ├── segmentation.py
+│   ├── tiled_segmentation.py
+│   └── ...
+└── utils\                              ← NEW FOLDER
+    ├── __init__.py
+    └── ...
 ```
 
 ---
 
-## Step 6: Prepare Your Images
+## Step 6: First-Time Setup
 
-Before running the segmentation for the first time, prepare your images so you can run segmentation immediately after installation completes.
+**The first time you run the macro, it will automatically install Python dependencies.**
 
-1. **Create a working folder** for your images, for example:
-   ```
-   C:\Users\YourUsername\Documents\MyExperiment
-   ```
-
-2. **Place your images** in this folder:
-   - Supported formats: TIFF, TIF, PNG, JPG
-   - Images should show myotubes (muscle fibers)
-   - **Important**: Images must be single-channel (gray or green). Multi-channel images are not supported
-
----
-
-## Step 7: First-Time Setup & Run Segmentation
-
-**The first time you run the macro, it will automatically install Python dependencies, then proceed directly to segmentation.**
-
-### 7.1 Launch the Macro
+### 6.1 Launch the Macro
 
 1. **Open Fiji** (double-click `ImageJ-win64.exe`)
 
@@ -252,136 +262,374 @@ Before running the segmentation for the first time, prepare your images so you c
    - Select **"Myotube_Segmentation_Windows.ijm"**
    - Click **"Open"**
 
-### 7.2 Automatic Installation (First Time Only)
+### 6.2 Automatic Installation (First Time Only)
 
-3. **Wait for automatic installation**:
-   - The macro will automatically detect if Python dependencies are missing
-   - It will create the conda environment and install all packages
-   - **Wait for installation** (5-15 minutes first time)
+3. **Install Python Dependencies**:
+   - A dialog will appear asking if you want to install dependencies
+   - Click **"Install Python Dependencies"**
+   - Wait for installation (5-15 minutes first time)
    - You'll see progress messages in a console/terminal window
-   - Once installation is complete, the Python GUI will appear automatically
-
-### 7.3 Configure and Run Segmentation
-
-4. **Select your image folder** (in Python GUI):
-   - The Python GUI window will appear after installation
-   - Click **"Browse..."** next to "Input Directory"
-   - Navigate to the folder you prepared in Step 6 (e.g., `C:\Users\YourUsername\Documents\MyExperiment`)
-   - Click **"Select Folder"**
-
-5. **Select your output folder** (in Python GUI):
-   - The "Output Directory" field shows the default location: `Desktop/myotube_results`
-   - You can keep this default or click **"Browse..."** to choose a different location
-   - Example locations:
-     - Default: `C:\Users\YourUsername\Desktop\myotube_results`
-     - Custom: `C:\Users\YourUsername\Documents\MyExperiment_Results`
-   - The output path will be saved for future runs
-
-6. **Configure Mask2Former path** (first time only):
-   - You'll be asked for the Mask2Former directory
-   - Browse to where you extracted the project in Step 3
-   - Examples: `C:\Users\John\Mask2Former` or `C:\Users\John\Mask2Former-main`
-   - The path will be saved for future use
-
-7. **Select the trained model file** (in Python GUI):
-   - Click **"Browse..."** next to "Model Weights" or "Model Path"
-   - Navigate to where you saved the `.pth` file in Step 4
-   - Select the downloaded model file (e.g., `model_final.pth`)
-   - Click **"Open"**
-   - The model path will be saved for future runs
-
-8. **Configure parameters** (optional):
-   - The Python GUI will show settings with these options:
-
-   | Parameter | Default | Description |
-   |-----------|---------|-------------|
-   | **Confidence Threshold** | 0.5 | Only keep predictions above this confidence (0.0-1.0) |
-   | **Min Area (pixels)** | 1000 | Remove myotubes smaller than this |
-   | **Max Area (pixels)** | 1000000 | Remove myotubes larger than this |
-   | **Overlap Threshold** | 0.5 | For merging overlapping predictions (0.0-1.0) |
-   | **Target Resolution** | 9000 | Resize images to this width (pixels) |
-
-   - For first-time users, **use the defaults**
-   - Click **"Run Segmentation"** to start processing
-
-9. **Monitor progress in console**:
-   - The Python GUI includes a "Console Output" section at the bottom
-   - You'll see real-time progress messages:
-     - "Processing 1/5: image001.tif"
-     - Progress through each image
-     - Any errors or warnings
-   - **The GUI will stay open** during processing
-   - Processing time: 1-3 minutes per image typically
-
-10. **Run multiple times** (optional):
-   - After processing completes, you'll see "=== Ready for next run ===" in the console
-   - The "Run Segmentation" button will be re-enabled
-   - You can:
-     - Adjust parameters (confidence, area filters, etc.)
-     - Select different input/output folders
-     - Click "Run Segmentation" again
-   - **No need to restart** - the GUI stays open for multiple runs!
-
-11. **Close the GUI**:
-   - When you're done, click the **"Close"** button
-   - Your settings will be saved for next time
+   - Once installation is complete, the multi-tab GUI will appear automatically
 
 ---
 
-## Step 8: Understanding the Results
+## Step 7: Using the Multi-Tab Interface
 
-The results will be saved in the output directory you selected in the Python GUI. For each input image, the tool creates:
+The GUI has **4 tabs** for different processing steps. You can run them independently or in sequence.
+
+### Tab 1: Max Projection & Channel Splitting
+
+**Purpose**: Split multi-channel Z-stack images into separate grey and blue channels with max projection.
+
+**When to use**: If you have multi-channel Z-stack images that need to be separated before segmentation.
+
+**Steps**:
+1. Click the **"Max Projection & Channel Splitting"** tab
+2. **Input Directory**: Browse to your multi-channel Z-stack images
+3. **Output Directory**: Choose where to save the split channels
+4. Click **"Run Channel Splitting"**
+
+**Output**:
+- `*_grey.tif` - Grey channel (for myotube segmentation)
+- `*_blue.tif` - Blue channel (for nuclei segmentation)
+
+---
+
+### Tab 2: Myotube Segmentation
+
+**Purpose**: Detect and segment myotubes in grey channel images using the trained Mask2Former model.
+
+**Steps**:
+1. Click the **"Myotube Segmentation"** tab
+2. **Input Directory**: Browse to folder containing grey channel images
+3. **Output Directory**: Choose where to save segmentation results
+4. **Model Configuration** (first time only):
+   - *Config File: Browse to `stage2_config.yaml` in your Mask2Former folder
+   - *Model Weights: Browse to the `model_final.pth` you downloaded
+   - *Mask2Former Path: Browse to your Mask2Former project folder
+
+5. **Detection Parameters**:
+   - **Confidence Threshold** (0-1): Default 0.25
+     - Higher = fewer detections (stricter)
+     - Lower = more detections (may include false positives)
+     - *When to adjust*: If missing obvious myotubes, lower to 0.15-0.20
+
+   - **Minimum Area** (pixels): Default 100
+     - Filters out tiny detections
+     - *When to adjust*: If seeing small artifacts, increase to 200-500
+
+   - **Maximum Area** (pixels): Default 50000
+     - Filters out unrealistically large detections
+     - *When to adjust*: Rarely needed unless you have very large myotubes
+
+   - **Final Min Area** (pixels): Default 1000
+     - Second-stage filter after post-processing
+     - Removes small fragments after merging
+     - *When to adjust*: If final results still have small fragments, increase
+
+6. **Tiling Options** (for large images or dense myotubes):
+   - **Use tiled inference**: Check for images with many myotubes
+   - **Grid Size**: Default 2 (creates 2×2=4 tiles)
+     - 1 = no tiling
+     - 2 = 2×2 grid (4 tiles)
+     - 3 = 3×3 grid (9 tiles)
+     - *When to adjust*: If many myotubes, use 2-3 for better detection
+
+   - **Tile Overlap** (%): Default 20%
+     - Overlap between adjacent tiles
+     - Helps detect myotubes at tile boundaries
+     - *When to adjust*: Rarely needed
+
+7. **Output Options**:
+   - **Skip merged masks**: Default checked
+     - Skips generating imaginary boundary files (faster)
+     - *Uncheck if*: You need the merged visualization for presentations
+
+   - **Save measurements CSV**: Default unchecked
+     - Saves detailed measurements (area, length, width) for each myotube
+     - *Check if*: You need quantitative morphology data
+
+8. Click **"Run Segmentation"**
+
+**Output Files** (for each image):
+- `[ImageName]_masks/` - Individual myotube mask PNG files (one per myotube)
+- `[ImageName]_processed_overlay.tif` - **Main result**: Color-coded overlay on original image
+- `[ImageName]_raw_overlay.tif` - Raw model predictions before post-processing
+- `[ImageName]_info.json` - Processing metadata (parameters used, image dimensions, etc.)
+- `[ImageName]_measurements.csv` - Myotube measurements (if "Save measurements" checked)
+
+---
+
+### Tab 3: Nuclei Segmentation (CellPose)
+
+**Purpose**: Segment nuclei in blue channel images using CellPose.
+
+**Steps**:
+1. Click the **"Nuclei Segmentation (CellPose)"** tab
+2. **Input Directory**: Browse to folder containing blue channel images
+3. **Output Directory**: Choose where to save nuclei segmentation
+4. **CellPose Settings**:
+   - Model Type: `cyto3` (default) or `nuclei`
+   - Diameter: 30 pixels (or 0 for auto-detection)
+   - Use GPU: Check if you have CUDA-capable GPU
+   - Target Resolution: 3000 (scales down large images for speed)
+5. **Output Options**:
+   - Save NPY: Check (required for analysis)
+   - Save Fiji ROIs: Optional
+   - Save Visualization: Check
+6. Click **"Run CellPose Segmentation"**
+
+**Output** (for each image):
+- `[ImageName]_seg.npy` - Nuclei segmentation masks (required for analysis)
+- `[ImageName]_RoiSet.zip` - Fiji ROI file (optional)
+- `[ImageName]_overlay.png` - Visualization
+
+---
+
+### Tab 4: Nuclei-Myotube Analysis
+
+**Purpose**: Analyze the relationship between nuclei and myotubes - count nuclei per myotube and filter nuclei by quality.
+
+**Steps**:
+1. Click the **"Nuclei-Myotube Analysis"** tab
+
+2. **Input/Output Folders**:
+   - **Myotube Folder**: Browse to myotube segmentation results (from Tab 2)
+   - **Nuclei Folder**: Browse to nuclei segmentation results (from Tab 3)
+   - **Output Folder**: Choose where to save analysis results
+
+3. **Filter Parameters**:
+   - **Nucleus Size Range** (pixels): Default 400-6000
+     - **Min Area**: Removes small debris/artifacts
+     - **Max Area**: Removes large clumps (likely multiple nuclei)
+     - *What it does*: Nuclei outside this range are marked as "filtered_size" (shown in RED on overlay)
+     - *When to adjust*: Measure some nuclei in Fiji to determine appropriate size range for your images
+
+   - **Max Eccentricity** (0-1): Default 0.95
+     - **0** = perfect circle
+     - **1** = elongated line
+     - Values close to 1 indicate highly elongated shapes (likely artifacts, not nuclei)
+     - *What it does*: Nuclei with eccentricity > 0.95 are marked as "filtered_eccentricity" (shown in YELLOW on overlay)
+     - *When to adjust*: If losing real nuclei that are slightly elongated, increase to 0.98
+
+   - **Overlap Threshold** (0-1): Default 0.10 (10%)
+     - Minimum percentage of nucleus that must overlap with a myotube to be assigned to it
+     - Example: 0.10 means ≥10% of the nucleus area must be inside a myotube
+     - *What it does*: Nuclei with <10% overlap are marked as "filtered_overlap" (shown in BLUE on overlay)
+     - *When to adjust*:
+       - Lower (0.05) = include nuclei barely touching myotubes
+       - Higher (0.30-0.50) = only include nuclei with substantial overlap
+
+   - **Periphery Overlap Threshold** (0-1): Default 0.95 (95%)
+     - Used to distinguish "central" vs "peripheral" nuclei in the periphery overlay
+     - Only affects visualization in `*_periphery_overlay.tif`, not the counts
+     - *What it does*:
+       - Nuclei with overlap ≥ periphery threshold → GREEN (central)
+       - Nuclei with overlap < periphery threshold but ≥ regular threshold → YELLOW (peripheral)
+     - *When to adjust*:
+       - Set to 1.0 if you want only perfectly centered nuclei as green
+       - Lower (0.70-0.80) if you want more nuclei classified as central
+
+4. **Processing Options**:
+   - **Full Image Mode**: Check if processing complete images (not cropped quadrants)
+     - *When to check*: Always check this unless you manually cropped images into quadrants
+
+5. Click **"Run Analysis"**
+
+**Output Files** (for each sample):
+- `[Sample]_myotube_nuclei_counts.csv` - **Main result**: Nuclei count per myotube
+- `[Sample]_nuclei_myotube_assignments.csv` - Detailed nucleus-by-nucleus data
+- `[Sample]_analysis_summary.txt` - Statistics summary
+- `[Sample]_nuclei_overlay.tif` - Color-coded visualization showing all nuclei:
+  - **GREEN**: Assigned to myotubes (passed all filters)
+  - **RED**: Filtered out by size
+  - **YELLOW**: Filtered out by eccentricity
+  - **BLUE**: Filtered out by overlap
+- `[Sample]_periphery_overlay.tif` - Shows only assigned nuclei:
+  - **GREEN**: Central nuclei (overlap ≥ periphery threshold)
+  - **YELLOW**: Peripheral nuclei (overlap between regular and periphery threshold)
+
+---
+
+## Step 8: Complete Workflow Example
+
+Here's a typical workflow from raw images to final analysis:
+
+### Step-by-Step Example
+
+**Starting with**: Multi-channel Z-stack images with grey (myotube) and blue (nuclei) channels
+
+1. **Tab 1: Split Channels**
+   - Input: `C:\MyImages\raw\` (multi-channel Z-stacks)
+   - Output: `C:\MyImages\1_channels\`
+   - Result: Separate grey and blue TIFF files
+
+2. **Tab 2: Segment Myotubes**
+   - Input: `C:\MyImages\1_channels\` (grey channel files)
+   - Output: `C:\MyImages\2_myotubes\`
+   - Result: Myotube masks and overlays
+
+3. **Tab 3: Segment Nuclei**
+   - Input: `C:\MyImages\1_channels\` (blue channel files)
+   - Output: `C:\MyImages\3_nuclei\`
+   - Result: Nuclei segmentation NPY files
+
+4. **Tab 4: Analyze**
+   - Myotube Folder: `C:\MyImages\2_myotubes\`
+   - Nuclei Folder: `C:\MyImages\3_nuclei\`
+   - Output: `C:\MyImages\4_analysis\`
+   - Filter Settings: Use defaults (400-6000 pixels, 0.95 eccentricity, 0.10 overlap, 0.95 periphery)
+   - Result: CSV files and overlays showing nuclei-myotube relationships
+
+**Final Output**:
+- `myotube_nuclei_counts.csv` - Ready for statistical analysis!
+- `nuclei_overlay.tif` - Verify filtering worked correctly
+- `periphery_overlay.tif` - See central vs peripheral nuclei distribution
+
+---
+
+## Step 9: Understanding the Results
+
+### Myotube Segmentation Output
 
 ```
 OutputFolder/
-├── ImageName_masks/                    ← Folder containing individual myotube masks
-├── ImageName_processed_overlay.tif     ← Visualization with colored outlines
-├── ImageName_raw_overlay.tif           ← Alternative visualization
-├── ImageName_info.json                 ← Processing metadata
-└── ImageName_measurements.csv          ← Measurements (if enabled in settings)
+├── ImageName_masks/                    ← Individual myotube masks
+│   ├── Myotube_1_mask.png
+│   ├── Myotube_2_mask.png
+│   └── ...
+├── ImageName_processed_overlay.tif     ← Final segmentation visualization
+├── ImageName_raw_overlay.tif           ← Raw model output
+└── ImageName_info.json                 ← Processing metadata
 ```
 
-**Example output structure:**
+### Nuclei Segmentation Output
+
 ```
-C:\Users\YourUsername\Documents\Results\
-├── MyImage_masks\
-│   ├── mask_001.png
-│   ├── mask_002.png
-│   └── ... (one mask per detected myotube)
-├── MyImage_processed_overlay.tif
-├── MyImage_raw_overlay.tif
-├── MyImage_info.json
-└── MyImage_measurements.csv (optional)
+OutputFolder/
+└── ImageName/
+    ├── ImageName_seg.npy               ← Nuclei masks (for analysis)
+    ├── ImageName_RoiSet.zip            ← Fiji ROIs (optional)
+    └── ImageName_overlay.png           ← Visualization
 ```
 
-**Files explained**:
+### Analysis Output
 
-- **[ImageName]_masks/**: Folder containing individual mask files
-  - One PNG file per detected myotube
-  - Named sequentially: `mask_001.png`, `mask_002.png`, etc.
-  - Use these for quantification or further processing
+```
+OutputFolder/
+└── SampleName/
+    ├── SampleName_myotube_nuclei_counts.csv        ← Main result: Counts per myotube
+    ├── SampleName_nuclei_myotube_assignments.csv   ← Detailed nucleus data
+    ├── SampleName_analysis_summary.txt             ← Statistics summary
+    ├── SampleName_nuclei_overlay.tif               ← All nuclei color-coded
+    └── SampleName_periphery_overlay.tif            ← Only assigned nuclei (central vs peripheral)
+```
 
-- **[ImageName]_processed_overlay.tif**: Final segmentation results after post-processing
-  - Shows myotubes after filtering (confidence threshold, size filters, overlap removal)
-  - Each myotube gets a different colored outline
-  - **Use this file** for presentations and validation
+**Understanding the CSV Files**:
 
-- **[ImageName]_raw_overlay.tif**: Raw model output before post-processing
-  - Shows all predictions directly from the neural network
-  - Useful for troubleshooting or adjusting parameters
+#### 1. `myotube_nuclei_counts.csv` - **YOUR MAIN RESULTS**
 
-- **[ImageName]_info.json**: Processing metadata and parameters
-  - Contains settings used for this segmentation
-  - Useful for reproducibility
+This is the file you'll use for statistical analysis. One row per myotube.
 
-- **[ImageName]_measurements.csv** (optional): Comprehensive measurements spreadsheet
-  - Generated only if "Save measurements CSV" is enabled in the GUI
-  - Contains detailed metrics for each myotube:
-    - Area, Visible Length, Estimated Total Length, Width
-    - Aspect Ratio, Connected Components, Perimeter
-    - Bounding Box dimensions and Confidence scores
-  - Open in Excel or any spreadsheet program
-  - Note: Generation may be slow for images with many myotubes (disabled by default)
+**Columns**:
+- `myotube_id`: Unique ID for each myotube (1, 2, 3, ...)
+- `nucleus_count`: **Number of nuclei assigned to this myotube** (passed all filters)
+- `total_overlapping`: Total nuclei detected overlapping with this myotube (before filtering)
+- `filtered_size`: Number filtered out by size criteria
+- `filtered_eccentricity`: Number filtered out by eccentricity (too elongated)
+- `filtered_overlap`: Number filtered out by overlap threshold (not enough overlap)
+
+**Example row**:
+```
+myotube_id,nucleus_count,total_overlapping,filtered_size,filtered_eccentricity,filtered_overlap
+1,12,15,1,1,1
+```
+This means: Myotube #1 has **12 assigned nuclei**. It had 15 total overlapping objects, but 1 was too small, 1 was too elongated, and 1 didn't have enough overlap.
+
+#### 2. `nuclei_myotube_assignments.csv` - **DETAILED NUCLEUS DATA**
+
+One row per detected nucleus. Use this to understand why specific nuclei were filtered.
+
+**Columns**:
+- `nucleus_id`: Unique ID for each nucleus (1, 2, 3, ...)
+- `assigned_myotube_id`: Which myotube this nucleus is assigned to (None if filtered out)
+- `filter_status`: One of:
+  - `passed` - Nucleus assigned to a myotube (counted)
+  - `filtered_size` - Outside size range
+  - `filtered_eccentricity` - Too elongated
+  - `filtered_overlap` - Not enough overlap with any myotube
+- `overlap_percentage`: Percentage of nucleus overlapping with its assigned myotube (0-100)
+- `area`: Nucleus area in pixels
+- `eccentricity`: Shape measure (0=circle, 1=line)
+- `circularity`: Alternative shape measure (1=perfect circle, lower=irregular)
+- `centroid_y`, `centroid_x`: Nucleus center coordinates
+
+**Example rows**:
+```
+nucleus_id,assigned_myotube_id,filter_status,overlap_percentage,area,eccentricity
+408,3,passed,82.5,756,0.65
+431,3,passed,79.3,812,0.58
+156,None,filtered_size,0,189,0.72
+```
+- Nucleus 408: Assigned to myotube 3, 82.5% overlap, 756 pixels
+- Nucleus 431: Assigned to myotube 3, 79.3% overlap, 812 pixels
+- Nucleus 156: Filtered out (too small - only 189 pixels)
+
+#### 3. `analysis_summary.txt` - **STATISTICS OVERVIEW**
+
+Text file with summary statistics:
+- Total myotubes analyzed
+- Total nuclei detected
+- Total nuclei assigned (passed filters)
+- Filtering breakdown (how many filtered by each criterion)
+- Average nuclei per myotube
+- Min/max nuclei per myotube
+
+---
+
+**Understanding the Overlay Visualizations**:
+
+#### `nuclei_overlay.tif` - Shows ALL detected nuclei
+
+This overlay helps you understand your filtering:
+
+- **GREEN nuclei**: Passed all filters and assigned to myotubes ✓
+  - These are counted in your results
+  - Size is within range (400-6000 pixels)
+  - Eccentricity < 0.95 (round enough)
+  - Overlap ≥ threshold (≥10% overlap with myotube)
+
+- **RED nuclei**: Filtered by size ✗
+  - Too small (< min area) or too large (> max area)
+  - Likely debris (small) or clumps (large)
+
+- **YELLOW nuclei**: Filtered by eccentricity ✗
+  - Too elongated (eccentricity > 0.95)
+  - Likely artifacts, not real nuclei
+
+- **BLUE nuclei**: Filtered by overlap ✗
+  - Not enough overlap with any myotube (< overlap threshold)
+  - May be background nuclei not associated with myotubes
+
+**How to use this**: Visually inspect to verify filtering is working correctly. If many real nuclei are being filtered, adjust the parameters.
+
+---
+
+#### `periphery_overlay.tif` - Shows ONLY assigned nuclei (central vs peripheral)
+
+This overlay shows spatial distribution of nuclei within myotubes:
+
+- **GREEN nuclei**: Central nuclei
+  - Overlap ≥ periphery overlap threshold (default 95%)
+  - Deeply embedded inside the myotube
+
+- **YELLOW nuclei**: Peripheral nuclei
+  - Overlap between regular threshold (10%) and periphery threshold (95%)
+  - Closer to myotube edges or partially overlapping
+
+**How to use this**:
+- If you want to analyze central vs peripheral nuclei separately, you can use the `overlap_percentage` column in the CSV along with your threshold values
+- Example: Count nuclei with overlap_percentage ≥ 95 (central) vs 10-95 (peripheral)
 
 ---
 
@@ -389,25 +637,80 @@ C:\Users\YourUsername\Documents\Results\
 
 ### When to Update
 
-You need to update the Fiji integration files when:
+You need to update when:
 - You receive a new version of the project
 - You pull updates from Git
 - Files in `fiji_integration/` folder are modified
 
 ### How to Update
 
-**Every time you update or pull the project, repeat Step 5:**
+**Every time you update the project, repeat Step 5:**
 
 1. Navigate to the project's `fiji_integration` folder
-2. Copy all 4 files:
-   - `Myotube_Segmentation_Windows.ijm`
-   - `Myotube_Segmentation.ijm`
+2. Copy all files and folders:
+   - Both `.ijm` files
    - `myotube_segmentation.py`
    - `requirements.txt`
+   - `gui/` folder
+   - `core/` folder
+   - `utils/` folder
 3. Paste them into Fiji's `macros` folder
-4. **Replace/overwrite** the existing files when prompted
+4. **Replace/overwrite** all existing files when prompted
+5. **Restart Fiji**
 
 **Important**: Always restart Fiji after updating files!
+
+---
+
+## Common Questions
+
+### Q: How do I know if my filter settings are correct?
+
+**A**: Check the `nuclei_overlay.tif`:
+- If you see many **RED** nuclei that look like real nuclei → Your size range is too restrictive. Increase max area (e.g., from 6000 to 8000) or decrease min area (e.g., from 400 to 300).
+- If you see many **YELLOW** nuclei that look round → Your eccentricity threshold is too strict. Increase from 0.95 to 0.98.
+- If you see many **BLUE** nuclei clearly inside myotubes → Your overlap threshold is too high. It's already very low at 0.10 (10%), so this is unlikely. If it happens, decrease to 0.05.
+- If you see many small **RED** dots everywhere → That's debris being correctly filtered out. No action needed.
+
+### Q: What's the difference between overlap threshold and periphery overlap threshold?
+
+**A**:
+- **Overlap threshold** (default 0.10): Determines which nuclei are **counted**. Nuclei with <10% overlap are excluded from analysis.
+- **Periphery overlap threshold** (default 0.95): Only affects the **periphery overlay visualization**. Distinguishes central (≥95%) from peripheral (10-95%) nuclei. Both are still counted in your results.
+
+### Q: Should I use tiled inference?
+
+**A**:
+- **Use tiling** (Grid Size 2-3) if:
+  - Your images have many myotubes (>20)
+  - Myotubes are densely packed
+  - You're getting incomplete segmentations
+- **Don't use tiling** (Grid Size 1) if:
+  - Your images have few myotubes (<10)
+  - Myotubes are well-separated
+  - Processing time is acceptable
+
+### Q: Why are nuclei counts different between `total_overlapping` and `nucleus_count`?
+
+**A**: `total_overlapping` includes ALL nuclei that touch the myotube, even those that failed filters (too small, too elongated, or insufficient overlap). `nucleus_count` only includes nuclei that **passed all filters** and are assigned to the myotube.
+
+### Q: Can I process images at different resolutions together?
+
+**A**: Yes, the tool automatically handles different image sizes. However, for **analysis** (Tab 4), make sure your filter parameters (especially size range) are appropriate for your image resolution. If you have mixed resolutions, you may need to run analysis separately for each resolution.
+
+### Q: What if myotube and nuclei images don't align perfectly?
+
+**A**: The analysis automatically resizes nuclei masks to match myotube overlay dimensions if needed. However, the images should be from the **same field of view**. If they're from different regions or different samples, the analysis won't be meaningful.
+
+### Q: How do I analyze just central nuclei?
+
+**A**:
+1. Set periphery overlap threshold to your desired cutoff (default is 0.95 for ≥95% overlap)
+2. After analysis, use the `nuclei_myotube_assignments.csv` file
+3. Filter for rows where `overlap_percentage ≥ 95`
+4. Count these nuclei per myotube in Excel/Python/R
+
+**Example**: If you want nuclei that are mostly inside (≥80% overlap), change periphery overlap threshold to 0.80, then filter the CSV for `overlap_percentage ≥ 80`.
 
 ---
 
@@ -424,84 +727,84 @@ You need to update the Fiji integration files when:
 
 ### Problem: "Could not find Mask2Former directory"
 
-**Cause**: Incorrect path configured in the Python GUI
+**Cause**: Incorrect path configured
 
 **Solution**:
-1. When you run the macro, the Python GUI will ask for the Mask2Former directory
-2. Click **"Browse..."** and navigate to the correct location where you extracted the project
-3. Examples of correct paths:
-   - `C:\Users\YourUsername\Mask2Former`
-   - `C:\Users\YourUsername\Mask2Former-main`
-   - `D:\Projects\Mask2Former`
-4. Make sure the folder contains the `mask2former/` subdirectory and other project files
-5. The path will be saved for future runs
+1. In the Myotube Segmentation tab, click "Browse..." for Mask2Former Path
+2. Navigate to the correct location where you extracted the project
+3. Make sure the folder contains `mask2former/` subdirectory
 
 ### Problem: Macro doesn't appear in Fiji
 
-**Cause**: Files not copied to correct location, or using a different Fiji installation
+**Cause**: Files not copied to correct location
 
 **Solution**:
-1. **Check if you're using the correct Fiji installation**:
-   - You may have multiple Fiji installations on your computer
-   - Make sure you're opening the Fiji where you copied the macro files
-   - Check the window title or Help → About ImageJ to confirm the location
-2. Verify files are in the correct Fiji's `macros` folder (not `plugins` or other folders)
-3. Make sure you copied the files to the active Fiji installation's macros folder
-4. Restart Fiji completely
-5. Press 'M' key to see if macro appears
+1. Verify files are in Fiji's `macros` folder (not `plugins`)
+2. Make sure you copied the `.ijm` files directly to `macros/`, not in a subfolder
+3. Restart Fiji completely
+4. Press 'M' key to see if macro appears
+
+### Problem: ModuleNotFoundError when running GUI
+
+**Cause**: Folder structure not copied correctly
+
+**Solution**:
+1. Make sure you copied the entire `gui/`, `core/`, and `utils/` folders to Fiji's `macros` folder
+2. The folder structure should match exactly as shown in Step 5.3
+3. Restart Fiji after copying
+
+### Problem: Analysis shows nuclei only in corner of overlay
+
+**Cause**: This was a bug in earlier versions (now fixed)
+
+**Solution**:
+1. Update to the latest version (follow "Updating the Tool" section)
+2. The overlay will automatically resize nuclei to match myotube overlay dimensions
 
 ### Problem: Segmentation produces no results
 
 **Possible causes and solutions**:
 
 1. **Images are not suitable**:
-   - Make sure images show myotubes clearly
+   - Make sure images show myotubes/nuclei clearly
    - Images should have good contrast
 
 2. **Confidence threshold too high**:
    - Try lowering the confidence threshold to 0.3 or 0.2
    - Re-run the segmentation
 
-3. **Model not downloaded**:
-   - Make sure the project folder contains the trained model files
-   - Check for a folder like `output_stage2_manual` or similar
-
-### Problem: Segmentation is very slow
-
-**Normal processing time**: 1-3 minutes per image
-
-**If much slower**:
-1. Check if your computer meets minimum requirements (8GB RAM)
-2. Close other programs to free up memory
-3. Process fewer images at once
-4. Consider using a more powerful computer for large batches
+3. **Wrong channel**:
+   - Use grey channel for myotubes
+   - Use blue channel for nuclei
 
 ---
 
 ## Tips for Best Results
 
 1. **Image Quality**:
-   - Ensure good contrast between myotubes and background
+   - Ensure good contrast between structures and background
    - Avoid overexposed or underexposed images
 
-2. **Batch Processing**:
-   - Process 10-20 images at a time
-   - For large datasets, split into multiple folders
+2. **Workflow Organization**:
+   - Create a consistent folder structure for each experiment
+   - Use descriptive folder names
+   - Example: `Experiment1/1_channels/`, `Experiment1/2_myotubes/`, etc.
 
 3. **Parameter Tuning**:
    - Start with default parameters
-   - If too many false positives: increase confidence threshold
-   - If missing myotubes: decrease confidence threshold
-   - If detecting noise: increase minimum area
+   - For myotubes: If too many false positives, increase confidence threshold
+   - For nuclei: Adjust diameter if auto-detection doesn't work well
+   - For analysis: Adjust overlap threshold based on your biology
 
 4. **Validation**:
    - Always visually inspect the overlay images
-   - Check both processed and raw overlay files to assess segmentation quality
-   - Compare with manual annotations on a few test images
+   - Check a few samples manually to validate automated counts
+   - Use the color-coded analysis overlay to understand filtering
 
-5. **Backing Up**:
-   - Always keep a copy of your original images
-   - The tool doesn't modify original images, but it's good practice
+5. **Batch Processing**:
+   - Process 10-20 images at a time
+   - For large datasets, split into multiple folders
+   - The GUI stays open for multiple runs - no need to restart!
 
 ---
 
@@ -509,15 +812,15 @@ You need to update the Fiji integration files when:
 
 If you encounter issues not covered in this guide:
 
-1. **Check the project documentation**: Look for README files or other markdown files in the project folder
+1. **Check the project documentation**: Look for README files in the project folder
 
-2. **Check file paths**: Most issues are caused by incorrect file paths - double-check all paths use double backslashes `\\`
+2. **Verify installation**: Make sure all software (Fiji, Miniconda) is properly installed
 
-3. **Verify installation**: Make sure all software (Fiji, Miniconda) is properly installed
+3. **Check file paths**: Most issues are caused by incorrect file paths
 
 4. **Contact the developer**: Provide details about:
    - Error messages (copy the exact text)
-   - What step you were on
+   - What step/tab you were on
    - Your Windows version
    - Screenshots if possible
 
@@ -525,34 +828,53 @@ If you encounter issues not covered in this guide:
 
 ## Quick Reference Card
 
-**To run segmentation**:
+**To run the tools**:
 1. Open Fiji
 2. Press **'M'** key
 3. Select **"Myotube_Segmentation_Windows.ijm"**
-4. Choose your image folder
-5. Adjust parameters (or use defaults)
-6. Click OK and wait
+4. Use the appropriate tab for your task
+5. Configure settings and click Run
+
+**Complete workflow**:
+1. **Tab 1**: Split channels → grey + blue TIFFs
+2. **Tab 2**: Segment myotubes → masks + overlays
+   - Key params: Confidence 0.25, Min area 100, Final min area 1000
+3. **Tab 3**: Segment nuclei → NPY files
+   - Key params: Model cyto3, Diameter 30, Target res 3000
+4. **Tab 4**: Analyze → CSV files + overlays
+   - Key params: Size 400-6000, Eccentricity 0.95, Overlap 0.10, Periphery 0.95
+
+**Main result files**:
+- **Myotube segmentation**: `*_processed_overlay.tif` (visualization), `*_masks/` (individual masks)
+- **Nuclei segmentation**: `*_seg.npy` (required for analysis), `*_overlay.png` (visualization)
+- **Analysis**: `*_myotube_nuclei_counts.csv` (main results), `*_nuclei_overlay.tif` (all nuclei), `*_periphery_overlay.tif` (central vs peripheral)
+
+**Overlay color codes**:
+- **nuclei_overlay.tif**: GREEN=assigned, RED=size filter, YELLOW=eccentricity filter, BLUE=overlap filter
+- **periphery_overlay.tif**: GREEN=central nuclei (≥95% overlap), YELLOW=peripheral nuclei (10-95% overlap)
 
 **After updates**:
-1. Copy 4 files from `fiji_integration/`
+1. Copy entire `fiji_integration/` contents (both .ijm files + gui/ + core/ + utils/ folders)
 2. Paste to Fiji's `macros/` folder
-3. Replace existing files
+3. Replace all existing files
 4. Restart Fiji
-
-**Results location**:
-- Look in the output folder you selected in the GUI
-- For each image: `[ImageName]_masks/` folder, `_processed_overlay.tif`, `_raw_overlay.tif`, `_info.json`
-- Optional: `_measurements.csv` (if enabled in GUI settings)
-- Open overlay files to view segmentation results
 
 ---
 
 ## Version Information
 
-- **Guide Version**: 1.0
-- **Last Updated**: 2025
+- **Guide Version**: 2.1
+- **Last Updated**: November 2025
 - **Compatible with**: Windows 10/11, Fiji/ImageJ
+- **Features**:
+  - Multi-tab interface with 4 processing steps
+  - Max projection and channel splitting
+  - Myotube segmentation with Mask2Former
+  - Nuclei segmentation with CellPose
+  - Comprehensive nuclei-myotube relationship analysis
+  - Central vs peripheral nuclei classification
+  - Detailed parameter explanations and CSV result documentation
 
 ---
 
-**You're now ready to use automated myotube segmentation! Happy analyzing!**
+**You're now ready to use the complete automated analysis pipeline! Happy analyzing!**

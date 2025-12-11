@@ -20,11 +20,11 @@ from torch.autograd.function import once_differentiable
 
 try:
     import MultiScaleDeformableAttention as MSDA
-except ModuleNotFoundError:
+except (ModuleNotFoundError, ImportError) as e:
     MSDA = None
     import warnings
     warnings.warn(
-        "CUDA extension MultiScaleDeformableAttention not available. "
+        f"CUDA extension MultiScaleDeformableAttention not available ({e}). "
         "Using slower PyTorch fallback (ms_deform_attn_core_pytorch). "
         "For better performance, compile CUDA op with: cd mask2former/modeling/pixel_decoder/ops && sh make.sh"
     )

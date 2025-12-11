@@ -163,7 +163,7 @@ function validateSetup() {
     if (SCRIPT_PATH == "") {
         // Prefer repo script if MASK2FORMER_PATH is set
         if (MASK2FORMER_PATH != "") {
-            repo_script = MASK2FORMER_PATH + File.separator + "fiji_integration" + File.separator + "myotube_segmentation.py";
+            repo_script = MASK2FORMER_PATH + File.separator + "fiji_integration" + File.separator + "fiji_gui.py";
             if (File.exists(repo_script)) {
                 SCRIPT_PATH = repo_script;
             }
@@ -172,8 +172,12 @@ function validateSetup() {
         macro_dir = getDirectory("macros");
         plugin_dir = getDirectory("plugins");
 
-        // Try to find the script in common locations
+        // Try to find the script in common locations (try new GUI first, then fall back to old)
         script_locations = newArray(
+            macro_dir + "fiji_integration" + File.separator + "fiji_gui.py",
+            macro_dir + "fiji_gui.py",
+            plugin_dir + "fiji_gui.py",
+            getDirectory("startup") + "fiji_gui.py",
             macro_dir + "myotube_segmentation.py",
             plugin_dir + "myotube_segmentation.py",
             getDirectory("startup") + "myotube_segmentation.py",
@@ -191,7 +195,7 @@ function validateSetup() {
 
         if (SCRIPT_PATH == "") {
             showMessage("Setup Error",
-                       "Could not find myotube_segmentation.py script.\\n\\n" +
+                       "Could not find fiji_gui.py or myotube_segmentation.py script.\\n\\n" +
                        "Please ensure the script is in one of these locations:\\n" +
                        "- Fiji macros folder\\n" +
                        "- Fiji plugins folder\\n" +
