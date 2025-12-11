@@ -34,6 +34,73 @@ var OUTPUT_DIR = "";
 // Note: All processing parameters are configured through the Python GUI
 
 /*
+ * Find conda activate script
+ * Tries PATH first (using conda info --base), then falls back to common hardcoded locations
+ * Returns the path to activate.bat, or empty string if not found
+ */
+function findCondaActivateScript() {
+    if (!startsWith(getInfo("os.name"), "Windows")) {
+        return "";  // This function is Windows-specific
+    }
+
+    conda_init = "";
+
+    // Strategy 1: Try to find conda via PATH using 'conda info --base'
+    print("Searching for conda in PATH...");
+    conda_base_file = getDirectory("temp") + "conda_base_finder.txt";
+    exec("cmd", "/c", "conda info --base > \"" + conda_base_file + "\" 2>&1");
+    wait(500);
+
+    if (File.exists(conda_base_file)) {
+        conda_base_content = File.openAsString(conda_base_file);
+        // Clean up line endings
+        conda_base_content = replace(conda_base_content, "\r\n", "");
+        conda_base_content = replace(conda_base_content, "\n", "");
+        conda_base_content = replace(conda_base_content, "\r", "");
+
+        // Check if we got a valid path (not an error message)
+        if (File.exists(conda_base_content)) {
+            potential_activate = conda_base_content + "\\Scripts\\activate.bat";
+            if (File.exists(potential_activate)) {
+                conda_init = potential_activate;
+                print("✅ Found conda via PATH: " + conda_init);
+            }
+        }
+        File.delete(conda_base_file);
+    }
+
+    // Strategy 2: If PATH method failed, check common hardcoded locations
+    if (conda_init == "") {
+        print("Conda not found in PATH, checking common installation locations...");
+        conda_locations = newArray(
+            "%USERPROFILE%\\AppData\\Local\\miniconda3\\Scripts\\activate.bat",
+            "%USERPROFILE%\\miniconda3\\Scripts\\activate.bat",
+            "%USERPROFILE%\\AppData\\Local\\anaconda3\\Scripts\\activate.bat",
+            "%USERPROFILE%\\anaconda3\\Scripts\\activate.bat"
+        );
+
+        home_dir = getInfo("user.home");
+        for (i = 0; i < conda_locations.length; i++) {
+            test_path = replace(conda_locations[i], "%USERPROFILE%", home_dir);
+            if (File.exists(test_path)) {
+                conda_init = test_path;
+                print("✅ Found conda at: " + conda_init);
+                break;
+            }
+        }
+    }
+
+    // Strategy 3: Final fallback
+    if (conda_init == "") {
+        home_dir = getInfo("user.home");
+        conda_init = home_dir + "\\AppData\\Local\\miniconda3\\Scripts\\activate.bat";
+        print("⚠️  Using fallback path (may not exist): " + conda_init);
+    }
+
+    return conda_init;
+}
+
+/*
  * Main macro function - Launches GUI for parameter configuration
  */
 macro "Segment Myotubes [M]" {
@@ -107,30 +174,8 @@ function segmentMyotubesWithGUI() {
     python_script_cmd = PYTHON_COMMAND + " \"" + SCRIPT_PATH + "\" --gui";
 
     if (startsWith(getInfo("os.name"), "Windows")) {
-        // Windows: Try multiple conda initialization methods
-        // Check common conda installation locations
-        conda_locations = newArray(
-            "%USERPROFILE%\\AppData\\Local\\miniconda3\\Scripts\\activate.bat",
-            "%USERPROFILE%\\miniconda3\\Scripts\\activate.bat",
-            "%USERPROFILE%\\AppData\\Local\\anaconda3\\Scripts\\activate.bat",
-            "%USERPROFILE%\\anaconda3\\Scripts\\activate.bat"
-        );
-
-        conda_init = "";
-        home_dir = getInfo("user.home");
-        for (i = 0; i < conda_locations.length; i++) {
-            test_path = replace(conda_locations[i], "%USERPROFILE%", home_dir);
-            if (File.exists(test_path)) {
-                conda_init = test_path;  // Store the EXPANDED path, not the template
-                break;
-            }
-        }
-
-        if (conda_init == "") {
-            // Fallback to default if not found - use expanded path
-            conda_init = home_dir + "\\AppData\\Local\\miniconda3\\Scripts\\activate.bat";
-        }
-
+        // Find conda using helper function (tries PATH first, then hardcoded locations)
+        conda_init = findCondaActivateScript();
         print("Using conda activation script: " + conda_init);
         full_cmd = "call \"" + conda_init + "\" " + CONDA_ENV + " && " + python_script_cmd;
     } else {
@@ -439,27 +484,7 @@ function showMessage(title, message) {
 function checkAndCreateCondaEnvironment() {
     // Find conda activate script
     if (startsWith(getInfo("os.name"), "Windows")) {
-        conda_locations = newArray(
-            "%USERPROFILE%\\AppData\\Local\\miniconda3\\Scripts\\activate.bat",
-            "%USERPROFILE%\\miniconda3\\Scripts\\activate.bat",
-            "%USERPROFILE%\\AppData\\Local\\anaconda3\\Scripts\\activate.bat",
-            "%USERPROFILE%\\anaconda3\\Scripts\\activate.bat"
-        );
-
-        conda_init = "";
-        home_dir = getInfo("user.home");
-        for (i = 0; i < conda_locations.length; i++) {
-            test_path = replace(conda_locations[i], "%USERPROFILE%", home_dir);
-            if (File.exists(test_path)) {
-                conda_init = test_path;
-                break;
-            }
-        }
-
-        if (conda_init == "") {
-            conda_init = home_dir + "\\AppData\\Local\\miniconda3\\Scripts\\activate.bat";
-        }
-
+        conda_init = findCondaActivateScript();
         // Check if environment exists
         check_env_cmd = "call \"" + conda_init + "\" base && conda env list | findstr " + CONDA_ENV;
     } else {
@@ -609,28 +634,10 @@ function installDependenciesQuiet() {
 
     print("Found requirements.txt: " + requirements_file);
 
-    // Find conda activate script (reuse from earlier)
+    // Find conda activate script
+    conda_init = "";
     if (startsWith(getInfo("os.name"), "Windows")) {
-        conda_locations = newArray(
-            "%USERPROFILE%\\AppData\\Local\\miniconda3\\Scripts\\activate.bat",
-            "%USERPROFILE%\\miniconda3\\Scripts\\activate.bat",
-            "%USERPROFILE%\\AppData\\Local\\anaconda3\\Scripts\\activate.bat",
-            "%USERPROFILE%\\anaconda3\\Scripts\\activate.bat"
-        );
-
-        conda_init = "";
-        home_dir = getInfo("user.home");
-        for (i = 0; i < conda_locations.length; i++) {
-            test_path = replace(conda_locations[i], "%USERPROFILE%", home_dir);
-            if (File.exists(test_path)) {
-                conda_init = test_path;
-                break;
-            }
-        }
-
-        if (conda_init == "") {
-            conda_init = home_dir + "\\AppData\\Local\\miniconda3\\Scripts\\activate.bat";
-        }
+        conda_init = findCondaActivateScript();
     }
 
     // Build pip install command
@@ -733,29 +740,9 @@ function installDependencies() {
     // Find conda activate script
     conda_init = "";
     if (startsWith(getInfo("os.name"), "Windows")) {
-        conda_locations = newArray(
-            "%USERPROFILE%\\AppData\\Local\\miniconda3\\Scripts\\activate.bat",
-            "%USERPROFILE%\\miniconda3\\Scripts\\activate.bat",
-            "%USERPROFILE%\\AppData\\Local\\anaconda3\\Scripts\\activate.bat",
-            "%USERPROFILE%\\anaconda3\\Scripts\\activate.bat"
-        );
-
-        home_dir = getInfo("user.home");
-        for (i = 0; i < conda_locations.length; i++) {
-            test_path = replace(conda_locations[i], "%USERPROFILE%", home_dir);
-            if (File.exists(test_path)) {
-                conda_init = test_path;  // Store the EXPANDED path, not the template
-                break;
-            }
-        }
-
-        if (conda_init == "") {
-            // Fallback to default if not found - use expanded path
-            conda_init = home_dir + "\\AppData\\Local\\miniconda3\\Scripts\\activate.bat";
-        }
-
-        check_env_cmd = "call " + conda_init + " base && conda env list | findstr " + CONDA_ENV;
-        create_env_cmd = "call " + conda_init + " base && conda create -n " + CONDA_ENV + " python=3.9 -y";
+        conda_init = findCondaActivateScript();
+        check_env_cmd = "call \"" + conda_init + "\" base && conda env list | findstr " + CONDA_ENV;
+        create_env_cmd = "call \"" + conda_init + "\" base && conda create -n " + CONDA_ENV + " python=3.9 -y";
     } else {
         // Unix/Mac: Check and create environment
         check_env_cmd = "source $(conda info --base)/etc/profile.d/conda.sh && conda env list | grep -w " + CONDA_ENV;
