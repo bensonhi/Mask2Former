@@ -42,6 +42,17 @@ _parent_dir = os.path.dirname(_script_dir)
 if _parent_dir not in sys.path:
     sys.path.insert(0, _parent_dir)
 
+# If fiji_integration doesn't exist as a module (deployment mode without folder structure),
+# create it as a virtual module pointing to the current directory.
+# This handles the case where only the contents are copied to Fiji.app/macros/
+if 'fiji_integration' not in sys.modules:
+    import importlib.util
+    import types
+    fiji_integration = types.ModuleType('fiji_integration')
+    fiji_integration.__path__ = [_script_dir]
+    fiji_integration.__file__ = os.path.join(_script_dir, '__init__.py')
+    sys.modules['fiji_integration'] = fiji_integration
+
 # Check if CUDA is available - if not, force CPU mode before importing detectron2
 # This prevents detectron2 from trying to load CUDA libraries that don't exist
 if not torch.cuda.is_available():
