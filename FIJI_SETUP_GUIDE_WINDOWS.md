@@ -29,8 +29,9 @@ This guide will help you install and run the myotube segmentation, nuclei segmen
 - **10GB of free disk space**
 - **Internet connection** for downloading software
 - **Your microscopy images** (TIFF format recommended)
-  - Grey channel images for myotube segmentation
-  - Blue channel images for nuclei segmentation
+  - Myotube/cytoplasm images (in separate folder)
+  - Nucleus images (in separate folder)
+  - Can be Z-stacks or 2D images
 
 **Time required**: 30-60 minutes for first-time setup
 
@@ -277,21 +278,24 @@ C:\Program Files\Fiji\macros\
 
 The GUI has **4 tabs** for different processing steps. You can run them independently or in sequence.
 
-### Tab 1: Max Projection & Channel Splitting
+### Tab 1: Max Projection
 
-**Purpose**: Split multi-channel Z-stack images into separate grey and blue channels with max projection.
+**Purpose**: Apply max intensity projection to Z-stack images in separate myotube and nucleus folders.
 
-**When to use**: If you have multi-channel Z-stack images that need to be separated before segmentation.
+**When to use**: If you have Z-stack images (multi-slice 3D images) that need to be converted to 2D via max projection.
 
 **Steps**:
-1. Click the **"Max Projection & Channel Splitting"** tab
-2. **Input Directory**: Browse to your multi-channel Z-stack images
-3. **Output Directory**: Choose where to save the split channels
-4. Click **"Run Channel Splitting"**
+1. Click the **"Max Projection"** tab
+2. **Myotube Input**: Browse to your folder containing myotube/cytoplasm images
+3. **Nucleus Input**: Browse to your folder containing nucleus images
+4. **Output Directory**: Choose where to save the max projected images
+5. Click **"Run Max Projection"**
+
+**Note**: You can specify just one folder if you only need to process one channel. Leave the other field empty.
 
 **Output**:
-- `*_grey.tif` - Grey channel (for myotube segmentation)
-- `*_blue.tif` - Blue channel (for nuclei segmentation)
+- `myotube_max_projection/MAX_*.tif` - Max projected myotube images
+- `nucleus_max_projection/MAX_*.tif` - Max projected nucleus images
 
 ---
 
@@ -457,20 +461,21 @@ Here's a typical workflow from raw images to final analysis:
 
 ### Step-by-Step Example
 
-**Starting with**: Multi-channel Z-stack images with grey (myotube) and blue (nuclei) channels
+**Starting with**: Separate folders for myotube and nucleus Z-stack images
 
-1. **Tab 1: Split Channels**
-   - Input: `C:\MyImages\raw\` (multi-channel Z-stacks)
-   - Output: `C:\MyImages\1_channels\`
-   - Result: Separate grey and blue TIFF files
+1. **Tab 1: Max Projection**
+   - Myotube Input: `C:\MyImages\raw_myotube\` (myotube Z-stacks)
+   - Nucleus Input: `C:\MyImages\raw_nucleus\` (nucleus Z-stacks)
+   - Output: `C:\MyImages\1_max_projection\`
+   - Result: Max projected 2D images in separate folders
 
 2. **Tab 2: Segment Myotubes**
-   - Input: `C:\MyImages\1_channels\` (grey channel files)
+   - Input: `C:\MyImages\1_max_projection\myotube_max_projection\`
    - Output: `C:\MyImages\2_myotubes\`
    - Result: Myotube masks and overlays
 
 3. **Tab 3: Segment Nuclei**
-   - Input: `C:\MyImages\1_channels\` (blue channel files)
+   - Input: `C:\MyImages\1_max_projection\nucleus_max_projection\`
    - Output: `C:\MyImages\3_nuclei\`
    - Result: Nuclei segmentation NPY files
 
@@ -836,7 +841,8 @@ If you encounter issues not covered in this guide:
 5. Configure settings and click Run
 
 **Complete workflow**:
-1. **Tab 1**: Split channels → grey + blue TIFFs
+1. **Tab 1**: Max projection → myotube_max_projection/ + nucleus_max_projection/
+   - Input: Two separate folders (myotube + nucleus)
 2. **Tab 2**: Segment myotubes → masks + overlays
    - Key params: Confidence 0.25, Min area 100, Final min area 1000
 3. **Tab 3**: Segment nuclei → NPY files
@@ -863,17 +869,22 @@ If you encounter issues not covered in this guide:
 
 ## Version Information
 
-- **Guide Version**: 2.1
-- **Last Updated**: November 2025
+- **Guide Version**: 2.2
+- **Last Updated**: December 2024
 - **Compatible with**: Windows 10/11, Fiji/ImageJ
 - **Features**:
   - Multi-tab interface with 4 processing steps
-  - Max projection and channel splitting
+  - Max projection for separate myotube and nucleus folders
   - Myotube segmentation with Mask2Former
   - Nuclei segmentation with CellPose
   - Comprehensive nuclei-myotube relationship analysis
   - Central vs peripheral nuclei classification
   - Detailed parameter explanations and CSV result documentation
+
+**Changes in v2.2**:
+  - Simplified Max Projection tab: Now takes two separate input folders (myotube + nucleus) instead of multi-channel images
+  - Removed automatic channel detection - users provide pre-separated images
+  - Improved conda detection on Windows - now finds conda via PATH automatically
 
 ---
 
