@@ -29,7 +29,10 @@ Features:
     - All filter parameters are configurable via command-line arguments
     - Full image mode: Process complete images without quadrant cropping
     - Skip alignment resize: Bypass dimension matching for images without alignment issues
-    - Color-coded visualization: GREEN=passed, RED=size, YELLOW=eccentricity, BLUE=overlap
+    - Enhanced visualization: Semi-transparent filled nuclei with offset labels
+      * GREEN=passed, RED=size, YELLOW=eccentricity, BLUE=overlap
+      * 35% opacity fill shows myotube structure beneath
+      * Labels positioned to the right with dark backgrounds for readability
     - Crops nuclei images to match myotube segmentation regions (if not in full_image_mode)
     - Computes nuclei shape metrics: circularity, eccentricity, solidity
     - Generates two CSV reports: myotube-centric and nuclei-centric (includes filter_status column)
@@ -611,11 +614,16 @@ class NucleiMyotubeAnalyzer:
         """
         Create visualization overlay showing filtered and assigned nuclei with color coding.
 
-        Color scheme:
+        Color scheme (semi-transparent fill + contour):
         - GREEN: Passed all filters and assigned to myotube
         - RED: Filtered by size (too small/large)
         - YELLOW: Filtered by eccentricity (too elongated)
         - BLUE: Filtered by overlap (insufficient overlap with myotube)
+
+        Visualization features:
+        - 35% opacity fill allows viewing myotube structure beneath nuclei
+        - 2px thick contours for clear boundaries
+        - Nucleus IDs offset to the right on semi-transparent dark backgrounds
 
         Args:
             sample_folder: Path to the sample's myotube segmentation folder
@@ -665,10 +673,16 @@ class NucleiMyotubeAnalyzer:
             else:
                 color = (128, 128, 128)  # Gray for unknown
 
-            # Draw contour with thick line for visibility
+            # Create semi-transparent filled nucleus using alpha blending
+            overlay_copy = overlay.copy()
+            cv2.drawContours(overlay_copy, contours, -1, color, -1)  # Fill with -1 thickness
+            alpha = 0.35  # 35% opacity for fill
+            cv2.addWeighted(overlay_copy, alpha, overlay, 1 - alpha, 0, overlay)
+
+            # Draw contour with thick line for visibility (on top of fill)
             cv2.drawContours(overlay, contours, -1, color, 2)
 
-            # Draw nucleus ID label at centroid (white text only, no background)
+            # Draw nucleus ID label offset to the right of centroid with dark background
             label_text = f"{nucleus_id}"
             centroid_pos = (int(centroid[1]), int(centroid[0]))  # (x, y) from (row, col)
 
@@ -678,8 +692,23 @@ class NucleiMyotubeAnalyzer:
             thickness = 2  # Thicker for better visibility
             (text_w, text_h), baseline = cv2.getTextSize(label_text, font, font_scale, thickness)
 
-            # Draw white text centered at centroid
-            text_pos = (centroid_pos[0] - text_w // 2, centroid_pos[1] + text_h // 2)
+            # Offset label to the right and slightly down
+            label_offset_x = 18
+            label_offset_y = 8
+            text_pos = (centroid_pos[0] + label_offset_x, centroid_pos[1] + label_offset_y)
+
+            # Draw semi-transparent dark background rectangle for text
+            bg_padding = 2
+            bg_top_left = (text_pos[0] - bg_padding, text_pos[1] - text_h - bg_padding)
+            bg_bottom_right = (text_pos[0] + text_w + bg_padding, text_pos[1] + baseline + bg_padding)
+
+            # Create background with alpha blending
+            overlay_bg = overlay.copy()
+            cv2.rectangle(overlay_bg, bg_top_left, bg_bottom_right, (0, 0, 0), -1)
+            alpha_bg = 0.6  # 60% opacity for background
+            cv2.addWeighted(overlay_bg, alpha_bg, overlay, 1 - alpha_bg, 0, overlay)
+
+            # Draw white text on top of background
             cv2.putText(overlay, label_text, text_pos, font, font_scale, (255, 255, 255), thickness, cv2.LINE_AA)
 
         # Save overlay with nuclei
@@ -898,7 +927,10 @@ class NucleiMyotubeAnalyzer:
         print("  - {sample_name}_analysis_summary.txt (includes filter statistics)")
         print("  - {sample_name}_nuclei_cropped.png")
         print("  - {sample_name}_nuclei_overlay.tif")
-        print("\nVisualization Color Coding:")
+        print("\nEnhanced Visualization Features:")
+        print("  - Semi-transparent filled nuclei (35% opacity) show myotube structure beneath")
+        print("  - Nucleus IDs positioned to the right on dark backgrounds for readability")
+        print("\nColor Coding:")
         print("  GREEN:  Passed all filters and assigned to myotube")
         print("  RED:    Filtered by size (too small/large)")
         print("  YELLOW: Filtered by eccentricity (too elongated)")
@@ -917,7 +949,11 @@ Sequential Filtering:
     2. Eccentricity filter: Eccentricity must be <= max_eccentricity
     3. Overlap filter: Overlap with myotube must be >= overlap_threshold
 
-Visualization Color Coding:
+Enhanced Visualization:
+  - Semi-transparent filled nuclei (35% opacity) show myotube structure beneath
+  - Nucleus IDs positioned to the right on dark backgrounds for readability
+
+Color Coding:
   GREEN:  Passed all filters and assigned to myotube
   RED:    Filtered by size (too small or too large)
   YELLOW: Filtered by eccentricity (too elongated)
