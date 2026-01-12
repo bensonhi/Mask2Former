@@ -442,13 +442,17 @@ The GUI has **4 tabs** for different processing steps. You can run them independ
 
 **Output Files** (for each sample):
 - `[Sample]_myotube_nuclei_counts.csv` - **Main result**: Nuclei count per myotube
-- `[Sample]_nuclei_myotube_assignments.csv` - Detailed nucleus-by-nucleus data
+- `[Sample]_nuclei_myotube_assignments.csv` - Detailed nucleus-by-nucleus data with grid coordinates
 - `[Sample]_analysis_summary.txt` - Statistics summary
-- `[Sample]_nuclei_overlay.tif` - Color-coded visualization showing all nuclei:
-  - **GREEN**: Assigned to myotubes (passed all filters)
-  - **RED**: Filtered out by size
-  - **YELLOW**: Filtered out by eccentricity
-  - **BLUE**: Filtered out by overlap
+- `[Sample]_nuclei_overlay.tif` - **Enhanced color-coded visualization** showing all nuclei:
+  - **Semi-transparent filled nuclei** (35% opacity) showing myotube structure beneath
+  - **Nucleus IDs displayed offset** to the right on dark backgrounds (not covering nuclei)
+  - **Grid reference system**: 15×15 grid with column letters (A, B, C...) and row numbers (1-15)
+  - Color coding:
+    - **GREEN**: Assigned to myotubes (passed all filters)
+    - **RED**: Filtered out by size
+    - **YELLOW**: Filtered out by eccentricity
+    - **BLUE**: Filtered out by overlap
 - `[Sample]_periphery_overlay.tif` - Shows only assigned nuclei:
   - **GREEN**: Central nuclei (overlap ≥ periphery threshold)
   - **YELLOW**: Peripheral nuclei (overlap between regular and periphery threshold)
@@ -557,6 +561,9 @@ One row per detected nucleus. Use this to understand why specific nuclei were fi
 
 **Columns**:
 - `nucleus_id`: Unique ID for each nucleus (1, 2, 3, ...)
+- **`grid_ref`**: Grid reference like "C5", "H12" for easy location on overlay (NEW!)
+- **`grid_col`**, **`grid_row`**: Numeric grid coordinates (0-14 for 15×15 grid) (NEW!)
+- **`centroid_x`**, **`centroid_y`**: Exact pixel coordinates of nucleus center (NEW!)
 - `assigned_myotube_id`: Which myotube this nucleus is assigned to (None if filtered out)
 - `filter_status`: One of:
   - `passed` - Nucleus assigned to a myotube (counted)
@@ -564,21 +571,29 @@ One row per detected nucleus. Use this to understand why specific nuclei were fi
   - `filtered_eccentricity` - Too elongated
   - `filtered_overlap` - Not enough overlap with any myotube
 - `overlap_percentage`: Percentage of nucleus overlapping with its assigned myotube (0-100)
-- `area`: Nucleus area in pixels
+- `nucleus_area`: Nucleus area in pixels
 - `eccentricity`: Shape measure (0=circle, 1=line)
 - `circularity`: Alternative shape measure (1=perfect circle, lower=irregular)
-- `centroid_y`, `centroid_x`: Nucleus center coordinates
+- `solidity`: Convexity measure (1=convex, <1=concave/irregular)
 
 **Example rows**:
 ```
-nucleus_id,assigned_myotube_id,filter_status,overlap_percentage,area,eccentricity
-408,3,passed,82.5,756,0.65
-431,3,passed,79.3,812,0.58
-156,None,filtered_size,0,189,0.72
+nucleus_id,grid_ref,grid_col,grid_row,centroid_x,centroid_y,assigned_myotube_id,filter_status,overlap_percentage,nucleus_area,eccentricity
+408,C5,2,4,1234,2156,3,passed,82.5,756,0.65
+431,C5,2,4,1289,2198,3,passed,79.3,812,0.58
+156,A1,0,0,234,178,None,filtered_size,0,189,0.72
 ```
-- Nucleus 408: Assigned to myotube 3, 82.5% overlap, 756 pixels
-- Nucleus 431: Assigned to myotube 3, 79.3% overlap, 812 pixels
-- Nucleus 156: Filtered out (too small - only 189 pixels)
+- Nucleus 408: In grid cell **C5**, assigned to myotube 3, 82.5% overlap, 756 pixels
+- Nucleus 431: In grid cell **C5**, assigned to myotube 3, 79.3% overlap, 812 pixels
+- Nucleus 156: In grid cell **A1**, filtered out (too small - only 189 pixels)
+
+**How to use grid coordinates**:
+1. Open the CSV in Excel/software and find a nucleus of interest (e.g., nucleus 408)
+2. Note its `grid_ref` value (e.g., "C5")
+3. Open the `nuclei_overlay.tif` in Fiji/ImageJ
+4. Look for column **C** and row **5** in the grid overlay
+5. Find nucleus #408 in that grid cell
+6. Or use the `centroid_x` and `centroid_y` values to jump directly to the exact pixel location
 
 #### 3. `analysis_summary.txt` - **STATISTICS OVERVIEW**
 
@@ -594,7 +609,15 @@ Text file with summary statistics:
 
 **Understanding the Overlay Visualizations**:
 
-#### `nuclei_overlay.tif` - Shows ALL detected nuclei
+#### `nuclei_overlay.tif` - Shows ALL detected nuclei with enhanced visualization
+
+**NEW FEATURES** in this overlay:
+- **Semi-transparent filled nuclei** (35% opacity) - You can see both the nucleus color AND the myotube structure beneath
+- **Offset nucleus ID labels** - IDs are positioned to the RIGHT of each nucleus (not covering it) with dark backgrounds for readability
+- **Grid reference system** - 15×15 grid with labeled axes:
+  - Column letters (A, B, C, ..., O) displayed at the top
+  - Row numbers (1-15) displayed on the left
+  - Use this to cross-reference with the CSV's `grid_ref` column
 
 This overlay helps you understand your filtering:
 
@@ -616,7 +639,10 @@ This overlay helps you understand your filtering:
   - Not enough overlap with any myotube (< overlap threshold)
   - May be background nuclei not associated with myotubes
 
-**How to use this**: Visually inspect to verify filtering is working correctly. If many real nuclei are being filtered, adjust the parameters.
+**How to use this**:
+1. Visually inspect to verify filtering is working correctly
+2. If many real nuclei are being filtered, adjust the parameters
+3. To locate specific nuclei from CSV: Look up the `grid_ref` (e.g., "C5"), find that grid cell on the overlay, then look for the nucleus ID number
 
 ---
 
@@ -716,6 +742,30 @@ You need to update when:
 4. Count these nuclei per myotube in Excel/Python/R
 
 **Example**: If you want nuclei that are mostly inside (≥80% overlap), change periphery overlap threshold to 0.80, then filter the CSV for `overlap_percentage ≥ 80`.
+
+### Q: How do I use the grid reference system to locate specific nuclei?
+
+**A**: The grid system makes it easy to find specific nuclei when you have 1000+ in an image:
+1. **Open the CSV** (`nuclei_myotube_assignments.csv`) in Excel or similar
+2. **Find the nucleus** you want to examine (e.g., nucleus #347 that was filtered)
+3. **Note the `grid_ref` value** (e.g., "E7")
+4. **Open the overlay** (`nuclei_overlay.tif`) in Fiji/ImageJ
+5. **Locate grid cell E7**: Find column **E** (5th column) and row **7** on the labeled grid
+6. **Look for nucleus #347** in that grid cell
+7. **Alternative**: Use the `centroid_x` and `centroid_y` values to jump directly to the exact pixel location in Fiji
+
+**Example workflow**: "Why was nucleus #156 filtered? Let me check."
+- Look in CSV → nucleus_id=156, grid_ref="A1", filter_status="filtered_size", nucleus_area=189
+- Open overlay → Navigate to grid cell A1 → See RED nucleus #156
+- Conclusion: It was correctly filtered (too small at 189 pixels vs minimum 400)
+
+### Q: What if some nuclei have the same color as myotubes in the overlay?
+
+**A**: This can happen because myotube colors are randomly generated by the segmentation algorithm. Since there are hundreds of possible colors, occasionally a myotube might be colored green, red, yellow, or blue - the same colors used for nucleus status. This is a visual issue only and doesn't affect the analysis results. When this happens:
+- The **nucleus color/fill** still correctly indicates its filter status
+- Look at the **nucleus ID number** (offset to the right) to identify specific nuclei
+- Use the **grid reference system** and CSV to verify nucleus assignments
+- The semi-transparent fill (35% opacity) helps distinguish nuclei from the underlying myotube colors
 
 ---
 
@@ -869,8 +919,8 @@ If you encounter issues not covered in this guide:
 
 ## Version Information
 
-- **Guide Version**: 2.2
-- **Last Updated**: December 2024
+- **Guide Version**: 2.3
+- **Last Updated**: January 2025
 - **Compatible with**: Windows 10/11, Fiji/ImageJ
 - **Features**:
   - Multi-tab interface with 4 processing steps
@@ -879,9 +929,22 @@ If you encounter issues not covered in this guide:
   - Nuclei segmentation with CellPose
   - Comprehensive nuclei-myotube relationship analysis
   - Central vs peripheral nuclei classification
+  - **Enhanced nuclei overlay visualization with grid reference system**
   - Detailed parameter explanations and CSV result documentation
 
-**Changes in v2.2**:
+**Changes in v2.3** (January 2025):
+  - **Enhanced nuclei overlay visualization**:
+    - Semi-transparent filled nuclei (35% opacity) showing myotube structure beneath
+    - Nucleus ID labels offset to the right with dark backgrounds (not obscuring nuclei)
+    - Grid reference system (15×15) with column letters (A-O) and row numbers (1-15)
+    - Larger, more readable grid labels
+  - **Improved CSV output**:
+    - Added `grid_ref` column for easy cross-referencing with overlay (e.g., "C5", "H12")
+    - Added `grid_col` and `grid_row` numeric coordinates
+    - Added `centroid_x` and `centroid_y` exact pixel coordinates
+  - **Better cross-referencing workflow**: Scientists can now easily locate specific nuclei from CSV data using grid coordinates
+
+**Changes in v2.2** (December 2024):
   - Simplified Max Projection tab: Now takes two separate input folders (myotube + nucleus) instead of multi-channel images
   - Removed automatic channel detection - users provide pre-separated images
   - Improved conda detection on Windows - now finds conda via PATH automatically

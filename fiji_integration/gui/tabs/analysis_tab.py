@@ -31,6 +31,7 @@ class NucleiMyotubeAnalyzer:
                  max_eccentricity: float = 0.9,
                  full_image_mode: bool = False,
                  skip_alignment_resize: bool = False,
+                 grid_size: int = 15,
                  progress_callback=None):
         """
         Initialize the analyzer.
@@ -46,6 +47,7 @@ class NucleiMyotubeAnalyzer:
             max_eccentricity: Maximum eccentricity (default: 0.9, where 0=circle, 1=line)
             full_image_mode: If True, process full images without quadrant cropping (default: False)
             skip_alignment_resize: If True, skip resizing nuclei to match processed dimensions (default: False)
+            grid_size: Number of grid cells per dimension for spatial reference (default: 15)
             progress_callback: Callback function to report progress
         """
         self.myotube_dir = Path(myotube_dir)
@@ -58,6 +60,7 @@ class NucleiMyotubeAnalyzer:
         self.max_eccentricity = max_eccentricity
         self.full_image_mode = full_image_mode
         self.skip_alignment_resize = skip_alignment_resize
+        self.grid_size = grid_size
         self.progress_callback = progress_callback
 
         # Results storage
@@ -79,6 +82,41 @@ class NucleiMyotubeAnalyzer:
             self.progress_callback(message)
         else:
             print(message, flush=True)
+
+    @staticmethod
+    def column_to_letter(col: int) -> str:
+        """Convert column index to letter(s) like Excel: 0->A, 1->B, ..., 25->Z, 26->AA, etc."""
+        result = ""
+        col += 1  # Make it 1-based for calculation
+        while col > 0:
+            col -= 1
+            result = chr(65 + (col % 26)) + result
+            col //= 26
+        return result
+
+    def calculate_grid_reference(self, centroid: Tuple[float, float],
+                                 image_shape: Tuple[int, int]) -> Tuple[int, int, str]:
+        """Calculate grid cell coordinates for a nucleus centroid."""
+        height, width = image_shape
+        centroid_row, centroid_col = centroid
+
+        # Calculate cell size
+        cell_height = height / self.grid_size
+        cell_width = width / self.grid_size
+
+        # Calculate grid coordinates (0-based)
+        grid_row = int(centroid_row / cell_height)
+        grid_col = int(centroid_col / cell_width)
+
+        # Clamp to valid range
+        grid_row = max(0, min(self.grid_size - 1, grid_row))
+        grid_col = max(0, min(self.grid_size - 1, grid_col))
+
+        # Create reference like "C5" (column letter + row number, 1-based for display)
+        col_letter = self.column_to_letter(grid_col)
+        grid_ref = f"{col_letter}{grid_row + 1}"
+
+        return grid_col, grid_row, grid_ref
 
     def find_nuclei_image(self, myotube_folder_name: str) -> Optional[Path]:
         """
@@ -530,6 +568,10 @@ class NucleiMyotubeAnalyzer:
             nucleus_label = nucleus['label']
             nucleus_area = nucleus['area']
             nucleus_eccentricity = nucleus['eccentricity']
+            centroid = nucleus['centroid']
+
+            # Calculate grid reference for this nucleus
+            grid_col, grid_row, grid_ref = self.calculate_grid_reference(centroid, image_shape)
 
             # Track total detected nuclei
             self.filter_stats['total_detected'] += 1
@@ -539,6 +581,11 @@ class NucleiMyotubeAnalyzer:
                 self.filter_stats['filtered_by_size'] += 1
                 self.nuclei_results.append({
                     'nucleus_id': nucleus_id,
+                    'grid_ref': grid_ref,
+                    'grid_col': grid_col,
+                    'grid_row': grid_row,
+                    'centroid_x': int(centroid[1]),
+                    'centroid_y': int(centroid[0]),
                     'nucleus_area': nucleus_area,
                     'circularity': nucleus['circularity'],
                     'eccentricity': nucleus_eccentricity,
@@ -557,6 +604,11 @@ class NucleiMyotubeAnalyzer:
                 self.filter_stats['filtered_by_eccentricity'] += 1
                 self.nuclei_results.append({
                     'nucleus_id': nucleus_id,
+                    'grid_ref': grid_ref,
+                    'grid_col': grid_col,
+                    'grid_row': grid_row,
+                    'centroid_x': int(centroid[1]),
+                    'centroid_y': int(centroid[0]),
                     'nucleus_area': nucleus_area,
                     'circularity': nucleus['circularity'],
                     'eccentricity': nucleus_eccentricity,
@@ -625,6 +677,11 @@ class NucleiMyotubeAnalyzer:
             # Store nuclei-centric result
             self.nuclei_results.append({
                 'nucleus_id': nucleus_id,
+                'grid_ref': grid_ref,
+                'grid_col': grid_col,
+                'grid_row': grid_row,
+                'centroid_x': int(centroid[1]),
+                'centroid_y': int(centroid[0]),
                 'nucleus_area': nucleus_area,
                 'circularity': nucleus['circularity'],
                 'eccentricity': nucleus_eccentricity,
@@ -677,10 +734,79 @@ class NucleiMyotubeAnalyzer:
 
         return True
 
+    def draw_grid_on_overlay(self, overlay: np.ndarray) -> np.ndarray:
+        """Draw grid lines and labels on overlay image for spatial reference."""
+        height, width = overlay.shape[:2]
+        cell_height = height / self.grid_size
+        cell_width = width / self.grid_size
+
+        grid_color = (200, 200, 200)
+        line_thickness = 1
+
+        # Draw vertical and horizontal grid lines
+        for i in range(1, self.grid_size):
+            x = int(i * cell_width)
+            cv2.line(overlay, (x, 0), (x, height), grid_color, line_thickness, cv2.LINE_AA)
+        for i in range(1, self.grid_size):
+            y = int(i * cell_height)
+            cv2.line(overlay, (0, y), (width, y), grid_color, line_thickness, cv2.LINE_AA)
+
+        # Draw axis labels
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        font_scale = 1.0  # Increased from 0.6 for better visibility
+        font_thickness = 3  # Increased from 2 for better visibility
+        label_color = (255, 255, 255)
+        bg_color = (0, 0, 0)
+
+        # Column labels at top
+        for col in range(self.grid_size):
+            col_letter = self.column_to_letter(col)
+            x_center = int((col + 0.5) * cell_width)
+            y_pos = 25
+            (text_w, text_h), baseline = cv2.getTextSize(col_letter, font, font_scale, font_thickness)
+            text_x = x_center - text_w // 2
+            text_y = y_pos
+            bg_padding = 3
+            overlay_bg = overlay.copy()
+            cv2.rectangle(overlay_bg,
+                         (text_x - bg_padding, text_y - text_h - bg_padding),
+                         (text_x + text_w + bg_padding, text_y + baseline + bg_padding),
+                         bg_color, -1)
+            alpha_bg = 0.7
+            cv2.addWeighted(overlay_bg, alpha_bg, overlay, 1 - alpha_bg, 0, overlay)
+            cv2.putText(overlay, col_letter, (text_x, text_y), font, font_scale,
+                       label_color, font_thickness, cv2.LINE_AA)
+
+        # Row labels on left
+        for row in range(self.grid_size):
+            row_number = str(row + 1)
+            y_center = int((row + 0.5) * cell_height)
+            x_pos = 25
+            (text_w, text_h), baseline = cv2.getTextSize(row_number, font, font_scale, font_thickness)
+            text_x = x_pos - text_w // 2
+            text_y = y_center + text_h // 2
+            bg_padding = 3
+            overlay_bg = overlay.copy()
+            cv2.rectangle(overlay_bg,
+                         (text_x - bg_padding, text_y - text_h - bg_padding),
+                         (text_x + text_w + bg_padding, text_y + baseline + bg_padding),
+                         bg_color, -1)
+            alpha_bg = 0.7
+            cv2.addWeighted(overlay_bg, alpha_bg, overlay, 1 - alpha_bg, 0, overlay)
+            cv2.putText(overlay, row_number, (text_x, text_y), font, font_scale,
+                       label_color, font_thickness, cv2.LINE_AA)
+
+        return overlay
+
     def create_nuclei_overlay(self, myotube_sample_folder: Path, output_sample_folder: Path, sample_name: str,
                              labeled_nuclei: np.ndarray, nuclei_list: List[Dict]):
         """
-        Create visualization overlay showing filtered and assigned nuclei.
+        Create visualization overlay showing filtered and assigned nuclei with enhanced features.
+
+        Features:
+        - Semi-transparent filled nuclei (35% opacity) with contours
+        - Nucleus IDs offset to the right with dark backgrounds
+        - Grid reference system for easy location
 
         Args:
             myotube_sample_folder: Path to the myotube sample folder (where overlay exists)
@@ -745,17 +871,44 @@ class NucleiMyotubeAnalyzer:
             else:
                 color = (128, 128, 128)  # Gray
 
+            # Create semi-transparent filled nucleus using alpha blending
+            overlay_copy = overlay.copy()
+            cv2.drawContours(overlay_copy, contours, -1, color, -1)  # Fill with -1 thickness
+            alpha = 0.35  # 35% opacity for fill
+            cv2.addWeighted(overlay_copy, alpha, overlay, 1 - alpha, 0, overlay)
+
+            # Draw contour with thick line for visibility (on top of fill)
             cv2.drawContours(overlay, contours, -1, color, 2)
 
-            # Draw nucleus ID label
+            # Draw nucleus ID label offset to the right with dark background
             label_text = f"{nucleus_id}"
             centroid_pos = (int(centroid[1]), int(centroid[0]))
             font = cv2.FONT_HERSHEY_SIMPLEX
             font_scale = 0.5
             thickness = 2
             (text_w, text_h), baseline = cv2.getTextSize(label_text, font, font_scale, thickness)
-            text_pos = (centroid_pos[0] - text_w // 2, centroid_pos[1] + text_h // 2)
+
+            # Offset label to the right and slightly down
+            label_offset_x = 18
+            label_offset_y = 8
+            text_pos = (centroid_pos[0] + label_offset_x, centroid_pos[1] + label_offset_y)
+
+            # Draw semi-transparent dark background rectangle for text
+            bg_padding = 2
+            bg_top_left = (text_pos[0] - bg_padding, text_pos[1] - text_h - bg_padding)
+            bg_bottom_right = (text_pos[0] + text_w + bg_padding, text_pos[1] + baseline + bg_padding)
+
+            # Create background with alpha blending
+            overlay_bg = overlay.copy()
+            cv2.rectangle(overlay_bg, bg_top_left, bg_bottom_right, (0, 0, 0), -1)
+            alpha_bg = 0.6  # 60% opacity for background
+            cv2.addWeighted(overlay_bg, alpha_bg, overlay, 1 - alpha_bg, 0, overlay)
+
+            # Draw white text on top of background
             cv2.putText(overlay, label_text, text_pos, font, font_scale, (255, 255, 255), thickness, cv2.LINE_AA)
+
+        # Draw grid reference system on overlay
+        overlay = self.draw_grid_on_overlay(overlay)
 
         # Save overlay to output folder
         output_path = output_sample_folder / f"{sample_name}_nuclei_overlay.tif"
