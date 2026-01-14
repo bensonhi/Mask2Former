@@ -441,10 +441,10 @@ The GUI has **4 tabs** for different processing steps. You can run them independ
 5. Click **"Run Analysis"**
 
 **Output Files** (for each sample):
-- `[Sample]_myotube_nuclei_counts.csv` - **Main result**: Nuclei count per myotube
+- `[Sample]_myotube_nuclei_counts.csv` - **Main result**: Nuclei count per myotube (includes central/peripheral counts)
 - `[Sample]_nuclei_myotube_assignments.csv` - Detailed nucleus-by-nucleus data with grid coordinates
-- `[Sample]_analysis_summary.txt` - Statistics summary
-- `[Sample]_nuclei_overlay.tif` - **Enhanced color-coded visualization** showing all nuclei:
+- `[Sample]_analysis_summary.txt` - Statistics summary (includes central/peripheral statistics)
+- `[Sample]_nuclei_overlay.tif` - **Enhanced color-coded visualization** showing all nuclei with features:
   - **Semi-transparent filled nuclei** (35% opacity) showing myotube structure beneath
   - **Nucleus IDs displayed offset** to the right on dark backgrounds (not covering nuclei)
   - **Grid reference system**: 15×15 grid with column letters (A, B, C...) and row numbers (1-15)
@@ -453,9 +453,24 @@ The GUI has **4 tabs** for different processing steps. You can run them independ
     - **RED**: Filtered out by size
     - **YELLOW**: Filtered out by eccentricity
     - **BLUE**: Filtered out by overlap
-- `[Sample]_periphery_overlay.tif` - Shows only assigned nuclei:
-  - **GREEN**: Central nuclei (overlap ≥ periphery threshold)
-  - **YELLOW**: Peripheral nuclei (overlap between regular and periphery threshold)
+- `[Sample]_periphery_overlay.tif` - **Enhanced visualization** showing ONLY assigned nuclei:
+  - **Semi-transparent filled nuclei** (35% opacity) showing myotube structure beneath
+  - **Nucleus IDs displayed offset** to the right on dark backgrounds
+  - **Grid reference system**: 15×15 grid with column letters (A-O) and row numbers (1-15)
+  - Color coding (central vs peripheral):
+    - **GREEN**: Central nuclei (overlap ≥ periphery threshold, default ≥95%)
+    - **YELLOW**: Peripheral nuclei (overlap between regular 10% and periphery 95% threshold)
+
+**Combined Summary** (generated after all samples are analyzed):
+- `combined_analysis_summary.txt` - **Aggregate statistics** across all analyzed samples:
+  - Total samples analyzed
+  - Total myotubes and nuclei across all samples
+  - Combined filter statistics (percentages)
+  - Average nuclei per myotube (across all samples)
+  - Average central/peripheral nuclei per myotube
+  - Percentage of myotubes with central nuclei
+  - Percentage of myotubes with peripheral nuclei
+  - **Per-sample breakdown table** showing individual sample statistics for comparison
 
 ---
 
@@ -526,6 +541,7 @@ OutputFolder/
 
 ```
 OutputFolder/
+├── combined_analysis_summary.txt                   ← Aggregate statistics across all samples
 └── SampleName/
     ├── SampleName_myotube_nuclei_counts.csv        ← Main result: Counts per myotube
     ├── SampleName_nuclei_myotube_assignments.csv   ← Detailed nucleus data
@@ -542,18 +558,17 @@ This is the file you'll use for statistical analysis. One row per myotube.
 
 **Columns**:
 - `myotube_id`: Unique ID for each myotube (1, 2, 3, ...)
-- `nucleus_count`: **Number of nuclei assigned to this myotube** (passed all filters)
-- `total_overlapping`: Total nuclei detected overlapping with this myotube (before filtering)
-- `filtered_size`: Number filtered out by size criteria
-- `filtered_eccentricity`: Number filtered out by eccentricity (too elongated)
-- `filtered_overlap`: Number filtered out by overlap threshold (not enough overlap)
+- `myotube_area`: Area of the myotube in pixels
+- `nuclei_count`: **Total number of nuclei assigned to this myotube** (passed all filters)
+- `central_nuclei_count`: **Number of central nuclei** (overlap ≥ periphery threshold, default ≥95%)
+- `peripheral_nuclei_count`: **Number of peripheral nuclei** (overlap between regular and periphery threshold)
 
 **Example row**:
 ```
-myotube_id,nucleus_count,total_overlapping,filtered_size,filtered_eccentricity,filtered_overlap
-1,12,15,1,1,1
+myotube_id,myotube_area,nuclei_count,central_nuclei_count,peripheral_nuclei_count
+1,125000,12,8,4
 ```
-This means: Myotube #1 has **12 assigned nuclei**. It had 15 total overlapping objects, but 1 was too small, 1 was too elongated, and 1 didn't have enough overlap.
+This means: Myotube #1 has **12 assigned nuclei total**, with **8 central nuclei** (deeply embedded) and **4 peripheral nuclei** (near edges).
 
 #### 2. `nuclei_myotube_assignments.csv` - **DETAILED NUCLEUS DATA**
 
@@ -597,13 +612,30 @@ nucleus_id,grid_ref,grid_col,grid_row,centroid_x,centroid_y,assigned_myotube_id,
 
 #### 3. `analysis_summary.txt` - **STATISTICS OVERVIEW**
 
-Text file with summary statistics:
+Text file with summary statistics for each sample:
 - Total myotubes analyzed
 - Total nuclei detected
 - Total nuclei assigned (passed filters)
 - Filtering breakdown (how many filtered by each criterion)
-- Average nuclei per myotube
-- Min/max nuclei per myotube
+- **Myotube statistics**:
+  - Percentage of myotubes with nuclei
+  - **Percentage of myotubes with central nuclei**
+  - **Percentage of myotubes with peripheral nuclei**
+  - Average nuclei per myotube (total, central, and peripheral)
+  - Total and average myotube area
+
+#### 4. `combined_analysis_summary.txt` - **AGGREGATE STATISTICS** (all samples)
+
+Generated after all samples are analyzed. Provides:
+- **Overview**: Total samples, total myotubes, total nuclei
+- **Filter results**: Combined percentages across all samples
+- **Aggregate myotube statistics**:
+  - Overall percentage of myotubes with nuclei
+  - Overall percentage with central nuclei
+  - Overall percentage with peripheral nuclei
+  - Average nuclei/myotube across all samples
+  - Average central/peripheral nuclei per myotube
+- **Per-sample breakdown table**: Compare statistics across all analyzed samples side-by-side
 
 ---
 
@@ -919,7 +951,7 @@ If you encounter issues not covered in this guide:
 
 ## Version Information
 
-- **Guide Version**: 2.3
+- **Guide Version**: 2.4
 - **Last Updated**: January 2025
 - **Compatible with**: Windows 10/11, Fiji/ImageJ
 - **Features**:
@@ -930,7 +962,20 @@ If you encounter issues not covered in this guide:
   - Comprehensive nuclei-myotube relationship analysis
   - Central vs peripheral nuclei classification
   - **Enhanced nuclei overlay visualization with grid reference system**
+  - **Combined summary across all analyzed samples**
   - Detailed parameter explanations and CSV result documentation
+
+**Changes in v2.4** (January 2025):
+  - **Central/Peripheral nuclei statistics**:
+    - Added `central_nuclei_count` and `peripheral_nuclei_count` columns to myotube CSV
+    - Per-sample summaries now include % of myotubes with central/peripheral nuclei
+    - Average central and peripheral nuclei per myotube statistics
+  - **Combined summary file** (`combined_analysis_summary.txt`):
+    - Aggregates statistics across all analyzed samples
+    - Shows overall percentages and averages
+    - Includes per-sample breakdown table for easy comparison
+    - Generated automatically after all samples are processed
+  - **Enhanced periphery overlay**: Now includes same visual improvements as nuclei overlay (semi-transparent fill, offset labels, grid system)
 
 **Changes in v2.3** (January 2025):
   - **Enhanced nuclei overlay visualization**:

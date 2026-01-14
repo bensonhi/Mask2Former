@@ -91,9 +91,13 @@ class NucleiMyotubeAnalyzer:
         self.skip_alignment_resize = skip_alignment_resize
         self.grid_size = grid_size
 
-        # Results storage
+        # Results storage (per sample)
         self.myotube_results = []  # For myotube-centric CSV
         self.nuclei_results = []   # For nuclei-centric CSV
+
+        # Accumulated results (across all samples)
+        self.all_nuclei_results = []
+        self.all_myotube_results = []
 
         # Filter statistics
         self.filter_stats = {
@@ -662,16 +666,26 @@ class NucleiMyotubeAnalyzer:
                 'filter_reason': filter_reason
             })
 
-        # Count nuclei per myotube for this sample
+        # Count nuclei per myotube (total, central, peripheral)
         sample_myotube_results = []
         for myotube_id in myotube_masks.keys():
-            count = sum(1 for result in self.nuclei_results
-                       if result['assigned_myotube_id'] == myotube_id)
+            # Get all nuclei assigned to this myotube
+            myotube_nuclei = [result for result in self.nuclei_results
+                            if result['assigned_myotube_id'] == myotube_id]
+
+            total_count = len(myotube_nuclei)
+
+            # Count central vs peripheral nuclei based on overlap threshold
+            central_count = sum(1 for result in myotube_nuclei
+                              if result['overlap_percentage'] >= self.periphery_overlap_threshold * 100)
+            peripheral_count = total_count - central_count
 
             sample_myotube_results.append({
                 'myotube_id': myotube_id,
                 'myotube_area': myotube_areas[myotube_id],
-                'nuclei_count': count
+                'nuclei_count': total_count,
+                'central_nuclei_count': central_count,
+                'peripheral_nuclei_count': peripheral_count
             })
 
         # Create nuclei overlay visualization
@@ -679,6 +693,16 @@ class NucleiMyotubeAnalyzer:
 
         # Save CSVs for this sample in its folder
         self.save_sample_results(myotube_folder, folder_name, sample_myotube_results)
+
+        # Accumulate results for combined summary across all samples
+        # Add sample name to each result for tracking
+        for nucleus_result in self.nuclei_results:
+            nucleus_result['sample_name'] = folder_name
+            self.all_nuclei_results.append(nucleus_result)
+
+        for myotube_result in sample_myotube_results:
+            myotube_result['sample_name'] = folder_name
+            self.all_myotube_results.append(myotube_result)
 
         # Clear results for next sample
         self.nuclei_results = []
@@ -930,7 +954,15 @@ class NucleiMyotubeAnalyzer:
         num_myotubes_with_nuclei = len(myotubes_with_nuclei)
         num_myotubes_without_nuclei = total_myotubes - num_myotubes_with_nuclei
 
+        # Calculate central/peripheral nuclei statistics
+        myotubes_with_central = myotube_df[myotube_df['central_nuclei_count'] > 0]
+        num_myotubes_with_central = len(myotubes_with_central)
+        myotubes_with_peripheral = myotube_df[myotube_df['peripheral_nuclei_count'] > 0]
+        num_myotubes_with_peripheral = len(myotubes_with_peripheral)
+
         avg_nuclei_per_myotube = myotube_df['nuclei_count'].mean()
+        avg_central_per_myotube = myotube_df['central_nuclei_count'].mean()
+        avg_peripheral_per_myotube = myotube_df['peripheral_nuclei_count'].mean()
         total_myotube_area = myotube_df['myotube_area'].sum()
         avg_myotube_area = myotube_df['myotube_area'].mean()
 
@@ -979,6 +1011,7 @@ class NucleiMyotubeAnalyzer:
             f.write(f"Size range:                      {self.min_nucleus_area} - {self.max_nucleus_area} pixels\n")
             f.write(f"Max eccentricity:                {self.max_eccentricity} (0=circle, 1=line)\n")
             f.write(f"Overlap threshold:               {self.overlap_threshold * 100:.1f}%\n")
+            f.write(f"Periphery overlap threshold:     {self.periphery_overlap_threshold * 100:.1f}% (central vs peripheral)\n")
             f.write("\n")
 
             f.write("SEQUENTIAL FILTER RESULTS\n")
@@ -999,7 +1032,11 @@ class NucleiMyotubeAnalyzer:
             f.write("-" * 80 + "\n")
             f.write(f"Myotubes with nuclei:            {num_myotubes_with_nuclei} ({num_myotubes_with_nuclei/total_myotubes*100:.1f}%)\n")
             f.write(f"Myotubes without nuclei:         {num_myotubes_without_nuclei} ({num_myotubes_without_nuclei/total_myotubes*100:.1f}%)\n")
+            f.write(f"Myotubes with central nuclei:    {num_myotubes_with_central} ({num_myotubes_with_central/total_myotubes*100:.1f}%)\n")
+            f.write(f"Myotubes with peripheral nuclei: {num_myotubes_with_peripheral} ({num_myotubes_with_peripheral/total_myotubes*100:.1f}%)\n")
             f.write(f"Average nuclei per myotube:      {avg_nuclei_per_myotube:.2f}\n")
+            f.write(f"Average central nuclei/myotube:  {avg_central_per_myotube:.2f}\n")
+            f.write(f"Average peripheral nuclei/myotube: {avg_peripheral_per_myotube:.2f}\n")
             f.write(f"Total myotube area (pixels):     {total_myotube_area:,.0f}\n")
             f.write(f"Average myotube area (pixels):   {avg_myotube_area:,.0f}\n")
             f.write("\n")
@@ -1036,6 +1073,117 @@ class NucleiMyotubeAnalyzer:
             f.write("=" * 80 + "\n")
 
         print(f"  Saved: {summary_path.name}", flush=True)
+
+    def _write_combined_summary(self, summary_path: Path, num_samples: int):
+        """Write combined analysis summary file across all samples."""
+        # Convert to DataFrames for easier aggregation
+        nuclei_df = pd.DataFrame(self.all_nuclei_results)
+        myotube_df = pd.DataFrame(self.all_myotube_results)
+
+        total_myotubes = len(myotube_df)
+        total_nuclei = len(nuclei_df)
+
+        # Filter status counts
+        passed_nuclei_df = nuclei_df[nuclei_df['filter_status'] == 'passed']
+        filtered_size_df = nuclei_df[nuclei_df['filter_status'] == 'filtered_size']
+        filtered_ecc_df = nuclei_df[nuclei_df['filter_status'] == 'filtered_eccentricity']
+        filtered_overlap_df = nuclei_df[nuclei_df['filter_status'] == 'filtered_overlap']
+
+        num_passed = len(passed_nuclei_df)
+        num_filtered_size = len(filtered_size_df)
+        num_filtered_ecc = len(filtered_ecc_df)
+        num_filtered_overlap = len(filtered_overlap_df)
+
+        # Myotube statistics
+        myotubes_with_nuclei = myotube_df[myotube_df['nuclei_count'] > 0]
+        num_myotubes_with_nuclei = len(myotubes_with_nuclei)
+        num_myotubes_without_nuclei = total_myotubes - num_myotubes_with_nuclei
+
+        # Central/peripheral nuclei statistics
+        myotubes_with_central = myotube_df[myotube_df['central_nuclei_count'] > 0]
+        num_myotubes_with_central = len(myotubes_with_central)
+        myotubes_with_peripheral = myotube_df[myotube_df['peripheral_nuclei_count'] > 0]
+        num_myotubes_with_peripheral = len(myotubes_with_peripheral)
+
+        avg_nuclei_per_myotube = myotube_df['nuclei_count'].mean()
+        avg_central_per_myotube = myotube_df['central_nuclei_count'].mean()
+        avg_peripheral_per_myotube = myotube_df['peripheral_nuclei_count'].mean()
+        total_myotube_area = myotube_df['myotube_area'].sum()
+        avg_myotube_area = myotube_df['myotube_area'].mean()
+
+        # Per-sample statistics
+        samples_list = myotube_df['sample_name'].unique()
+        sample_stats = []
+        for sample_name in samples_list:
+            sample_myotubes = myotube_df[myotube_df['sample_name'] == sample_name]
+            sample_nuclei = nuclei_df[nuclei_df['sample_name'] == sample_name]
+            sample_stats.append({
+                'name': sample_name,
+                'myotubes': len(sample_myotubes),
+                'nuclei_detected': len(sample_nuclei),
+                'nuclei_passed': len(sample_nuclei[sample_nuclei['filter_status'] == 'passed']),
+                'avg_nuclei_per_myotube': sample_myotubes['nuclei_count'].mean(),
+                'avg_central_per_myotube': sample_myotubes['central_nuclei_count'].mean(),
+                'avg_peripheral_per_myotube': sample_myotubes['peripheral_nuclei_count'].mean()
+            })
+
+        with open(summary_path, 'w') as f:
+            f.write("=" * 80 + "\n")
+            f.write(f"COMBINED NUCLEI-MYOTUBE ANALYSIS SUMMARY (ALL SAMPLES)\n")
+            f.write("=" * 80 + "\n\n")
+
+            f.write("OVERVIEW\n")
+            f.write("-" * 80 + "\n")
+            f.write(f"Total samples analyzed:          {num_samples}\n")
+            f.write(f"Total myotubes (all samples):    {total_myotubes}\n")
+            f.write(f"Total nuclei detected:           {total_nuclei}\n\n")
+
+            f.write("FILTER SETTINGS\n")
+            f.write("-" * 80 + "\n")
+            f.write(f"Size range:                      {self.min_nucleus_area} - {self.max_nucleus_area} pixels\n")
+            f.write(f"Max eccentricity:                {self.max_eccentricity} (0=circle, 1=line)\n")
+            f.write(f"Overlap threshold:               {self.overlap_threshold * 100:.1f}%\n")
+            f.write(f"Periphery overlap threshold:     {self.periphery_overlap_threshold * 100:.1f}% (central vs peripheral)\n\n")
+
+            f.write("SEQUENTIAL FILTER RESULTS (ALL SAMPLES)\n")
+            f.write("-" * 80 + "\n")
+            f.write(f"Total nuclei detected:           {total_nuclei}\n")
+            if total_nuclei > 0:
+                f.write(f"  ❌ Filtered by size:           {num_filtered_size} ({num_filtered_size/total_nuclei*100:.1f}%)\n")
+                f.write(f"  ❌ Filtered by eccentricity:   {num_filtered_ecc} ({num_filtered_ecc/total_nuclei*100:.1f}%)\n")
+                f.write(f"  ❌ Filtered by overlap:        {num_filtered_overlap} ({num_filtered_overlap/total_nuclei*100:.1f}%)\n")
+                f.write(f"  ✅ Passed all filters:         {num_passed} ({num_passed/total_nuclei*100:.1f}%)\n\n")
+
+            f.write("MYOTUBE STATISTICS (ALL SAMPLES)\n")
+            f.write("-" * 80 + "\n")
+            if total_myotubes > 0:
+                f.write(f"Myotubes with nuclei:            {num_myotubes_with_nuclei} ({num_myotubes_with_nuclei/total_myotubes*100:.1f}%)\n")
+                f.write(f"Myotubes without nuclei:         {num_myotubes_without_nuclei} ({num_myotubes_without_nuclei/total_myotubes*100:.1f}%)\n")
+                f.write(f"Myotubes with central nuclei:    {num_myotubes_with_central} ({num_myotubes_with_central/total_myotubes*100:.1f}%)\n")
+                f.write(f"Myotubes with peripheral nuclei: {num_myotubes_with_peripheral} ({num_myotubes_with_peripheral/total_myotubes*100:.1f}%)\n")
+            f.write(f"Average nuclei per myotube:      {avg_nuclei_per_myotube:.2f}\n")
+            f.write(f"Average central nuclei/myotube:  {avg_central_per_myotube:.2f}\n")
+            f.write(f"Average peripheral nuclei/myotube: {avg_peripheral_per_myotube:.2f}\n")
+            f.write(f"Total myotube area (pixels):     {total_myotube_area:,.0f}\n")
+            f.write(f"Average myotube area (pixels):   {avg_myotube_area:,.0f}\n\n")
+
+            f.write("PER-SAMPLE BREAKDOWN\n")
+            f.write("-" * 80 + "\n")
+            f.write(f"{'Sample Name':<50} {'Myotubes':>10} {'Nuclei':>10} {'Passed':>10} {'Avg N/M':>10} {'Avg C/M':>10} {'Avg P/M':>10}\n")
+            f.write("-" * 80 + "\n")
+            for stat in sample_stats:
+                f.write(f"{stat['name']:<50} {stat['myotubes']:>10} {stat['nuclei_detected']:>10} "
+                       f"{stat['nuclei_passed']:>10} {stat['avg_nuclei_per_myotube']:>10.2f} "
+                       f"{stat['avg_central_per_myotube']:>10.2f} {stat['avg_peripheral_per_myotube']:>10.2f}\n")
+
+            f.write("\n" + "=" * 80 + "\n")
+            f.write("Legend:\n")
+            f.write("  Avg N/M = Average nuclei per myotube\n")
+            f.write("  Avg C/M = Average central nuclei per myotube\n")
+            f.write("  Avg P/M = Average peripheral nuclei per myotube\n")
+            f.write("=" * 80 + "\n")
+
+        print(f"  Saved combined summary: {summary_path.name}", flush=True)
 
     def analyze_all_samples(self):
         """Analyze all myotube segmentation samples."""
@@ -1078,6 +1226,13 @@ class NucleiMyotubeAnalyzer:
             print(f"    - {{base_name}}_blue.png/tif")
             print(f"    - {{base_name}}_405.png/tif")
             print(f"    - {{base_name}}_binary.png/tif")
+
+        # Write combined summary across all samples
+        if successful_analyses > 0:
+            print("-" * 80)
+            print("Writing combined summary for all samples...")
+            combined_summary_path = Path(self.myotube_dir) / "combined_analysis_summary.txt"
+            self._write_combined_summary(combined_summary_path, successful_analyses)
 
     def save_results(self, output_dir: str):
         """
