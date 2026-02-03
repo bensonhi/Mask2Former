@@ -137,8 +137,8 @@ python train_two_stage.py --stage 2
 
 ```bash
 # Clone the repository
-git clone https://github.com/<username>/Mask2Former-test.git
-cd Mask2Former-test
+git clone https://github.com/bensonhi/myotube-segmentation.git
+cd myotube-segmentation
 
 # Install core dependencies
 pip install -r fiji_integration/requirements.txt

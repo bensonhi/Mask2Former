@@ -123,23 +123,23 @@ Miniconda is a Python distribution manager needed to run the segmentation algori
 
 1. **Go to the GitHub repository**:
    - Open your web browser
-   - Go to: **https://github.com/bensonhi/Mask2Former**
+   - Go to: **https://github.com/bensonhi/myotube-segmentation**
 
 2. **Download the ZIP file**:
    - Look for the green **"Code"** button (near the top right of the page)
    - Click the **"Code"** button
    - In the dropdown menu, click **"Download ZIP"**
-   - Your browser will download a file named `Mask2Former-main.zip`
+   - Your browser will download a file named `myotube-segmentation-main.zip`
 
 3. **Extract the ZIP file**:
    - Go to your **Downloads** folder
-   - Find `Mask2Former-main.zip`
+   - Find `myotube-segmentation-main.zip`
    - Right-click on it and select **"Extract All..."**
    - Choose a destination like `C:\Users\YourUsername\`
    - Click **"Extract"**
-   - The extracted folder will be named `Mask2Former-main`
-   - You can rename it to just `Mask2Former` if you prefer
-   - Example paths: `C:\Users\YourUsername\Mask2Former`
+   - The extracted folder will be named `myotube-segmentation-main`
+   - You can rename it to just `myotube-segmentation` if you prefer
+   - Example paths: `C:\Users\YourUsername\myotube-segmentation`
    - **Remember this path** - you'll need it when configuring the tools
 
 ### Option B: Clone with Git (If you have Git installed)
@@ -151,7 +151,7 @@ Miniconda is a Python distribution manager needed to run the segmentation algori
    ```
 3. Clone the repository:
    ```
-   git clone https://github.com/bensonhi/Mask2Former.git Mask2Former
+   git clone https://github.com/bensonhi/myotube-segmentation.git myotube-segmentation
    ```
 
 ---
@@ -173,7 +173,7 @@ The trained model file is required for myotube segmentation.
    - Download location: Usually goes to your **Downloads** folder
 
 3. **Move the model file** (optional but recommended):
-   - Create a folder for models: `C:\Users\YourUsername\Mask2Former\models`
+   - Create a folder for models: `C:\Users\YourUsername\myotube-segmentation\models`
    - Move the downloaded `.pth` file to this folder
    - **Remember this location** - you'll need it when running segmentation
 
@@ -188,7 +188,7 @@ This is a **critical step** - you must copy the entire GUI folder structure to F
 ### 5.1 Locate the Source Files
 
 1. Open **File Explorer**
-2. Navigate to your Mask2Former project folder
+2. Navigate to your myotube-segmentation project folder
 3. Open the **`fiji_integration`** folder
 4. You should see:
    - `Myotube_Segmentation_Windows.ijm` (main macro file)
@@ -308,9 +308,9 @@ The GUI has **4 tabs** for different processing steps. You can run them independ
 2. **Input Directory**: Browse to folder containing grey channel images
 3. **Output Directory**: Choose where to save segmentation results
 4. **Model Configuration** (first time only):
-   - *Config File: Browse to `stage2_config.yaml` in your Mask2Former folder
+   - *Config File: Browse to `stage2_config.yaml` in your myotube-segmentation folder
    - *Model Weights: Browse to the `model_final.pth` you downloaded
-   - *Mask2Former Path: Browse to your Mask2Former project folder
+   - *Project Path: Browse to your myotube-segmentation project folder
 
 5. **Detection Parameters**:
    - **Confidence Threshold** (0-1): Default 0.25
@@ -812,12 +812,12 @@ You need to update when:
 2. Reinstall Miniconda
 3. **Make sure to check "Add Miniconda3 to my PATH environment variable"**
 
-### Problem: "Could not find Mask2Former directory"
+### Problem: "Could not find project directory"
 
 **Cause**: Incorrect path configured
 
 **Solution**:
-1. In the Myotube Segmentation tab, click "Browse..." for Mask2Former Path
+1. In the Myotube Segmentation tab, click "Browse..." for Project Path
 2. Navigate to the correct location where you extracted the project
 3. Make sure the folder contains `mask2former/` subdirectory
 
